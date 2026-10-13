@@ -135,4 +135,81 @@ defmodule PhoenixKitCatalogue.Web.HeaderSortTest do
       assert ViewConfig.load_global_sort(:catalogues) == {"name", :asc}
     end
   end
+
+  # Core keeps every changed setting value as a permanent activity entry,
+  # and the shared sort is a setting — so a click must write once, name who
+  # clicked, and write nothing when it changes nothing.
+  describe "the shared sort in the settings history" do
+    alias PhoenixKitCatalogue.Catalogue.PubSub
+
+    # Entries written by a person; the setup's own resets carry no actor.
+    defp sort_entries(scope_key) do
+      Enum.filter(
+        list_activities(),
+        &(&1.action == "setting.changed" and &1.actor_uuid != nil and
+            &1.metadata["key"] == "catalogue_sort_" <> scope_key)
+      )
+    end
+
+    defp all_sort_entries(scope_key) do
+      Enum.filter(
+        list_activities(),
+        &(&1.action == "setting.changed" and
+            &1.metadata["key"] == "catalogue_sort_" <> scope_key)
+      )
+    end
+
+    test "save_global_sort/4 writes nothing when the sort is already stored" do
+      assert {:ok, :unchanged} = ViewConfig.save_global_sort(:detail_items, "position", :asc)
+      before = length(all_sort_entries("detail_items"))
+
+      assert {:ok, %{value: "name:desc"}} =
+               ViewConfig.save_global_sort(:detail_items, "name", :desc)
+
+      assert {:ok, :unchanged} = ViewConfig.save_global_sort(:detail_items, "name", :desc)
+      assert length(all_sort_entries("detail_items")) == before + 1
+    end
+
+    test "a header click on the index is attributed to the admin, once", %{
+      conn: conn,
+      scope: scope
+    } do
+      PubSub.subscribe()
+      {:ok, view, _html} = live(conn, @base)
+
+      render_change(view, "set_sort", %{"sort_by" => "name"})
+
+      assert [entry] = sort_entries("catalogues")
+      assert entry.actor_uuid == Ecto.UUID.dump!(scope.user.uuid)
+      assert entry.mode == "manual"
+      assert entry.metadata["source"] == "settings"
+      assert entry.metadata["to"] == "name:asc"
+      assert_receive {:catalogue_view_sort_changed, :catalogues, "name", :asc, _from}
+
+      # Choosing the sort the list already has changes nothing to record.
+      render_change(view, "set_sort", %{"sort_by" => "name"})
+      assert [_only] = sort_entries("catalogues")
+    end
+
+    test "the detail page's item and category sorts are attributed too", %{
+      conn: conn,
+      scope: scope,
+      catalogue: catalogue
+    } do
+      PubSub.subscribe()
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}")
+
+      view |> element("#categories-sort-selector") |> render_change(%{"sort_by" => "name"})
+      render_change(view, "sort_items", %{"sort_by" => "name"})
+
+      for scope_key <- ["detail_categories", "detail_items"] do
+        assert [entry] = sort_entries(scope_key)
+        assert entry.actor_uuid == Ecto.UUID.dump!(scope.user.uuid)
+        assert entry.metadata["source"] == "settings"
+      end
+
+      assert_receive {:catalogue_view_sort_changed, :detail_categories, "name", :asc, _}
+      assert_receive {:catalogue_view_sort_changed, :detail_items, "name", :asc, _}
+    end
+  end
 end

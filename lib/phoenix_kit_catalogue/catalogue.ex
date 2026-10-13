@@ -845,7 +845,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   `dev_docs/guides/trash-and-restore.md`.
 
   On an already-trashed catalogue it only sweeps children that are still
-  live (rows left behind by a trash that predates the cascade).
+  live (rows left behind by a trash that predates the cascade), and logs
+  nothing when there were none.
 
   ## Examples
 
@@ -860,30 +861,38 @@ defmodule PhoenixKitCatalogue.Catalogue do
         lock_catalogue_categories!(root)
         now = DateTime.utc_now()
 
-        from(i in Item, where: i.catalogue_uuid == ^root and i.status != "deleted")
-        |> stamp_trashed("catalogue", root, now)
-        |> repo().update_all([])
+        {items, _} =
+          from(i in Item, where: i.catalogue_uuid == ^root and i.status != "deleted")
+          |> stamp_trashed("catalogue", root, now)
+          |> repo().update_all([])
 
-        from(c in Category, where: c.catalogue_uuid == ^root and c.status != "deleted")
-        |> stamp_trashed("catalogue", root, now)
-        |> repo().update_all([])
+        {categories, _} =
+          from(c in Category, where: c.catalogue_uuid == ^root and c.status != "deleted")
+          |> stamp_trashed("catalogue", root, now)
+          |> repo().update_all([])
 
-        from(c in Catalogue, where: c.uuid == ^root and c.status != "deleted")
-        |> stamp_trashed("self", root, now)
-        |> repo().update_all([])
+        {self, _} =
+          from(c in Catalogue, where: c.uuid == ^root and c.status != "deleted")
+          |> stamp_trashed("self", root, now)
+          |> repo().update_all([])
 
-        repo().get(Catalogue, root) || repo().rollback(:not_found)
+        updated = repo().get(Catalogue, root) || repo().rollback(:not_found)
+        {updated, items + categories + self}
       end)
 
-    with {:ok, updated} <- result do
-      log_activity(%{
-        action: "catalogue.trashed",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "catalogue",
-        resource_uuid: catalogue.uuid,
-        metadata: %{"name" => catalogue.name}
-      })
+    # A catalogue already in the trash with nothing live under it was not
+    # trashed by this call, so there is nothing to record.
+    with {:ok, {updated, rows_trashed}} <- result do
+      if rows_trashed > 0 do
+        log_activity(%{
+          action: "catalogue.trashed",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "catalogue",
+          resource_uuid: catalogue.uuid,
+          metadata: %{"name" => catalogue.name}
+        })
+      end
 
       {:ok, updated}
     end
@@ -2104,17 +2113,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
           {:ok, items_handled} ->
             root = category.uuid
 
-            from(c in Category,
-              where: c.uuid in ^subtree and c.uuid != ^root and c.status != "deleted"
-            )
-            |> stamp_trashed("category", root, now)
-            |> repo().update_all([])
+            {children, _} =
+              from(c in Category,
+                where: c.uuid in ^subtree and c.uuid != ^root and c.status != "deleted"
+              )
+              |> stamp_trashed("category", root, now)
+              |> repo().update_all([])
 
-            from(c in Category, where: c.uuid == ^root and c.status != "deleted")
-            |> stamp_trashed("self", root, now)
-            |> repo().update_all([])
+            {self, _} =
+              from(c in Category, where: c.uuid == ^root and c.status != "deleted")
+              |> stamp_trashed("self", root, now)
+              |> repo().update_all([])
 
-            {repo().get!(Category, root), length(subtree), items_handled}
+            changed? = children + self + items_handled > 0
+            {repo().get!(Category, root), length(subtree), items_handled, changed?}
 
           {:error, reason} ->
             repo().rollback(reason)
@@ -2122,7 +2134,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end)
 
     case result do
-      {:ok, {updated, subtree_size, items_handled}} ->
+      # Already in the trash with nothing live under it: this call trashed
+      # nothing, so it records nothing.
+      {:ok, {updated, _subtree_size, _items_handled, false}} ->
+        {:ok, updated}
+
+      {:ok, {updated, subtree_size, items_handled, true}} ->
         # `broadcast: false` lets `bulk_trash_categories/3` run this inside
         # its own transaction and fan out once after that commits.
         log_activity(
@@ -3690,6 +3707,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Soft-deletes a folder (status `"deleted"`). Non-cascading: child
   folders and the catalogues filed here keep their `*_uuid`, but
   orphan-promote to root in the active tree view. Nothing else changes.
+  A folder already in the trash is returned unchanged.
   """
   @spec trash_folder(Folder.t(), keyword()) ::
           {:ok, Folder.t()} | {:error, Ecto.Changeset.t(Folder.t())}
@@ -3700,14 +3718,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
         # catalogue's folder is still a home to return to.
         lock_catalogues_order!()
 
-        case folder |> Folder.changeset(%{status: "deleted"}) |> repo().update() do
-          {:ok, updated} -> updated
-          {:error, changeset} -> repo().rollback(changeset)
+        # Decided from the row, not the argument: a folder already in the
+        # trash is not trashed again.
+        case repo().get(Folder, folder.uuid) do
+          %Folder{status: "deleted"} = fresh -> {:unchanged, fresh}
+          fresh -> {:trashed, update_folder_status!(fresh || folder, %{status: "deleted"})}
         end
       end)
 
     case result do
-      {:ok, _updated} = ok ->
+      {:ok, {:trashed, updated}} ->
         log_activity(%{
           action: "folder.trashed",
           mode: "manual",
@@ -3717,17 +3737,38 @@ defmodule PhoenixKitCatalogue.Catalogue do
           metadata: %{"name" => folder.name}
         })
 
-        ok
+        {:ok, updated}
+
+      {:ok, {:unchanged, fresh}} ->
+        {:ok, fresh}
 
       error ->
         error
     end
   end
 
+  defp restore_folder_row!(folder) do
+    parent = if validate_target_folder(folder.parent_uuid) == :ok, do: folder.parent_uuid
+
+    update_folder_status!(folder, %{
+      status: "active",
+      parent_uuid: parent,
+      position: next_level_position(parent)
+    })
+  end
+
+  defp update_folder_status!(folder, attrs) do
+    case folder |> Folder.changeset(attrs) |> repo().update() do
+      {:ok, updated} -> updated
+      {:error, changeset} -> repo().rollback(changeset)
+    end
+  end
+
   @doc """
   Restores a soft-deleted folder. If its prior parent is gone or still
   trashed, the folder is restored to root (appended) so it stays
-  reachable; otherwise it keeps its parent.
+  reachable; otherwise it keeps its parent. A folder that is not in the
+  trash is returned unchanged.
   """
   @spec restore_folder(Folder.t(), keyword()) ::
           {:ok, Folder.t()} | {:error, Ecto.Changeset.t(Folder.t())}
@@ -3736,22 +3777,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
       repo().transaction(fn ->
         lock_catalogues_order!()
 
-        parent =
-          case validate_target_folder(folder.parent_uuid) do
-            :ok -> folder.parent_uuid
-            _ -> nil
-          end
+        # Decided from the row, not the argument: a folder that is not in
+        # the trash keeps its place and is not restored again.
+        case repo().get(Folder, folder.uuid) do
+          %Folder{status: status} = fresh when status != "deleted" ->
+            {:unchanged, fresh}
 
-        attrs = %{status: "active", parent_uuid: parent, position: next_level_position(parent)}
-
-        case folder |> Folder.changeset(attrs) |> repo().update() do
-          {:ok, updated} -> updated
-          {:error, changeset} -> repo().rollback(changeset)
+          fresh ->
+            {:restored, restore_folder_row!(fresh || folder)}
         end
       end)
 
     case result do
-      {:ok, updated} = ok ->
+      {:ok, {:restored, updated}} ->
         log_activity(%{
           action: "folder.restored",
           mode: "manual",
@@ -3761,7 +3799,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
           metadata: %{"name" => folder.name, "parent_uuid" => updated.parent_uuid}
         })
 
-        ok
+        {:ok, updated}
+
+      {:ok, {:unchanged, fresh}} ->
+        {:ok, fresh}
 
       error ->
         error
@@ -6041,7 +6082,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @doc """
   Soft-deletes an item by setting its status to `"deleted"`, stamped as
   trashed on its own — restoring its catalogue or category later leaves
-  it in the trash. Returns `{:error, :not_found}` when the row is gone.
+  it in the trash. Returns `{:error, :not_found}` when the row is gone. An
+  item already in the trash is returned unchanged.
 
   ## Examples
 
@@ -6053,23 +6095,27 @@ defmodule PhoenixKitCatalogue.Catalogue do
       locked_transaction(fn ->
         _locked = lock_row_in_catalogue!(Item, item.uuid)
 
-        from(i in Item, where: i.uuid == ^item.uuid and i.status != "deleted")
-        |> stamp_trashed_self(DateTime.utc_now())
-        |> repo().update_all([])
+        {trashed_now, _} =
+          from(i in Item, where: i.uuid == ^item.uuid and i.status != "deleted")
+          |> stamp_trashed_self(DateTime.utc_now())
+          |> repo().update_all([])
 
-        repo().get!(Item, item.uuid)
+        {repo().get!(Item, item.uuid), trashed_now}
       end)
 
-    with {:ok, trashed} <- result do
-      log_activity(%{
-        action: "item.trashed",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        resource_uuid: trashed.uuid,
-        parent_catalogue_uuid: trashed.catalogue_uuid,
-        metadata: %{"name" => trashed.name}
-      })
+    # An item already in the trash was not trashed by this call.
+    with {:ok, {trashed, trashed_now}} <- result do
+      if trashed_now > 0 do
+        log_activity(%{
+          action: "item.trashed",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: trashed.uuid,
+          parent_catalogue_uuid: trashed.catalogue_uuid,
+          metadata: %{"name" => trashed.name}
+        })
+      end
 
       {:ok, trashed}
     end
@@ -7288,7 +7334,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp catalogue_item_type(%Item{catalogue_uuid: uuid}) when is_binary(uuid) do
     repo().one(from(c in Catalogue, where: c.uuid == ^uuid, select: c.item_type))
   rescue
-    _ -> nil
+    # `effective_item_type/1` never raises — it is called while rendering —
+    # so a failed read answers "no catalogue type" (goods). Said in the log,
+    # or a database error would pass for an item without a catalogue.
+    e ->
+      Logger.warning(
+        "Catalogue.effective_item_type: catalogue type read failed (#{inspect(e.__struct__)}); " <>
+          "treating the item as having no catalogue type"
+      )
+
+      nil
   end
 
   defp catalogue_item_type(_item), do: nil
