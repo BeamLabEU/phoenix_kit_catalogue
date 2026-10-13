@@ -6355,6 +6355,200 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  @update_items_max 500
+
+  @typedoc "What `update_items/2` answers for one row."
+  @type item_outcome ::
+          {:updated, Item.t()}
+          | {:unchanged, Item.t()}
+          | {:error, Ecto.Changeset.t(Item.t()) | :not_found | :duplicate_row | :database_error}
+
+  @doc """
+  Updates many items in ONE transaction and logs them with ONE insert and ONE
+  broadcast (the shop API's batch write; a 500-row batch is not 500 inserts
+  and 500 broadcasts).
+
+  `rows` is a list of `{item_uuid, attrs}` or `{item_uuid, attrs, row_opts}`;
+  `row_opts` override the shared `opts` for that row. At most 500 rows
+  (`ArgumentError` above). Answers `{:ok, [{item_uuid, outcome}]}` in input
+  order, where `outcome` is `{:updated, item}`, `{:unchanged, item}` (the
+  changeset had nothing to change: no write, no log entry) or `{:error, reason}`
+  with a changeset, `:not_found` (no such row, or not a UUID),
+  `:duplicate_row` (the uuid already appeared earlier in this batch) or
+  `:database_error`. **Rows are independent**: each is applied under a
+  savepoint, so one that fails leaves the others written.
+
+  Rows are locked in a fixed order (the categories involved `FOR SHARE`, then
+  the item rows `FOR UPDATE`, each sorted by uuid), and every row goes through
+  the same code as `update_item/3`, including `:data_owned_paths` (applied to
+  the locked fresh row), `:skip_derive` and `:logged_data_paths`.
+
+  ## Options
+
+  `:actor_uuid`, `:mode`, `:log_metadata`, `:logged_data_paths`,
+  `:data_owned_paths`, `:skip_derive` as in `update_item/3`, and
+  `:broadcast` (default `true`): when `false` no bulk event is sent.
+
+  After the commit: one `item.updated` entry per CHANGED row in a single
+  `ActivityLog.log_many/1`, and one `{:catalogue_bulk_change, catalogue_uuid,
+  :updated, uuids, from}` per catalogue the changed rows live in.
+  """
+  @spec update_items([{Ecto.UUID.t(), map()} | {Ecto.UUID.t(), map(), keyword()}], keyword()) ::
+          {:ok, [{Ecto.UUID.t(), item_outcome()}]} | {:error, term()}
+  def update_items(rows, opts \\ []) when is_list(rows) and is_list(opts) do
+    if length(rows) > @update_items_max do
+      raise ArgumentError,
+            "update_items/2 takes at most #{@update_items_max} rows, got #{length(rows)}"
+    end
+
+    rows = Enum.map(rows, &normalize_update_row/1)
+
+    case repo().transaction(fn -> run_update_items(rows, opts) end) do
+      {:ok, results} ->
+        entries = for {_uuid, _outcome, entry} <- results, entry != nil, do: entry
+        ActivityLog.log_many(entries)
+        broadcast_updated_items(results, opts)
+        {:ok, Enum.map(results, fn {uuid, outcome, _entry} -> {uuid, outcome} end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp normalize_update_row({uuid, attrs}), do: {uuid, attrs, []}
+
+  defp normalize_update_row({uuid, attrs, row_opts}) when is_list(row_opts),
+    do: {uuid, attrs, row_opts}
+
+  # Runs inside the transaction. Returns `[{uuid, outcome, log_entry | nil}]`.
+  defp run_update_items(rows, opts) do
+    uuids = for {uuid, _attrs, _row_opts} <- rows, Helpers.uuid?(uuid), do: uuid
+    items = lock_items_for_batch(rows, uuids)
+
+    {results, _seen} =
+      Enum.map_reduce(rows, MapSet.new(), fn {uuid, attrs, row_opts}, seen ->
+        if MapSet.member?(seen, uuid) do
+          {{uuid, {:error, :duplicate_row}, nil}, seen}
+        else
+          {outcome, entry} =
+            update_batch_row(Map.get(items, uuid), attrs, Keyword.merge(opts, row_opts))
+
+          {{uuid, outcome, entry}, MapSet.put(seen, uuid)}
+        end
+      end)
+
+    results
+  end
+
+  # Categories FOR SHARE, then items FOR UPDATE, each in uuid order: the order
+  # a category trash takes them in, and the same order for every batch.
+  defp lock_items_for_batch(_rows, []), do: %{}
+
+  defp lock_items_for_batch(rows, uuids) do
+    current_categories =
+      repo().all(
+        from(i in Item,
+          where: i.uuid in ^uuids and not is_nil(i.category_uuid),
+          select: i.category_uuid
+        )
+      )
+
+    incoming_categories =
+      rows
+      |> Enum.map(fn {_uuid, attrs, _row_opts} -> Helpers.fetch_attr(attrs, :category_uuid) end)
+      |> Enum.filter(&(is_binary(&1) and Helpers.uuid?(&1)))
+
+    category_uuids = (current_categories ++ incoming_categories) |> Enum.uniq() |> Enum.sort()
+
+    repo().all(
+      from(c in Category,
+        where: c.uuid in ^category_uuids,
+        order_by: c.uuid,
+        lock: "FOR SHARE",
+        select: c.uuid
+      )
+    )
+
+    from(i in Item, where: i.uuid in ^uuids, order_by: i.uuid, lock: "FOR UPDATE")
+    |> repo().all()
+    |> Map.new(&{&1.uuid, &1})
+  end
+
+  defp update_batch_row(nil, _attrs, _opts), do: {{:error, :not_found}, nil}
+
+  defp update_batch_row(%Item{} = item, attrs, opts) do
+    case do_update_item(item, attrs, opts, mode: :savepoint) do
+      {:ok, {before, updated, true}} -> {{:updated, updated}, batch_entry(before, updated, opts)}
+      {:ok, {_before, updated, false}} -> {{:unchanged, updated}, nil}
+      {:error, reason} -> {{:error, reason}, nil}
+    end
+  rescue
+    error in Postgrex.Error ->
+      Logger.warning("update_items row #{item.uuid} failed: #{Exception.message(error)}")
+      {{:error, :database_error}, nil}
+  end
+
+  defp batch_entry(before, updated, opts) do
+    metadata =
+      %{"name" => updated.name, "sku" => updated.sku || ""}
+      |> ActivityLog.with_changes(
+        before,
+        updated,
+        @item_logged_fields,
+        Keyword.get(opts, :logged_data_paths, [])
+      )
+      |> ActivityLog.with_extra(Keyword.get(opts, :log_metadata))
+
+    %{
+      action: "item.updated",
+      mode: opts[:mode] || "manual",
+      actor_uuid: opts[:actor_uuid],
+      resource_type: "item",
+      resource_uuid: updated.uuid,
+      metadata: metadata
+    }
+  end
+
+  defp broadcast_updated_items(results, opts) do
+    if Keyword.get(opts, :broadcast, true) do
+      results
+      |> Enum.flat_map(fn
+        {_uuid, {:updated, item}, _entry} -> [item]
+        _other -> []
+      end)
+      |> Enum.group_by(& &1.catalogue_uuid, & &1.uuid)
+      |> Enum.each(fn {catalogue_uuid, uuids} ->
+        PubSub.broadcast_bulk_change(catalogue_uuid, :updated, uuids)
+        # the nil-uuid event the catalogues index listens to, once per catalogue
+        PubSub.broadcast(:item, nil, catalogue_uuid)
+      end)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Announces a batch of item changes made WITHOUT per-row broadcasts (the shop
+  API creates and trashes with `broadcast: false` and announces once):
+  `{:catalogue_bulk_change, catalogue_uuid, kind, uuids, self()}` followed by
+  ONE `{:catalogue_data_changed, :item, nil, catalogue_uuid}` (what every
+  existing batch operation sends, and all the catalogues index listens to).
+  An empty list sends nothing.
+  """
+  @spec broadcast_item_batch_change(Ecto.UUID.t(), :created | :updated | :trashed, [
+          Ecto.UUID.t()
+        ]) :: :ok
+  def broadcast_item_batch_change(_catalogue_uuid, _kind, []), do: :ok
+
+  def broadcast_item_batch_change(catalogue_uuid, kind, uuids)
+      when kind in [:created, :updated, :trashed] and is_list(uuids) do
+    PubSub.broadcast_bulk_change(catalogue_uuid, kind, uuids)
+    # Like every existing batch operation (`broadcast_item_batch/2`), also the nil-uuid
+    # data-changed event: the catalogues index (Items count) listens to that one only.
+    PubSub.broadcast(:item, nil, catalogue_uuid)
+    :ok
+  end
+
   @doc "Hard-deletes an item. Prefer `trash_item/1` for soft-delete."
   @spec delete_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def delete_item(%Item{} = item, opts \\ []) do
