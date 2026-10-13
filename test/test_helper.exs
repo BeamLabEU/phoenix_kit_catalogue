@@ -14,7 +14,8 @@ support_dir = Path.expand("support", __DIR__)
   "activity_log_assertions.ex",
   "data_case.ex",
   "live_case.ex",
-  "live_database_guard.ex"
+  "live_database_guard.ex",
+  "api_case.ex"
 ]
 |> Enum.each(&Code.require_file(&1, support_dir))
 
