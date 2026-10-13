@@ -63,6 +63,14 @@ defmodule PhoenixKitCatalogue.API.Schemas do
     }
   end
 
+  def list_categories do
+    %{
+      "type" => "object",
+      "properties" => %{"catalogue_id" => @uuid},
+      "additionalProperties" => false
+    }
+  end
+
   def list_products do
     %{
       "type" => "object",
@@ -103,6 +111,18 @@ defmodule PhoenixKitCatalogue.API.Schemas do
   end
 
   # --- outputs (documentation for OpenAPI and MCP; core does not validate them) -----------
+
+  @doc "The category tree: `{catalogue_id, count, categories: [node]}`."
+  def categories_output do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "catalogue_id" => %{"type" => "string"},
+        "count" => %{"type" => "integer"},
+        "categories" => %{"type" => "array", "items" => %{"type" => "object"}}
+      }
+    }
+  end
 
   @doc "The batch answer: `{results: [row], summary: {action => count}}`."
   def batch_output(row_extra \\ %{}) do

@@ -16,7 +16,7 @@ defmodule PhoenixKitCatalogue.API.Tools do
   @permission "catalogue"
 
   @spec all() :: [Tool.t()]
-  def all, do: [list_products(), get_products()]
+  def all, do: [list_products(), get_products(), list_categories()]
 
   defp list_products do
     Tool.new!(
@@ -58,6 +58,24 @@ defmodule PhoenixKitCatalogue.API.Tools do
       handler: {PhoenixKitCatalogue.API.GetProducts, :call},
       annotations: %{read_only: true, idempotent: true},
       max_items: 50
+    )
+  end
+
+  defp list_categories do
+    Tool.new!(
+      name: "catalogue.list_categories",
+      audience: :admin,
+      scope: "catalogue.categories:read",
+      permission: @permission,
+      title: "List categories",
+      description:
+        "Returns the category tree of one catalogue: each node has id, external_id, name, names " <>
+          "(the name in every language that has one), position, status and children, siblings ordered " <>
+          "by position then name.",
+      input_schema: Schemas.list_categories(),
+      output_schema: Schemas.categories_output(),
+      handler: {PhoenixKitCatalogue.API.ListCategories, :call},
+      annotations: %{read_only: true, idempotent: true}
     )
   end
 end
