@@ -85,7 +85,7 @@ defmodule PhoenixKitCatalogue.Test.ApiCase do
         apply(module, function, [valid, ctx(overrides)])
 
       {:error, errors} ->
-        {:error, :validation_failed, "The input does not match the schema of #{name}.",
+        {:error, :validation_failed, "The input does not match the schema of #{tool.name}.",
          %{errors: errors}}
     end
   end
