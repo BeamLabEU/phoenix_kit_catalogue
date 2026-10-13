@@ -185,6 +185,35 @@ defmodule PhoenixKitCatalogue.MediaFoldersTest do
       assert MediaFolders.folder_name(a, nil) == {:ok, "Bolt"}
     end
 
+    test "namesakes are compared in the site's language even with different base names" do
+      catalogue = fixture_catalogue(%{name: "Translated"})
+      primary = Multilang.primary_language()
+      a = fixture_item(%{catalogue_uuid: catalogue.uuid, name: "Bolt", sku: "B-1"})
+
+      b =
+        fixture_item(%{
+          catalogue_uuid: catalogue.uuid,
+          name: "Polt",
+          sku: "B-2",
+          data: %{"_primary_language" => "et-EE", primary => %{"_name" => "Bolt"}}
+        })
+
+      assert MediaFolders.folder_name(a, nil) == {:ok, "Bolt (B-1)"}
+      assert MediaFolders.folder_name(b, nil) == {:ok, "Bolt (B-2)"}
+    end
+
+    test "a namesake whose name plus SKU exceeds the folder limit uses its deterministic name",
+         %{user_uuid: user_uuid} do
+      catalogue = fixture_catalogue(%{name: "Long names"})
+      name = String.duplicate("x", 255)
+      a = fixture_item(%{catalogue_uuid: catalogue.uuid, name: name, sku: "B-1"})
+      fixture_item(%{catalogue_uuid: catalogue.uuid, name: name, sku: "B-2"})
+
+      assert MediaFolders.folder_name(a, nil) == nil
+      assert {:ok, attached} = Attachments.attach_files(a, [insert_file!(user_uuid)])
+      assert Storage.get_folder(pointer(attached)).name == "catalogue-item-#{a.uuid}"
+    end
+
     test "PDFs go to Catalogues/PDF" do
       assert {:ok, folder_uuid} = Attachments.parent_folder_uuid(:pdf, nil) |> wrap()
       assert path(folder_uuid) == ["Catalogues", "PDF"]
@@ -261,6 +290,23 @@ defmodule PhoenixKitCatalogue.MediaFoldersTest do
 
       item = fixture_item(%{catalogue_uuid: fixture_catalogue(%{}).uuid, name: "Clamp"})
       assert Attachments.folder_name(item, nil) == "Clamp"
+    end
+  end
+
+  describe "an explicit name hook at the media root" do
+    test "follows renames and releases deleted records' names", %{user_uuid: user_uuid} do
+      Application.put_env(@app, :attachments_parent_folder, {HostHook, :parent})
+      Application.put_env(@app, :attachments_folder_name, {MediaFolders, :folder_name})
+      catalogue = fixture_catalogue(%{name: "Root naming"})
+      item = fixture_item(%{catalogue_uuid: catalogue.uuid, name: "Before"})
+      {:ok, item} = Attachments.attach_files(item, [insert_file!(user_uuid)])
+      folder_uuid = pointer(item)
+
+      assert %{parent_uuid: nil, name: "Before"} = Storage.get_folder(folder_uuid)
+      assert {:ok, item} = Catalogue.update_item(item, %{name: "After"})
+      assert %{parent_uuid: nil, name: "After"} = Storage.get_folder(folder_uuid)
+      assert {:ok, _} = Catalogue.delete_item(item)
+      assert Storage.get_folder(folder_uuid).name == "catalogue-item-#{item.uuid}"
     end
   end
 
@@ -492,15 +538,22 @@ defmodule PhoenixKitCatalogue.MediaFoldersTest do
           item.uuid
         end
 
-      queries = :counters.new(1, [])
+      queries = :counters.new(2, [])
       test_pid = self()
       handler = "media-folders-bulk-#{System.unique_integer([:positive])}"
 
       :telemetry.attach(
         handler,
         [:phoenix_kit_catalogue, :test, :repo, :query],
-        fn _event, _measurements, _meta, _config ->
-          if self() == test_pid, do: :counters.add(queries, 1, 1)
+        fn _event, _measurements, meta, _config ->
+          if self() == test_pid do
+            :counters.add(queries, 1, 1)
+
+            if String.starts_with?(meta.query, "UPDATE ") and
+                 String.contains?(meta.query, "phoenix_kit_media_folders") do
+              :counters.add(queries, 2, 1)
+            end
+          end
         end,
         nil
       )
@@ -518,6 +571,7 @@ defmodule PhoenixKitCatalogue.MediaFoldersTest do
       # primary language, which the test env (no settings cache) pays a
       # few queries for.
       assert :counters.get(queries, 1) < 800
+      assert :counters.get(queries, 2) == 1
 
       assert Enum.all?(uuids, fn uuid ->
                uuid |> Catalogue.get_item() |> pointer() |> path() |> Enum.take(3) ==
@@ -650,6 +704,17 @@ defmodule PhoenixKitCatalogue.MediaFoldersTest do
 
       assert Storage.get_folder(folder).name == "catalogue-item-#{ctx.bolt.uuid}"
       assert_fresh_bolt(ctx.catalogue, ctx.chairs, folder, ctx.user_uuid)
+    end
+
+    test "a taken deterministic name still releases the deleted record's files", ctx do
+      folder = Storage.get_folder(pointer(ctx.bolt))
+      name = "catalogue-item-#{ctx.bolt.uuid}"
+      {:ok, occupied} = Storage.create_folder(%{name: name, parent_uuid: folder.parent_uuid})
+
+      assert {:ok, _} = Catalogue.delete_item(ctx.bolt)
+      assert Storage.get_folder(folder.uuid).name != "Bolt"
+      assert Storage.get_folder(occupied.uuid).name == name
+      assert_fresh_bolt(ctx.catalogue, ctx.chairs, folder.uuid, ctx.user_uuid)
     end
 
     test "bulk-deleting items", ctx do
@@ -807,6 +872,28 @@ defmodule PhoenixKitCatalogue.MediaFoldersTest do
   end
 
   describe "a folder that cannot follow its record" do
+    test "a refused cycle does not roll back a bulk category trash", %{user_uuid: user_uuid} do
+      catalogue = fixture_catalogue(%{name: "Cycle"})
+      source = fixture_category(catalogue, %{name: "Source"})
+      target = fixture_category(catalogue, %{name: "Target"})
+      item = fixture_item(%{catalogue_uuid: catalogue.uuid, category_uuid: source.uuid})
+      {:ok, item} = Attachments.attach_files(item, [insert_file!(user_uuid)])
+
+      {:ok, target_folder} =
+        MediaFolders.parent_for(:item, user_uuid, %{item | category_uuid: target.uuid})
+
+      {:ok, _} =
+        Storage.update_folder(Storage.get_folder(target_folder), %{parent_uuid: pointer(item)})
+
+      assert {:ok, _} =
+               Catalogue.bulk_trash_categories([source.uuid], {:move_to, target.uuid}, [])
+
+      assert Catalogue.get_category(source.uuid).status == "deleted"
+      assert Catalogue.get_item(item.uuid).category_uuid == target.uuid
+      assert Storage.get_folder(pointer(item)).parent_uuid != target_folder
+      assert length(ancestry(pointer(item))) < 10
+    end
+
     test "does not undo the transaction the context called it from",
          %{user_uuid: user_uuid} do
       catalogue = fixture_catalogue(%{name: "Shop"})
