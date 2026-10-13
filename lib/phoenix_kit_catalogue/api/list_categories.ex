@@ -30,16 +30,16 @@ defmodule PhoenixKitCatalogue.API.ListCategories do
         if MapSet.member?(present, category.parent_uuid), do: category.parent_uuid, else: nil
       end)
 
-    nodes(by_parent, nil, MapSet.new())
+    nodes(by_parent, nil, %{})
   end
 
   # `seen` stops a corrupt cycle from recursing for ever.
   defp nodes(by_parent, parent, seen) do
     by_parent
     |> Map.get(parent, [])
-    |> Enum.reject(&MapSet.member?(seen, &1.uuid))
+    |> Enum.reject(&Map.has_key?(seen, &1.uuid))
     |> Enum.map(fn category ->
-      children = nodes(by_parent, category.uuid, MapSet.put(seen, category.uuid))
+      children = nodes(by_parent, category.uuid, Map.put(seen, category.uuid, true))
       Map.put(Presenter.category(category), "children", children)
     end)
   end
