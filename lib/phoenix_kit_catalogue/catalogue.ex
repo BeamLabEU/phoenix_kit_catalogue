@@ -4421,6 +4421,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  @max_category_position 1_000_000
+
   @doc """
   Returns the next available position for a new category among its
   siblings. Position is scoped to `(catalogue_uuid, parent_uuid)` — the
@@ -4429,7 +4431,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   ambiguous.
 
   `parent_uuid` defaults to `nil`, i.e. root-level siblings. Returns 0
-  if no siblings exist at that level, otherwise `max_position + 1`.
+  if no siblings exist at that level, otherwise `max_position + 1`, at most
+  `max_category_position/0` so that a stored huge position cannot push the
+  next one out of the column.
   """
   @spec next_category_position(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: non_neg_integer()
   def next_category_position(catalogue_uuid, parent_uuid \\ nil) do
@@ -4447,9 +4451,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case repo().one(query) do
       nil -> 0
-      max_pos -> max_pos + 1
+      max_pos -> min(max_pos + 1, @max_category_position)
     end
   end
+
+  @doc "The largest position a category is given or accepted with."
+  @spec max_category_position() :: pos_integer()
+  def max_category_position, do: @max_category_position
 
   @doc """
   Re-indexes a sibling group of categories from a list of UUIDs.

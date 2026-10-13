@@ -1,5 +1,5 @@
 defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
-  @moduledoc "`catalogue.upsert_categories` (spec 6.1, 5.4)."
+  @moduledoc "`catalogue.upsert_categories`."
 
   use PhoenixKitCatalogue.DataCase, async: false
 
@@ -93,7 +93,7 @@ defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
 
     log = assert_activity_logged("category.updated", resource_uuid: shelves.uuid)
     assert log.metadata["changes"]["name"] == %{"from" => "Shelves", "to" => "Racks"}
-    # Spec 4.7: the field that moved is in the diff, not only the actor and `via`.
+    # The field that moved is in the diff, not only the actor and `via`.
     assert log.metadata["changes"]["parent_uuid"] == %{"from" => "", "to" => other.uuid}
 
     assert {:ok, %{"summary" => %{"unchanged" => 1}}} =
@@ -126,7 +126,7 @@ defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
 
     assert category(mid.uuid).parent_uuid == nil
 
-    # a parent change is a diff entry, not only an actor (spec 4.7)
+    # a parent change is a diff entry, not only an actor
     log = assert_activity_logged("category.updated", resource_uuid: mid.uuid)
     assert log.metadata["changes"]["parent_uuid"] == %{"from" => top.uuid, "to" => ""}
 
@@ -282,13 +282,44 @@ defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
     assert category(c.uuid).position == 2
     assert Enum.map(executed, & &1["id"]) |> Enum.map(&is_binary/1) == [true, false, false, true]
 
-    # the largest value the column holds is accepted
-    assert [%{"action" => "created"}] =
+    # the column's own limit is refused too: the next automatic position would overflow it
+    assert [%{"action" => "error"}] =
              rows(
                upsert(catalogue, [
-                 %{"external_id" => "P-4", "name" => "Max", "position" => 2_147_483_647}
+                 %{"external_id" => "P-5", "name" => "Edge", "position" => 2_147_483_647}
                ])
              )
+  end
+
+  test "the largest accepted position leaves automatic positions working", %{
+    catalogue: catalogue
+  } do
+    max = Catalogue.max_category_position()
+
+    assert [%{"action" => "created", "id" => top}] =
+             rows(
+               upsert(catalogue, [%{"external_id" => "P-4", "name" => "Max", "position" => max}])
+             )
+
+    assert category(top).position == max
+
+    assert [%{"action" => "created", "id" => next}] =
+             rows(upsert(catalogue, [%{"external_id" => "P-6", "name" => "Next"}]))
+
+    assert category(next).position == max
+    assert {:ok, _} = Catalogue.create_category(%{name: "Admin", catalogue_uuid: catalogue.uuid})
+  end
+
+  test "a position stored beyond the cap does not break automatic positions", %{
+    catalogue: catalogue
+  } do
+    fixture_category(catalogue, %{name: "Huge", position: 2_147_483_647})
+
+    assert Catalogue.next_category_position(catalogue.uuid, nil) ==
+             Catalogue.max_category_position()
+
+    assert [%{"action" => "created"}] =
+             rows(upsert(catalogue, [%{"external_id" => "P-7", "name" => "After"}]))
   end
 
   test "a name is stored trimmed on create and on update, so a retry is unchanged",

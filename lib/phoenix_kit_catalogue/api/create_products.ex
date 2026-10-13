@@ -1,7 +1,8 @@
 defmodule PhoenixKitCatalogue.API.CreateProducts do
   @moduledoc false
-  # Tool `catalogue.create_products` (spec 6.1).
+  # Tool `catalogue.create_products`.
 
+  alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKitCatalogue.API
   alias PhoenixKitCatalogue.API.{Attributes, Common}
   alias PhoenixKitCatalogue.Catalogue
@@ -200,7 +201,14 @@ defmodule PhoenixKitCatalogue.API.CreateProducts do
   @doc false
   def execute(plan, catalogue, ctx) do
     opts = Common.write_opts(ctx, @tool, broadcast: false)
-    rows = Enum.map(plan, &execute_row(&1, opts, catalogue))
+    claims = :ets.new(:slug_claims, [:set, :private])
+
+    rows =
+      try do
+        Enum.map(plan, &execute_row(&1, opts, catalogue, claims))
+      after
+        :ets.delete(claims)
+      end
 
     created = for %{"action" => "created", "id" => id} <- rows, do: id
     Catalogue.broadcast_item_batch_change(catalogue.uuid, :created, created)
@@ -208,27 +216,31 @@ defmodule PhoenixKitCatalogue.API.CreateProducts do
     Common.batch_result(rows)
   end
 
-  defp execute_row({:skip, ref, existing_id, why}, _opts, _catalogue),
+  defp execute_row({:skip, ref, existing_id, why}, _opts, _catalogue, _claims),
     do: skipped(ref, existing_id, why)
 
-  defp execute_row({:error, ref, message, context}, _opts, _catalogue),
+  defp execute_row({:error, ref, message, context}, _opts, _catalogue, _claims),
     do: Common.row_error(ref, :validation_failed, message, context)
 
-  defp execute_row({:create, ref, attrs, attributes}, opts, catalogue) do
-    case create_with_slug(attrs, opts) do
-      {:ok, item} -> finish(ref, item, attributes, opts)
-      {:error, %Ecto.Changeset{} = changeset} -> failure(ref, changeset, catalogue)
+  defp execute_row({:create, ref, attrs, attributes}, opts, catalogue, claims) do
+    case create_with_slug(attrs, opts, claims) do
+      {:ok, item} ->
+        claim_slugs(claims, item)
+        finish(ref, item, attributes, opts)
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        failure(ref, changeset, catalogue)
     end
   end
 
   # The slug is generated per row, at the moment of creation, so two items of
   # one request with the same name see each other's slug. One retry covers a
   # slug taken by a writer between the probe and the insert.
-  defp create_with_slug(attrs, opts, attempts \\ 2) do
-    case Catalogue.create_item(with_slug(attrs), opts) do
+  defp create_with_slug(attrs, opts, claims, attempts \\ 2) do
+    case Catalogue.create_item(with_slug(attrs, claims), opts) do
       {:error, %Ecto.Changeset{} = changeset} = error ->
         if attempts > 1 and Keyword.has_key?(changeset.errors, :slug),
-          do: create_with_slug(attrs, opts, attempts - 1),
+          do: create_with_slug(attrs, opts, claims, attempts - 1),
           else: error
 
       other ->
@@ -238,19 +250,48 @@ defmodule PhoenixKitCatalogue.API.CreateProducts do
 
   # `Slugs.maybe_generate/3` is not wired into `create_item/2` (it would give a
   # duplicated item the slug of its source), so it is called explicitly on a
-  # changeset built with `Catalogue.change_item/2` (spec 6.1).
-  defp with_slug(attrs) do
+  # changeset built with `Catalogue.change_item/2`.
+  defp with_slug(attrs, claims) do
     slug =
       %Item{}
       |> Catalogue.change_item(attrs)
       |> Slugs.maybe_generate(:slug,
         from: :name,
-        taken?: fn candidate, lang -> Catalogue.item_slug_taken?(candidate, lang) end
+        taken?: fn candidate, lang -> slug_taken?(claims, candidate, lang) end
       )
       |> Ecto.Changeset.get_field(:slug)
 
     Map.put(attrs, :slug, slug || %{})
   end
+
+  # `claims` remembers every slug this request has created or found taken, so a
+  # request of N equal names probes the database about once per row instead of
+  # walking `base`, `base-2`, ... for every row. It never remembers a free slug.
+  defp slug_taken?(claims, candidate, lang) do
+    key = claim_key(candidate, lang)
+
+    cond do
+      :ets.member(claims, key) ->
+        true
+
+      Catalogue.item_slug_taken?(candidate, lang) ->
+        :ets.insert(claims, {key})
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp claim_slugs(claims, %{slug: slugs}) when is_map(slugs) do
+    for {lang, slug} <- slugs, is_binary(slug), do: :ets.insert(claims, {claim_key(slug, lang)})
+    :ok
+  end
+
+  defp claim_slugs(_claims, _item), do: :ok
+
+  # The projection is per base language ("de-DE" and "de-AT" both live in "de").
+  defp claim_key(slug, lang), do: {DialectMapper.extract_base(lang), slug}
 
   defp finish(ref, item, [], _opts), do: Common.row_ok(ref, "created", item.uuid)
 
