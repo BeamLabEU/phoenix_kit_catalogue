@@ -15,6 +15,46 @@ defmodule PhoenixKitCatalogue.DataOwnedPathsTest do
   @actor "00000000-0000-7000-8000-000000000001"
   @compare [["ecommerce", "compare_at_price"]]
 
+  # Ecto's telemetry event for every statement the test repo runs.
+  @query_event [:phoenix_kit_catalogue, :test, :repo, :query]
+
+  # The text of every SQL statement `fun` runs in this process.
+  defp query_texts(fun) do
+    handler_id = {:query_texts, self(), System.unique_integer()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      @query_event,
+      fn _event, _measurements, %{query: query}, _config -> send(test_pid, {:query, query}) end,
+      nil
+    )
+
+    try do
+      fun.()
+      collect_query_texts([])
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp collect_query_texts(acc) do
+    receive do
+      {:query, query} -> collect_query_texts([query | acc])
+    after
+      0 -> acc
+    end
+  end
+
+  defp locking_reads(queries, table) do
+    Enum.filter(queries, &(&1 =~ table and &1 =~ "FOR UPDATE"))
+  end
+
+  defp logged(action, uuid) do
+    list_activities()
+    |> Enum.filter(&(&1.action == action and &1.resource_uuid == Ecto.UUID.dump!(uuid)))
+  end
+
   setup do
     catalogue = fixture_catalogue(%{name: "Paths Cat"})
 
@@ -45,6 +85,41 @@ defmodule PhoenixKitCatalogue.DataOwnedPathsTest do
 
       assert updated.data["meta"] == %{"color" => "red"}
       assert Catalogue.get_item(item.uuid).data == updated.data
+    end
+
+    test "the row is read FOR UPDATE, so the lock is held until the commit", %{item: item} do
+      queries =
+        query_texts(fn ->
+          assert {:ok, _} =
+                   Catalogue.update_item(item, %{name: "Locked"},
+                     data_owned_paths: @compare,
+                     skip_derive: true
+                   )
+        end)
+
+      assert [_one] = locking_reads(queries, "phoenix_kit_cat_items")
+    end
+
+    test "string-keyed attrs are read like atom-keyed ones", %{item: item} do
+      attrs = %{
+        "name" => "Stringy",
+        "data" => %{"ecommerce" => %{"compare_at_price" => "9.50"}, "meta" => %{"color" => "x"}},
+        "slug" => %{"de-DE" => "zeichen"}
+      }
+
+      opts = [data_owned_paths: @compare, slug_owned_langs: ["de-DE"]]
+      assert {:ok, updated} = Catalogue.update_item(item, attrs, opts)
+
+      assert updated.name == "Stringy"
+      assert updated.slug["de-DE"] == "zeichen"
+
+      assert updated.data["ecommerce"] == %{
+               "shopify" => %{"id" => "1"},
+               "tags" => ["a"],
+               "compare_at_price" => "9.50"
+             }
+
+      assert updated.data["meta"] == %{"color" => "red"}
     end
 
     test "a stale copy cannot clobber what another writer stored since", %{item: item} do
@@ -79,10 +154,8 @@ defmodule PhoenixKitCatalogue.DataOwnedPathsTest do
       # else, then ours), and `assert_activity_logged/2` flunks unless exactly
       # one row matches: select ours by its diff instead.
       ours =
-        list_activities()
-        |> Enum.filter(
-          &(&1.action == "item.updated" and &1.resource_uuid == Ecto.UUID.dump!(item.uuid))
-        )
+        "item.updated"
+        |> logged(item.uuid)
         |> Enum.filter(&(get_in(&1.metadata, ["changes", "name", "to"]) == "Mine"))
 
       assert [row] = ours
@@ -150,13 +223,44 @@ defmodule PhoenixKitCatalogue.DataOwnedPathsTest do
       assert cleared.slug == %{"en-US" => "base", "fr-FR" => "base-fr"}
 
       assert [log] =
-               list_activities()
-               |> Enum.filter(
-                 &(&1.action == "item.updated" and &1.resource_uuid == Ecto.UUID.dump!(item.uuid))
-               )
+               "item.updated"
+               |> logged(item.uuid)
                |> Enum.filter(&(get_in(&1.metadata, ["changes", "slug.de-DE", "to"]) == ""))
 
       assert log.metadata["changes"]["slug.de-DE"] == %{"from" => "neu", "to" => ""}
+    end
+
+    test ":slug_owned_langs [] merges nothing: a slug map in attrs cannot replace the stored one",
+         %{item: item} do
+      stored = %{
+        "en-US" => "base",
+        "de-DE" => "basis",
+        "fr-FR" => "base-fr",
+        "es-ES" => "base-es"
+      }
+
+      {:ok, _} = Catalogue.update_item(item, %{slug: stored})
+      stale = Catalogue.get_item!(item.uuid)
+
+      attrs = %{name: "Renamed", slug: %{"en-US" => "base", "de-DE" => "basis"}}
+      opts = [data_owned_paths: [], slug_owned_langs: []]
+
+      assert {:ok, updated} = Catalogue.update_item(stale, attrs, opts)
+      assert updated.name == "Renamed"
+      assert updated.slug == stored
+    end
+
+    test ":slug_owned_langs without a :slug in attrs deletes no slug", %{item: item} do
+      slugs = %{"en-US" => "base", "de-DE" => "basis"}
+      {:ok, with_slugs} = Catalogue.update_item(item, %{slug: slugs})
+
+      opts = [data_owned_paths: [], slug_owned_langs: ["de-DE"]]
+      assert {:ok, renamed} = Catalogue.update_item(with_slugs, %{name: "Rename only"}, opts)
+      assert renamed.slug == slugs
+
+      # a :slug that is not a map is "nothing sent" too
+      assert {:ok, same} = Catalogue.update_item(renamed, %{name: "Again", slug: nil}, opts)
+      assert same.slug == slugs
     end
 
     test ":slug_owned_langs without :data_owned_paths, or with a bad value, raises", %{item: item} do
@@ -165,9 +269,13 @@ defmodule PhoenixKitCatalogue.DataOwnedPathsTest do
       end
 
       for bad <- [["", "de-DE"], [:de], "de-DE"] do
-        assert_raise ArgumentError, ~r/slug_owned_langs/, fn ->
-          Catalogue.update_item(item, %{slug: %{}}, data_owned_paths: [], slug_owned_langs: bad)
-        end
+        error =
+          assert_raise ArgumentError, ~r/slug_owned_langs/, fn ->
+            Catalogue.update_item(item, %{slug: %{}}, data_owned_paths: [], slug_owned_langs: bad)
+          end
+
+        # the message names the rule, never the offending value
+        refute error.message =~ "de-DE"
       end
     end
 
@@ -216,9 +324,12 @@ defmodule PhoenixKitCatalogue.DataOwnedPathsTest do
 
     test "refuses malformed paths", %{item: item} do
       for bad <- [[["_trash"]], [[]], [[""]], [["a", 1]], "ecommerce", [["ok"], "no"]] do
-        assert_raise ArgumentError, ~r/data_owned_paths/, fn ->
-          Catalogue.update_item(item, %{}, data_owned_paths: bad)
-        end
+        error =
+          assert_raise ArgumentError, ~r/data_owned_paths/, fn ->
+            Catalogue.update_item(item, %{}, data_owned_paths: bad)
+          end
+
+        refute error.message =~ "ecommerce"
       end
     end
 
@@ -249,6 +360,70 @@ defmodule PhoenixKitCatalogue.DataOwnedPathsTest do
                %{"from" => "", "to" => "C-1"}
     end
 
+    test "the category is read FOR UPDATE", %{catalogue: catalogue} do
+      category = fixture_category(catalogue, %{name: "Locked shelf"})
+
+      queries =
+        query_texts(fn ->
+          assert {:ok, _} =
+                   Catalogue.update_category(category, %{name: "x"}, data_owned_paths: [])
+        end)
+
+      assert [_one] = locking_reads(queries, "phoenix_kit_cat_categories")
+    end
+
+    test "the logged from-value is the locked row's, not the stale copy's", %{
+      catalogue: catalogue
+    } do
+      category = fixture_category(catalogue, %{name: "Shelf"})
+      stale = Catalogue.get_category!(category.uuid)
+      {:ok, _} = Catalogue.update_category(category, %{name: "Renamed elsewhere"})
+
+      assert {:ok, updated} =
+               Catalogue.update_category(stale, %{name: "Mine"}, data_owned_paths: [])
+
+      assert updated.name == "Mine"
+
+      assert [row] =
+               "category.updated"
+               |> logged(category.uuid)
+               |> Enum.filter(&(get_in(&1.metadata, ["changes", "name", "to"]) == "Mine"))
+
+      assert row.metadata["changes"]["name"] == %{"from" => "Renamed elsewhere", "to" => "Mine"}
+    end
+
+    test "a re-parent diffs against the row as stored, without the new options too", %{
+      catalogue: catalogue
+    } do
+      parent = fixture_category(catalogue, %{name: "Parent"})
+      category = fixture_category(catalogue, %{name: "Shelf"})
+      stale = Catalogue.get_category!(category.uuid)
+      {:ok, _} = Catalogue.update_category(category, %{name: "Renamed elsewhere"})
+
+      assert {:ok, updated} =
+               Catalogue.update_category(stale, %{name: "Mine", parent_uuid: parent.uuid})
+
+      assert updated.parent_uuid == parent.uuid
+
+      assert [row] =
+               "category.updated"
+               |> logged(category.uuid)
+               |> Enum.filter(&(get_in(&1.metadata, ["changes", "name", "to"]) == "Mine"))
+
+      assert row.metadata["changes"]["name"] == %{"from" => "Renamed elsewhere", "to" => "Mine"}
+    end
+
+    test "refuses :data_owned_keys together with :data_owned_paths", %{catalogue: catalogue} do
+      category = fixture_category(catalogue, %{name: "Shelf"})
+
+      assert_raise ArgumentError, ~r/mutually exclusive/, fn ->
+        Catalogue.update_category(category, %{},
+          data_owned_keys: ["meta"],
+          data_owned_paths: @compare
+        )
+      end
+    end
+
     test "returns :not_found when the category is gone", %{catalogue: catalogue} do
       category = fixture_category(catalogue, %{name: "Gone"})
       {:ok, _} = Catalogue.permanently_delete_category(category)
@@ -275,6 +450,41 @@ defmodule PhoenixKitCatalogue.DataOwnedPathsTest do
 
       assert Catalogue.get_item(item.uuid).name == "Base"
       assert list_activities() |> Enum.filter(&(&1.action == "item.updated")) == []
+    end
+
+    test "a sibling logged path that did not change stays out of the diff", %{item: item} do
+      attrs = %{data: %{"ecommerce" => %{"compare_at_price" => "5"}}}
+
+      assert {:ok, changes} =
+               Catalogue.preview_item_update(item, attrs,
+                 data_owned_paths: @compare,
+                 logged_data_paths: @compare ++ [["ecommerce", "tags"], ["ecommerce", "shopify"]]
+               )
+
+      assert changes == %{"data.ecommerce.compare_at_price" => %{"from" => "", "to" => "5"}}
+    end
+
+    test "takes attrs[:slug] as the planned whole map and validates the options", %{item: item} do
+      {:ok, with_slugs} =
+        Catalogue.update_item(item, %{slug: %{"en-US" => "base", "de-DE" => "basis"}})
+
+      assert {:ok, changes} =
+               Catalogue.preview_item_update(with_slugs, %{
+                 slug: %{"en-US" => "base", "de-DE" => "neu"}
+               })
+
+      assert changes == %{"slug.de-DE" => %{"from" => "basis", "to" => "neu"}}
+
+      assert_raise ArgumentError, ~r/needs :data_owned_paths/, fn ->
+        Catalogue.preview_item_update(with_slugs, %{}, slug_owned_langs: ["de-DE"])
+      end
+
+      assert_raise ArgumentError, ~r/slug_owned_langs/, fn ->
+        Catalogue.preview_item_update(with_slugs, %{},
+          data_owned_paths: [],
+          slug_owned_langs: :de
+        )
+      end
     end
 
     test "an update that changes nothing previews as an empty map", %{item: item} do
