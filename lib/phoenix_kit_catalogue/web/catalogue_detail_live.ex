@@ -526,21 +526,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     do: {:noreply, socket}
 
   # Another admin changed a shared detail sort (global-sort scopes) —
-  # apply it without re-persisting or re-broadcasting.
-  def handle_info({:catalogue_view_sort_changed, :detail_items, by, dir, from}, socket) do
-    if from == self() do
+  # apply it without re-persisting or re-broadcasting. The message says only
+  # THAT the sort changed; the sort applied is the stored one, because two
+  # admins' broadcasts can arrive in the opposite order to their writes.
+  def handle_info({:catalogue_view_sort_changed, :detail_items, _by, _dir, from}, socket) do
+    {by, dir} = ViewConfig.load_global_sort(:detail_items)
+    field = detail_items_sort_field(by)
+
+    if from == self() or
+         {field, dir} == {socket.assigns.items_sort_by, socket.assigns.items_sort_dir} do
       {:noreply, socket}
     else
-      dir = if dir == :desc, do: :desc, else: :asc
-      {:noreply, apply_items_sort(socket, detail_items_sort_field(by), dir)}
+      {:noreply, apply_items_sort(socket, field, dir)}
     end
   end
 
-  def handle_info({:catalogue_view_sort_changed, :detail_categories, by, dir, from}, socket) do
+  def handle_info({:catalogue_view_sort_changed, :detail_categories, _by, _dir, from}, socket) do
     if from == self() do
       {:noreply, socket}
     else
-      dir = if dir == :desc, do: :desc, else: :asc
+      {by, dir} = ViewConfig.load_global_sort(:detail_categories)
       field = detail_categories_sort_field(by)
 
       socket = assign(socket, categories_sort_by: field, categories_sort_dir: dir)

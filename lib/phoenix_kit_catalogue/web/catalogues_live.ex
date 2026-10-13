@@ -182,12 +182,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # at render time (derive_rows), so no data reload is needed; when the sort
   # lands on "position" the drag handles appear on the next render the same
   # way they do for the admin who switched.
-  def handle_info({:catalogue_view_sort_changed, scope, sort_by, sort_dir, from}, socket) do
+  #
+  # The message says only THAT the sort changed. The sort applied is the
+  # stored one: two admins' broadcasts can arrive in the opposite order to
+  # their writes, and the payload of the late one is no longer the setting.
+  def handle_info({:catalogue_view_sort_changed, scope, _sort_by, _sort_dir, from}, socket) do
     cfg = socket.assigns.view_configs[scope]
 
-    if from == self() or is_nil(cfg) do
+    if from == self() or is_nil(cfg) or not ViewConfig.global_sort?(scope) do
       {:noreply, socket}
     else
+      {sort_by, sort_dir} = ViewConfig.load_global_sort(scope)
       updated = %{cfg | sort_by: sort_by, sort_dir: sort_dir}
 
       {:noreply,
