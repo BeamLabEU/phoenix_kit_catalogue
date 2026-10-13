@@ -76,7 +76,7 @@ defmodule PhoenixKitCatalogue.Import.Parser do
   def list_sheets(binary) when byte_size(binary) > @max_byte_size, do: {:error, :file_too_large}
 
   def list_sheets(binary) do
-    with_temp_file(binary, ".xlsx", fn path ->
+    with_xlsx_file(binary, fn path ->
       case XlsxReader.open(path) do
         {:ok, package} ->
           {:ok, XlsxReader.sheet_names(package)}
@@ -92,7 +92,7 @@ defmodule PhoenixKitCatalogue.Import.Parser do
   defp parse_xlsx(binary, opts) do
     sheet_name = Keyword.get(opts, :sheet)
 
-    with_temp_file(binary, ".xlsx", fn path ->
+    with_xlsx_file(binary, fn path ->
       case XlsxReader.open(path) do
         {:ok, package} ->
           sheets = XlsxReader.sheet_names(package)
@@ -103,6 +103,19 @@ defmodule PhoenixKitCatalogue.Import.Parser do
           {:error, {:xlsx_open_failed, reason}}
       end
     end)
+  end
+
+  # XlsxReader answers `{:error, _}` for an archive it cannot open and for
+  # XML that is not well formed, but raises on well-formed XML holding a
+  # value it does not expect (a row number that is not a number, say). The
+  # bytes are an upload, so every call into it runs here, where a raise, an
+  # exit or a throw becomes the same error tuple.
+  defp with_xlsx_file(binary, fun) do
+    with_temp_file(binary, ".xlsx", fun)
+  rescue
+    e -> {:error, {:xlsx_read_failed, Exception.message(e)}}
+  catch
+    kind, reason -> {:error, {:xlsx_read_failed, {kind, reason}}}
   end
 
   defp read_xlsx_sheet(package, target_sheet, sheets) do

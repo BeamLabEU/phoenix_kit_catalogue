@@ -95,6 +95,49 @@ defmodule PhoenixKitCatalogue.Web.ImportLiveHostileUploadTest do
     end
   end
 
+  describe "an XLSX the reader cannot read" do
+    alias PhoenixKitCatalogue.XlsxFixture
+
+    test "a real archive with a corrupt sheet is refused with a message",
+         %{conn: conn, catalogue: cat} do
+      xlsx = XlsxFixture.workbook(~s(<row r="x"><c><v>1</v></c></row>))
+
+      {view, html} = upload(conn, cat, "corrupt.xlsx", xlsx)
+
+      assert html =~ escaped(Errors.message({:xlsx_read_failed, :raised}))
+      assert step(view) == :upload
+    end
+
+    test "a sound workbook built the same way reaches the mapping step",
+         %{conn: conn, catalogue: cat} do
+      xlsx =
+        XlsxFixture.workbook(
+          XlsxFixture.row(1, ["name", "sku"]) <> XlsxFixture.row(2, ["Oak shelf", "A1"])
+        )
+
+      {view, html} = upload(conn, cat, "sound.xlsx", xlsx)
+
+      assert step(view) == :map
+      assert html =~ "Oak shelf"
+    end
+
+    test "random bytes never crash the wizard", %{conn: conn, catalogue: cat} do
+      :rand.seed(:exsss, {10, 11, 12})
+
+      for size <- [1, 3, 64, 1024, 4096], prefix <- ["", "PK\x03\x04"] do
+        {view, html} = upload(conn, cat, "random.xlsx", prefix <> :rand.bytes(size))
+
+        assert step(view) == :upload
+
+        assert Enum.any?(
+                 [{:xlsx_open_failed, nil}, {:xlsx_read_failed, nil}],
+                 &(html =~ escaped(Errors.message(&1)))
+               ),
+               "size #{size}: no message"
+      end
+    end
+  end
+
   describe "a PRO100 file that is not UTF-8" do
     test "is refused with a message", %{conn: conn, catalogue: cat} do
       bytes = <<"# Parts\tname\tid\tc3\tprice\tc5\tc6\tc7\n\t\tK", 0xF5, "rge\t9\t\t10\t\t\t\n">>
