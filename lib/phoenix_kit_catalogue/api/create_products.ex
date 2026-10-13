@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.API.CreateProducts do
   @moduledoc false
-  # Tool `catalogue.create_products` (spec 6.1). See the task text for the rules.
+  # Tool `catalogue.create_products` (spec 6.1).
 
   alias PhoenixKitCatalogue.API
   alias PhoenixKitCatalogue.API.{Attributes, Common}
@@ -141,7 +141,7 @@ defmodule PhoenixKitCatalogue.API.CreateProducts do
     state = %{state | categories: cache}
 
     case verdict do
-      :ok -> {:ok, id, state}
+      {:ok, uuid} -> {:ok, uuid, state}
       {:error, message} -> {:error, "category_id", message, %{}}
     end
   end

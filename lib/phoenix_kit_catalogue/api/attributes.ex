@@ -34,44 +34,70 @@ defmodule PhoenixKitCatalogue.API.Attributes do
   what was wrong and what is allowed).
   """
   @spec validate([map()]) :: :ok | {:error, String.t(), map()}
-  def validate([]), do: :ok
+  def validate(entries) do
+    {verdict, _cache} = validate(entries, %{})
+    verdict
+  end
 
-  def validate(entries) when is_list(entries) do
+  @doc """
+  `validate/1` for a batch: `cache` (a map the caller threads from row to row)
+  remembers each set once looked up. Returns `{verdict, cache}`.
+  """
+  @spec validate([map()], map()) :: {:ok | {:error, String.t(), map()}, map()}
+  def validate([], cache), do: {:ok, cache}
+
+  def validate(entries, cache) when is_list(entries) do
     if Catalogue.attribute_sets_enabled?() do
-      first_error(entries)
+      first_error(entries, cache)
     else
-      {:error, "Attribute sets are not available: the entities module is off.", %{}}
+      {{:error, "Attribute sets are not available: the entities module is off.", %{}}, cache}
     end
   end
 
-  defp first_error(entries) do
-    Enum.find_value(entries, :ok, fn entry ->
-      with :ok <- validate_entry(entry), do: nil
+  defp first_error(entries, cache) do
+    Enum.reduce_while(entries, {:ok, cache}, fn entry, {:ok, cache} ->
+      case validate_entry(entry, cache) do
+        {:ok, cache} -> {:cont, {:ok, cache}}
+        {{:error, _message, _context} = error, cache} -> {:halt, {error, cache}}
+      end
     end)
   end
 
   # `set_id` is a row-level string (the schema has no length floor, see
   # `Schemas`): a malformed id is this row's error, not a CastError.
-  defp validate_entry(%{"set_id" => set_id, "values" => values}) do
-    case resolve_set(set_id) do
+  defp validate_entry(%{"set_id" => set_id, "values" => values}, cache) do
+    {set, cache} = resolve_set(set_id, cache)
+
+    case set do
       nil ->
-        {:error, "Attribute set #{set_id} does not exist.", %{"set_id" => set_id}}
+        {{:error, "Attribute set #{set_id} does not exist.", %{"set_id" => set_id}}, cache}
 
       %{values: set_values} ->
         allowed = Enum.map(set_values, & &1.key)
 
         case Enum.reject(values, &(&1 in allowed)) do
           [] ->
-            :ok
+            {:ok, cache}
 
           unknown ->
-            {:error, "Unknown value for attribute set #{set_id}.",
-             %{"set_id" => set_id, "unknown" => unknown, "allowed" => allowed}}
+            {{:error, "Unknown value for attribute set #{set_id}.",
+              %{"set_id" => set_id, "unknown" => unknown, "allowed" => allowed}}, cache}
         end
     end
   end
 
-  defp resolve_set(set_id) do
+  defp resolve_set(set_id, cache) do
+    case Map.fetch(cache, set_id) do
+      {:ok, set} ->
+        {set, cache}
+
+      :error ->
+        set = lookup_set(set_id)
+        {set, Map.put(cache, set_id, set)}
+    end
+  end
+
+  defp lookup_set(set_id) do
     case Ecto.UUID.cast(set_id) do
       {:ok, uuid} -> Catalogue.resolve_attribute_set(uuid)
       :error -> nil
@@ -88,10 +114,7 @@ defmodule PhoenixKitCatalogue.API.Attributes do
   def changed?(_item_uuid, []), do: false
 
   def changed?(item_uuid, entries) do
-    attached =
-      item_uuid
-      |> Catalogue.list_attribute_set_attachments()
-      |> Map.new(&{&1.set_uuid, List.wrap((&1.data || %{})["selected_value_slugs"])})
+    attached = selections(item_uuid)
 
     Enum.any?(entries, fn %{"set_id" => set_id, "values" => values} ->
       with {:ok, set_uuid} <- Ecto.UUID.cast(set_id),
@@ -103,17 +126,20 @@ defmodule PhoenixKitCatalogue.API.Attributes do
     end)
   end
 
-  @doc "The value keys currently selected for one attached set (`[]` when the set is not attached)."
-  @spec selection(Ecto.UUID.t(), Ecto.UUID.t()) :: [String.t()]
-  def selection(item_uuid, set_uuid) do
+  @doc """
+  The value keys selected for every set attached to an item, as
+  `%{set_uuid => [value key]}`, in one query.
+  """
+  @spec selections(Ecto.UUID.t()) :: %{Ecto.UUID.t() => [String.t()]}
+  def selections(item_uuid) do
     item_uuid
     |> Catalogue.list_attribute_set_attachments()
-    |> Enum.find(&(&1.set_uuid == set_uuid))
-    |> case do
-      nil -> []
-      row -> List.wrap((row.data || %{})["selected_value_slugs"])
-    end
+    |> Map.new(&{&1.set_uuid, List.wrap((&1.data || %{})["selected_value_slugs"])})
   end
+
+  @doc "The value keys currently selected for one attached set (`[]` when the set is not attached)."
+  @spec selection(Ecto.UUID.t(), Ecto.UUID.t()) :: [String.t()]
+  def selection(item_uuid, set_uuid), do: item_uuid |> selections() |> Map.get(set_uuid, [])
 
   @doc "Attaches each set (a no-op when attached) and stores the selection. `opts` carry `:actor_uuid`, `:mode` and `:log_metadata` (the activity entries then say `via: api` and which tool)."
   @spec apply_to_item(Ecto.UUID.t(), [map()], keyword()) :: :ok | {:error, term()}

@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.API.UpdateProducts do
   @moduledoc false
-  # Tool `catalogue.update_products` (spec 6.1). See the task text for the rules.
+  # Tool `catalogue.update_products` (spec 6.1).
 
   alias PhoenixKitCatalogue.API
   alias PhoenixKitCatalogue.API.{Attributes, Common}
@@ -31,7 +31,7 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
 
       plan = plan(Enum.zip(entries, resolutions), catalogue)
 
-      if ctx.dry_run?, do: preview(plan), else: execute(plan, catalogue, ctx)
+      if ctx.dry_run?, do: preview(plan, catalogue), else: execute(plan, catalogue, ctx)
     end
   end
 
@@ -41,8 +41,10 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
   # or `{:resolution_error, ref, reason}`.
   defp plan(pairs, catalogue) do
     {planned, _state} =
-      Enum.map_reduce(pairs, %{seen: MapSet.new(), categories: %{}}, fn {entry, {ref, resolution}},
-                                                                        state ->
+      Enum.map_reduce(pairs, %{seen: MapSet.new(), categories: %{}, sets: %{}}, fn {entry,
+                                                                                    {ref,
+                                                                                     resolution}},
+                                                                                   state ->
         plan_one(entry["changes"], ref, resolution, catalogue, state)
       end)
 
@@ -78,14 +80,17 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
 
   defp build(changes, catalogue, state) do
     with :ok <- check_name(changes),
-         :ok <- check_external_id(changes),
+         :ok <- check_clearable_text(changes, "sku"),
+         :ok <- check_clearable_text(changes, "external_id"),
          {:ok, category, state} <- check_category(changes, catalogue, state),
-         :ok <- check_attributes(changes) do
+         {:ok, state} <- check_attributes(changes, state) do
       {attrs, row_opts} = column_attrs(changes)
 
       update = %{
         attrs: attrs,
-        # the category (if any) is moved separately (D12), so the update never derives it
+        # Defensive: the attrs never carry a category (it is moved separately, so
+        # that the context logs its own readable `item.moved` entry), so there is
+        # nothing for the update to derive a catalogue from.
         row_opts: [skip_derive: true] ++ row_opts,
         category: category,
         attributes: changes["attributes"] || [],
@@ -104,13 +109,19 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
 
   defp check_name(_changes), do: :ok
 
-  defp check_external_id(%{"external_id" => eid}) when is_binary(eid) do
-    if Common.blank?(eid),
-      do: {:error, "changes.external_id", "must not be blank; send null to clear it", %{}},
-      else: :ok
-  end
+  # A blank text would store an empty value that nothing can look up again:
+  # clearing is `null`.
+  defp check_clearable_text(changes, key) do
+    case changes do
+      %{^key => text} when is_binary(text) ->
+        if Common.blank?(text),
+          do: {:error, "changes." <> key, "must not be blank; send null to clear it", %{}},
+          else: :ok
 
-  defp check_external_id(_changes), do: :ok
+      _other ->
+        :ok
+    end
+  end
 
   # `:keep` = not mentioned, `nil` = uncategorize, a uuid = move there.
   defp check_category(changes, catalogue, state) do
@@ -126,16 +137,16 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
         state = %{state | categories: cache}
 
         case verdict do
-          :ok -> {:ok, id, state}
+          {:ok, uuid} -> {:ok, uuid, state}
           {:error, message} -> {:error, "changes.category_id", message, %{}}
         end
     end
   end
 
-  defp check_attributes(changes) do
-    case Attributes.validate(changes["attributes"] || []) do
-      :ok -> :ok
-      {:error, message, context} -> {:error, "changes.attributes", message, context}
+  defp check_attributes(changes, state) do
+    case Attributes.validate(changes["attributes"] || [], state.sets) do
+      {:ok, sets} -> {:ok, %{state | sets: sets}}
+      {{:error, message, context}, _sets} -> {:error, "changes.attributes", message, context}
     end
   end
 
@@ -160,8 +171,9 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
 
   # --- dry run -------------------------------------------------------------------------
 
-  defp preview(plan) do
+  defp preview(plan, catalogue) do
     plan
+    |> mark_external_id_conflicts(catalogue)
     |> Enum.map(fn
       {:update, ref, item, update} ->
         preview_row(ref, item, update)
@@ -171,9 +183,59 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
 
       {:resolution_error, ref, reason} ->
         Common.resolution_error(ref, reason)
+
+      {:external_id_taken, ref, holder_uuid} ->
+        external_id_taken(ref, holder_uuid)
     end)
     |> Common.preview()
   end
+
+  # The unique index on `external_id` decides at write time; the preview models it
+  # so that it does not promise a row that will fail. The rows are walked in input
+  # order, like the write: a row that changes or clears an external id releases it
+  # for the rows after it, and a row that sets one takes it.
+  defp mark_external_id_conflicts(plan, catalogue) do
+    {marked, _owners} = Enum.map_reduce(plan, external_id_holders(plan, catalogue), &claim/2)
+    marked
+  end
+
+  defp external_id_holders(plan, catalogue) do
+    refs =
+      for {:update, _ref, _item, %{external_id: eid}} <- plan,
+          is_binary(eid),
+          uniq: true,
+          do: %{"external_id" => eid}
+
+    for {%{"external_id" => eid}, {:ok, holder}} <-
+          API.resolve_refs(refs, kind: :item, catalogue_uuid: catalogue.uuid),
+        into: %{},
+        do: {eid, holder.uuid}
+  end
+
+  defp claim({:update, ref, item, %{attrs: %{data: _}} = update} = row, owners) do
+    wanted = update.external_id
+
+    case Map.get(owners, wanted) do
+      holder when is_binary(wanted) and is_binary(holder) and holder != item.uuid ->
+        {{:external_id_taken, ref, holder}, owners}
+
+      _free ->
+        owners = release(owners, item)
+        {row, if(is_binary(wanted), do: Map.put(owners, wanted, item.uuid), else: owners)}
+    end
+  end
+
+  defp claim(row, owners), do: {row, owners}
+
+  defp release(owners, %{data: %{"api" => %{"external_id" => eid}}, uuid: uuid})
+       when is_binary(eid) do
+    case owners do
+      %{^eid => ^uuid} -> Map.delete(owners, eid)
+      _other -> owners
+    end
+  end
+
+  defp release(owners, _item), do: owners
 
   defp preview_row(ref, item, update) do
     case Catalogue.preview_item_update(item, update.attrs, update.row_opts) do
@@ -200,18 +262,31 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
     Map.put(changes, "category_id", %{"from" => item.category_uuid || "", "to" => category || ""})
   end
 
+  defp with_attribute_changes(changes, _item, []), do: changes
+
   defp with_attribute_changes(changes, item, entries) do
+    # one read of the item's attachments for all its entries
+    selections = Attributes.selections(item.uuid)
+
     Enum.reduce(entries, changes, fn %{"set_id" => set_id, "values" => values}, acc ->
-      current = Attributes.selection(item.uuid, set_id)
+      set_uuid = canonical_id(set_id)
+      current = Map.get(selections, set_uuid, [])
 
       if Enum.sort(current) == Enum.sort(values),
         do: acc,
         else:
-          Map.put(acc, "attributes." <> set_id, %{
+          Map.put(acc, "attributes." <> set_uuid, %{
             "from" => Enum.join(current, ","),
             "to" => Enum.join(values, ",")
           })
     end)
+  end
+
+  defp canonical_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> uuid
+      :error -> id
+    end
   end
 
   # --- execution -------------------------------------------------------------------------
@@ -222,108 +297,170 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
     rows =
       for {:update, _ref, item, update} <- plan, do: {item.uuid, update.attrs, update.row_opts}
 
-    # `update_items/2` and the category moves all run with `broadcast: false`; the handler
-    # announces ONCE, below, every item that changed in any way (columns, category, attributes).
-    case Catalogue.update_items(rows, Keyword.put(opts, :broadcast, false)) do
+    # The column write, the category moves and the attribute writes all run with
+    # `broadcast: false`; the handler announces ONCE, below, every item that was
+    # written to in any way.
+    case write_columns(rows, opts) do
       {:ok, outcomes} ->
         by_uuid = Map.new(outcomes)
-        result_rows = Enum.map(plan, &finish(&1, by_uuid, opts, catalogue))
+        finished = Enum.map(plan, &finish(&1, by_uuid, opts, catalogue))
 
-        changed =
-          for %{"id" => id} = row <- result_rows,
-              is_binary(id),
-              row["action"] == "updated" or
-                get_in(row, ["error", "context", "columns_saved"]) == true,
-              do: id
+        saved = for {%{"id" => id}, true} <- finished, do: id
+        Catalogue.broadcast_item_batch_change(catalogue.uuid, :updated, saved)
+        finished |> Enum.map(&elem(&1, 0)) |> Common.batch_result()
 
-        Catalogue.broadcast_item_batch_change(catalogue.uuid, :updated, changed)
-        Common.batch_result(result_rows)
-
-      {:error, reason} ->
-        {:error, :internal_error, "The batch could not be written.", %{reason: inspect(reason)}}
+      {:error, _reason} ->
+        {:error, :internal_error, "The batch could not be written.", %{}}
     end
   end
 
+  defp write_columns([], _opts), do: {:ok, []}
+
+  defp write_columns(rows, opts),
+    do: Catalogue.update_items(rows, Keyword.put(opts, :broadcast, false))
+
+  # `{row, saved?}`: `saved?` tells whether the item was written to, so that it is
+  # announced even when a later step of its row failed.
   defp finish({:rejected, ref, message, context}, _outcomes, _opts, _catalogue),
-    do: Common.row_error(ref, :validation_failed, message, context)
+    do: {Common.row_error(ref, :validation_failed, message, context), false}
 
   defp finish({:resolution_error, ref, reason}, _outcomes, _opts, _catalogue),
-    do: Common.resolution_error(ref, reason)
+    do: {Common.resolution_error(ref, reason), false}
 
   defp finish({:update, ref, item, update}, outcomes, opts, catalogue) do
     case Map.get(outcomes, item.uuid) do
+      {kind, %{status: "deleted"} = trashed} ->
+        {trashed_row(ref, trashed, kind == :updated), kind == :updated}
+
       {kind, updated} when kind in [:updated, :unchanged] ->
-        follow_up(ref, kind, updated, update, opts)
+        follow_up(ref, kind, updated, update, opts, catalogue)
 
       {:error, reason} ->
-        failure(ref, reason, update, catalogue)
+        {failure(ref, reason, update, catalogue), false}
 
       nil ->
-        Common.row_error(ref, :internal_error, "The item was not part of the write.")
+        {Common.row_error(ref, :internal_error, "The item was not part of the write."), false}
     end
+  end
+
+  # The item was trashed between planning and writing. The column write is the
+  # same one `Catalogue.update_item/3` makes on a trashed row (its status stays
+  # `deleted`), so it may have been stored; nothing else is done to a trashed item.
+  defp trashed_row(ref, item, saved?) do
+    ref
+    |> Common.row_error(:not_found, "The item was trashed before the change was applied.", %{
+      "saved" => saved?
+    })
+    |> Map.put("id", item.uuid)
   end
 
   # After the columns: the category move, then the attribute selections.
-  defp follow_up(ref, kind, updated, update, opts) do
+  defp follow_up(ref, kind, updated, update, opts, catalogue) do
     # Asked BEFORE the write: afterwards the selection always equals the request.
     attributes_changed? = Attributes.changed?(updated.uuid, update.attributes)
 
-    with {:ok, moved?} <- move_category(updated, update.category, opts),
-         :ok <- apply_attributes(updated, update.attributes, opts) do
-      changed? = kind == :updated or moved? or attributes_changed?
-      Common.row_ok(ref, if(changed?, do: "updated", else: "unchanged"), updated.uuid)
-    else
-      {:error, message} ->
-        ref
-        |> Common.row_error(:validation_failed, message, %{"columns_saved" => kind == :updated})
-        |> Map.put("id", updated.uuid)
+    case move_category(updated, update.category, opts, catalogue) do
+      {:ok, moved?} ->
+        saved? = kind == :updated or moved?
+        apply_attributes_step(ref, updated, update, opts, saved?, attributes_changed?)
+
+      {:error, reason, moved?} ->
+        saved? = kind == :updated or moved?
+
+        {step_failure(
+           ref,
+           updated,
+           "The category was not changed",
+           move_sentence(reason),
+           reason,
+           saved?
+         ), saved?}
     end
   end
 
-  defp move_category(_item, :keep, _opts), do: {:ok, false}
-  defp move_category(%{category_uuid: same}, same, _opts), do: {:ok, false}
+  defp apply_attributes_step(ref, updated, update, opts, saved?, attributes_changed?) do
+    case apply_attributes(updated, update.attributes, opts) do
+      :ok ->
+        changed? = saved? or attributes_changed?
 
-  defp move_category(item, category, opts) do
-    # `broadcast: false`: the batch is announced once by `execute/3` (a move logs one
-    # `item.moved` entry per item, the context's own action with readable from/to;
-    # see D12 for why that is the one place the batch is not a single log insert).
+        {Common.row_ok(ref, if(changed?, do: "updated", else: "unchanged"), updated.uuid),
+         changed?}
+
+      {:error, reason} ->
+        # Attribute sets are written one by one, so some may be stored: announce the item.
+        {step_failure(
+           ref,
+           updated,
+           "The attributes were not saved",
+           attribute_sentence(reason),
+           reason,
+           saved?
+         ), true}
+    end
+  end
+
+  defp step_failure(ref, updated, lead, sentence, reason, saved?) do
+    ref
+    |> Common.row_error(:validation_failed, "#{lead}: #{sentence}.", %{
+      "saved" => saved?,
+      "reason" => reason_code(reason)
+    })
+    |> Map.put("id", updated.uuid)
+  end
+
+  defp reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_code(%Ecto.Changeset{}), do: "invalid"
+  defp reason_code(_reason), do: "unknown"
+
+  defp move_sentence(:category_not_found), do: "the category no longer exists or is in the trash"
+  defp move_sentence(:not_found), do: "the item no longer exists or is in the trash"
+  defp move_sentence(:kind_mismatch), do: "the category belongs to a catalogue of another kind"
+
+  defp move_sentence(:catalogue_changed),
+    do: "the category was moved to another catalogue meanwhile and the item went with it"
+
+  defp move_sentence(_other), do: "the move was refused"
+
+  defp attribute_sentence(:set_not_found), do: "an attribute set no longer exists"
+  defp attribute_sentence(:not_attached), do: "an attribute set is no longer attached to the item"
+  defp attribute_sentence(:entities_disabled), do: "attribute sets are not available"
+  defp attribute_sentence(_other), do: "the write was refused"
+
+  # `{:ok, moved?}` or `{:error, reason, moved?}`; `moved?` is true when the item did
+  # change category although the row failed (the category was re-homed meanwhile).
+  defp move_category(_item, :keep, _opts, _catalogue), do: {:ok, false}
+  defp move_category(%{category_uuid: same}, same, _opts, _catalogue), do: {:ok, false}
+
+  defp move_category(item, category, opts, catalogue) do
+    # A move logs one `item.moved` entry per item, the context's own action with
+    # readable from/to references, so N moves are N log inserts; the batch is
+    # announced once by `execute/3` (`broadcast: false`).
     move_opts = Keyword.take(opts, [:actor_uuid, :mode, :log_metadata]) ++ [broadcast: false]
 
     case Catalogue.move_item_to_category(item, category, move_opts) do
-      {:ok, _moved} ->
+      {:ok, %{catalogue_uuid: catalogue_uuid}} when catalogue_uuid == catalogue.uuid ->
         {:ok, true}
 
+      {:ok, moved} ->
+        # The category was re-homed after planning; the move follows the category.
+        Catalogue.broadcast_item_batch_change(moved.catalogue_uuid, :updated, [moved.uuid])
+        {:error, :catalogue_changed, true}
+
       {:error, reason} ->
-        {:error,
-         "The item was updated but could not be moved to the category: #{inspect(reason)}."}
+        {:error, reason, false}
     end
   end
 
   defp apply_attributes(_item, [], _opts), do: :ok
 
   defp apply_attributes(item, entries, opts) do
-    # `broadcast: false`: the batch is announced once by `execute/3`.
     attribute_opts = Keyword.take(opts, [:actor_uuid, :mode, :log_metadata]) ++ [broadcast: false]
-
-    case Attributes.apply_to_item(item.uuid, entries, attribute_opts) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        {:error, "The item was updated but its attributes were not saved: #{inspect(reason)}."}
-    end
+    Attributes.apply_to_item(item.uuid, entries, attribute_opts)
   end
 
   defp failure(ref, %Ecto.Changeset{} = changeset, update, catalogue) do
     if Common.external_id_conflict?(changeset) do
-      Common.row_error(
-        ref,
-        :already_exists,
-        "Another item of the catalogue already has this external_id.",
-        %{
-          "existing_id" => holder_of(update.external_id, catalogue)
-        }
-      )
+      external_id_taken(ref, holder_of(update.external_id, catalogue))
     else
       Common.row_error(ref, :validation_failed, "The change is not valid.", %{
         "errors" => Common.changeset_errors(changeset)
@@ -336,6 +473,15 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
 
   defp failure(ref, _reason, _update, _catalogue),
     do: Common.row_error(ref, :internal_error, "The item could not be written.")
+
+  defp external_id_taken(ref, existing_id) do
+    Common.row_error(
+      ref,
+      :already_exists,
+      "Another item of the catalogue already has this external_id.",
+      %{"existing_id" => existing_id}
+    )
+  end
 
   defp holder_of(nil, _catalogue), do: nil
 
