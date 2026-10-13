@@ -337,7 +337,7 @@ defmodule PhoenixKitCatalogue.API.UpsertCategories do
   defp parent_problem(_state, own, own), do: "category cannot be its own parent"
 
   defp parent_problem(state, own, candidate) do
-    if descends_from?(state, candidate, own, MapSet.new()), do: "would create a cycle"
+    if descends_from?(state, candidate, own, %{}), do: "would create a cycle"
   end
 
   # Whether walking up from `current` reaches `own`.
@@ -345,9 +345,9 @@ defmodule PhoenixKitCatalogue.API.UpsertCategories do
   defp descends_from?(_state, own, own, _seen), do: true
 
   defp descends_from?(state, current, own, seen) do
-    if MapSet.member?(seen, current),
+    if Map.has_key?(seen, current),
       do: false,
-      else: descends_from?(state, parent_of(state, current), own, MapSet.put(seen, current))
+      else: descends_from?(state, parent_of(state, current), own, Map.put(seen, current, true))
   end
 
   # The fields that differ, as column attrs and as a from/to map for the log and the preview.
