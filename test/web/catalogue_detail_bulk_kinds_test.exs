@@ -23,7 +23,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkKindsTest do
     _ = render(view)
 
     refute_push_event(view, "sortable:flash", %{status: "error"})
-    assert Process.alive?(view.pid)
   end
 
   test ":created does not red-flash either", %{conn: conn, catalogue: cat, item: item} do
@@ -45,6 +44,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkKindsTest do
 
     assert_push_event(view, "sortable:flash", %{status: "error", uuid: uuid})
     assert uuid == item.uuid
+  end
+
+  test "a batch write from another process refreshes the open page", %{
+    conn: conn,
+    catalogue: cat,
+    item: item
+  } do
+    {:ok, view, _html} = mount_detail(conn, cat)
+
+    {:ok, [{_, {:updated, _}}]} =
+      PhoenixKitCatalogue.Catalogue.update_items([{item.uuid, %{name: "Renamed By Batch"}}],
+        actor_uuid: nil
+      )
+
+    # The broadcast reaches the page (it schedules the refresh); run the refresh
+    # at once instead of waiting out the flash delay.
+    _ = render(view)
+    send(view.pid, {:bulk_change_apply, :updated, [item.uuid]})
+
+    assert has_element?(view, "tr", "Renamed By Batch")
   end
 
   test "the apply step flashes a created row green and an updated one not at all",

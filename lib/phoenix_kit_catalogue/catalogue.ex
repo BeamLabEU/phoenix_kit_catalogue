@@ -6375,23 +6375,39 @@ defmodule PhoenixKitCatalogue.Catalogue do
   changeset had nothing to change: no write, no log entry) or `{:error, reason}`
   with a changeset, `:not_found` (no such row, or not a UUID),
   `:duplicate_row` (the uuid already appeared earlier in this batch) or
-  `:database_error`. **Rows are independent**: each is applied under a
-  savepoint, so one that fails leaves the others written.
+  `:database_error`. A uuid is matched in its canonical lowercase form (an
+  upper-case spelling of an existing row's uuid finds the row, and counts as
+  the same row for `:duplicate_row`); the outcome tuple keeps the string the
+  caller sent. The returned items carry no preloaded associations.
+
+  **Rows are independent**, as far as the row's own UPDATE goes: each is
+  applied under a savepoint, so a row whose UPDATE fails (a constraint, a
+  value the database refuses) leaves the others written. Any other database
+  error (the reads around the UPDATE, which touch rows the batch already
+  holds) aborts the whole batch as `{:error, term}` and nothing is written.
 
   Rows are locked in a fixed order (the categories involved `FOR SHARE`, then
   the item rows `FOR UPDATE`, each sorted by uuid), and every row goes through
   the same code as `update_item/3`, including `:data_owned_paths` (applied to
-  the locked fresh row), `:skip_derive` and `:logged_data_paths`.
+  the locked fresh row), `:skip_derive` and `:logged_data_paths`. Row and
+  category locks are ordered, so two batches over overlapping rows cannot
+  deadlock on them; waits on the `external_id` and slug unique indexes are
+  not ordered, and a row that is the victim of a deadlock detected there
+  answers `:database_error`.
 
   ## Options
 
   `:actor_uuid`, `:mode`, `:log_metadata`, `:logged_data_paths`,
-  `:data_owned_paths`, `:skip_derive` as in `update_item/3`, and
-  `:broadcast` (default `true`): when `false` no bulk event is sent.
+  `:data_owned_paths`, `:slug_owned_langs`, `:skip_derive` as in
+  `update_item/3`, and `:broadcast` (default `true`): when `false` no bulk
+  event is sent. The options (shared and per row) are validated before any
+  query is issued; a bad one raises `ArgumentError`, as in `update_item/3`.
 
   After the commit: one `item.updated` entry per CHANGED row in a single
   `ActivityLog.log_many/1`, and one `{:catalogue_bulk_change, catalogue_uuid,
-  :updated, uuids, from}` per catalogue the changed rows live in.
+  :updated, uuids, from}` per catalogue the changed rows live in (a row that
+  moves to another catalogue through `category_uuid` is announced to the new
+  catalogue only).
   """
   @spec update_items([{Ecto.UUID.t(), map()} | {Ecto.UUID.t(), map(), keyword()}], keyword()) ::
           {:ok, [{Ecto.UUID.t(), item_outcome()}]} | {:error, term()}
@@ -6402,6 +6418,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
 
     rows = Enum.map(rows, &normalize_update_row/1)
+
+    # A bad option raises before any query is issued, like in `update_item/3`.
+    Enum.each(rows, fn {_uuid, _attrs, row_opts} ->
+      owned_options!(Keyword.merge(opts, row_opts))
+    end)
 
     case repo().transaction(fn -> run_update_items(rows, opts) end) do
       {:ok, results} ->
@@ -6422,22 +6443,34 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   # Runs inside the transaction. Returns `[{uuid, outcome, log_entry | nil}]`.
   defp run_update_items(rows, opts) do
-    uuids = for {uuid, _attrs, _row_opts} <- rows, Helpers.uuid?(uuid), do: uuid
-    items = lock_items_for_batch(rows, uuids)
+    canonical = Enum.map(rows, fn {uuid, _attrs, _row_opts} -> canonical_uuid(uuid) end)
+    items = lock_items_for_batch(rows, Enum.reject(canonical, &is_nil/1))
 
     {results, _seen} =
-      Enum.map_reduce(rows, MapSet.new(), fn {uuid, attrs, row_opts}, seen ->
-        if MapSet.member?(seen, uuid) do
+      rows
+      |> Enum.zip(canonical)
+      |> Enum.map_reduce(MapSet.new(), fn {{uuid, attrs, row_opts}, canon}, seen ->
+        key = canon || uuid
+
+        if MapSet.member?(seen, key) do
           {{uuid, {:error, :duplicate_row}, nil}, seen}
         else
           {outcome, entry} =
-            update_batch_row(Map.get(items, uuid), attrs, Keyword.merge(opts, row_opts))
+            update_batch_row(Map.get(items, canon), attrs, Keyword.merge(opts, row_opts))
 
-          {{uuid, outcome, entry}, MapSet.put(seen, uuid)}
+          {{uuid, outcome, entry}, MapSet.put(seen, key)}
         end
       end)
 
     results
+  end
+
+  # The canonical (lowercase) form of anything `Ecto.UUID` accepts, else nil.
+  defp canonical_uuid(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, canonical} -> canonical
+      :error -> nil
+    end
   end
 
   # Categories FOR SHARE, then items FOR UPDATE, each in uuid order: the order
@@ -6455,8 +6488,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     incoming_categories =
       rows
-      |> Enum.map(fn {_uuid, attrs, _row_opts} -> Helpers.fetch_attr(attrs, :category_uuid) end)
-      |> Enum.filter(&(is_binary(&1) and Helpers.uuid?(&1)))
+      |> Enum.map(fn {_uuid, attrs, _row_opts} ->
+        attrs |> Helpers.fetch_attr(:category_uuid) |> canonical_uuid()
+      end)
+      |> Enum.reject(&is_nil/1)
 
     category_uuids = (current_categories ++ incoming_categories) |> Enum.uniq() |> Enum.sort()
 
@@ -6484,9 +6519,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   rescue
     error in Postgrex.Error ->
-      Logger.warning("update_items row #{item.uuid} failed: #{Exception.message(error)}")
+      Logger.warning("update_items row #{item.uuid} failed: #{pg_error_summary(error)}")
       {{:error, :database_error}, nil}
   end
+
+  # Only the structured, value-free fields of a database error: its message and
+  # detail can carry the offending value.
+  defp pg_error_summary(%Postgrex.Error{postgres: %{} = pg}) do
+    Enum.map_join([:pg_code, :code, :constraint, :table], " ", fn key ->
+      "#{key}=#{Map.get(pg, key, "-")}"
+    end)
+  end
+
+  defp pg_error_summary(%Postgrex.Error{}), do: "no server error"
 
   defp batch_entry(before, updated, opts) do
     metadata =

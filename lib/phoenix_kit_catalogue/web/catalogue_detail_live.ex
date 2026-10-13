@@ -611,9 +611,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Cross-tab live bulk change: another open detail page just bulk-
   # trashed / restored / moved / hard-deleted / created / updated items.
   # Two-step animation for receivers — flash the "leaving" colour on
-  # every affected DOM row immediately, schedule the actual state refresh after the flash
-  # plays out (~800ms), then on refresh fire green flash for the
-  # arriving rows when the kind is :restored, :moved or :created.
+  # every affected DOM row immediately, schedule the actual state
+  # refresh after the flash plays out (~800ms), then on refresh fire
+  # green flash for the arriving rows when the kind is :restored,
+  # :moved or :created.
   def handle_info(
         {:catalogue_bulk_change, cat_uuid, kind, uuids, from},
         %{assigns: %{catalogue_uuid: catalogue_uuid}} = socket
