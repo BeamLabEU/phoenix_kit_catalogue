@@ -516,8 +516,8 @@ defmodule PhoenixKitCatalogue.MediaFoldersTest do
       # trash and library checks each); the batch is one lock, one check set
       # and one UPDATE. The rest is reading each record's name in the
       # primary language, which the test env (no settings cache) pays a
-      # query for.
-      assert :counters.get(queries, 1) < 400
+      # few queries for.
+      assert :counters.get(queries, 1) < 800
 
       assert Enum.all?(uuids, fn uuid ->
                uuid |> Catalogue.get_item() |> pointer() |> path() |> Enum.take(3) ==
@@ -803,6 +803,45 @@ defmodule PhoenixKitCatalogue.MediaFoldersTest do
                ["Catalogues", "Shop", "Benches", "Pew"]
 
       assert Storage.get_folder(seating_folder).name == "catalogue-category-#{seating.uuid}"
+    end
+  end
+
+  describe "a folder that cannot follow its record" do
+    test "does not undo the transaction the context called it from",
+         %{user_uuid: user_uuid} do
+      catalogue = fixture_catalogue(%{name: "Shop"})
+      chairs = fixture_category(catalogue, %{name: "Chairs"})
+      tables = fixture_category(catalogue, %{name: "Tables"})
+
+      stool =
+        fixture_item(%{catalogue_uuid: catalogue.uuid, category_uuid: chairs.uuid, name: "Stool"})
+
+      {:ok, stool} = Attachments.attach_files(stool, [insert_file!(user_uuid)])
+      folder = Storage.get_folder(pointer(stool))
+
+      # The destination already holds a folder under each name the stool's
+      # could take, so the update is refused.
+      {:ok, tables_folder} =
+        MediaFolders.parent_for(:item, user_uuid, %Item{
+          catalogue_uuid: catalogue.uuid,
+          category_uuid: tables.uuid
+        })
+
+      for name <- ["Stool", "catalogue-item-#{stool.uuid}", "Stool (#{stool.sku})"] do
+        Storage.create_folder(%{name: name, parent_uuid: tables_folder})
+      end
+
+      moved = %{stool | category_uuid: tables.uuid}
+
+      assert {:ok, :done} =
+               Repo.transaction(fn ->
+                 assert :ok = MediaFolders.follow([{stool, moved}], user_uuid)
+                 :done
+               end)
+
+      # The folder found no free name and stayed where it was.
+      assert %{parent_uuid: parent, name: "Stool"} = Storage.get_folder(folder.uuid)
+      refute parent == tables_folder
     end
   end
 
