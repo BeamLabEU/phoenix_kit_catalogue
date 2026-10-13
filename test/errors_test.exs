@@ -86,6 +86,11 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
                "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
     end
 
+    test "external_id_taken" do
+      assert Errors.message(:external_id_taken) ==
+               "Another active row already uses the same external id."
+    end
+
     test "catalogue_moved" do
       assert Errors.message(:catalogue_moved) ==
                "The catalogue changed while this was running. Please try again."
