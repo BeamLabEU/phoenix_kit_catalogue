@@ -200,6 +200,38 @@ defmodule PhoenixKitCatalogue.API.Schemas do
     }
   end
 
+  @doc "Rows of `catalogue.upsert_categories`: closed, no raw data."
+  def upsert_categories do
+    %{
+      "type" => "object",
+      "required" => ["items"],
+      "properties" => %{
+        "catalogue_id" => @uuid,
+        "items" => %{
+          "type" => "array",
+          "minItems" => 1,
+          "maxItems" => 500,
+          "items" => %{
+            "type" => "object",
+            "properties" => %{
+              "id" => @row_id,
+              "external_id" => row_text(200),
+              "name" => row_text(255),
+              "parent" => %{
+                "type" => ["object", "null"],
+                "properties" => %{"id" => @row_id, "external_id" => row_text(200)},
+                "additionalProperties" => false
+              },
+              "position" => %{"type" => "integer", "minimum" => 0}
+            },
+            "additionalProperties" => false
+          }
+        }
+      },
+      "additionalProperties" => false
+    }
+  end
+
   def list_products do
     %{
       "type" => "object",
