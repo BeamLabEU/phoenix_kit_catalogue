@@ -16,7 +16,7 @@ defmodule PhoenixKitCatalogue.API.Tools do
   @permission "catalogue"
 
   @spec all() :: [Tool.t()]
-  def all, do: [list_products(), get_products(), list_categories()]
+  def all, do: [list_products(), get_products(), create_products(), list_categories()]
 
   defp list_products do
     Tool.new!(
@@ -58,6 +58,27 @@ defmodule PhoenixKitCatalogue.API.Tools do
       handler: {PhoenixKitCatalogue.API.GetProducts, :call},
       annotations: %{read_only: true, idempotent: true},
       max_items: 50
+    )
+  end
+
+  defp create_products do
+    Tool.new!(
+      name: "catalogue.create_products",
+      audience: :admin,
+      scope: "catalogue.products:write",
+      permission: @permission,
+      title: "Create products",
+      description:
+        "Creates up to 500 items in one catalogue. Every row needs a name and at least one of sku and " <>
+          "external_id (so a retried request cannot create the item twice). A row whose sku or external_id " <>
+          "already exists is skipped with already_exists and the existing id: nothing is ever overwritten. " <>
+          "New items have no price and are not visible in the shop until ecommerce.set_prices and " <>
+          "ecommerce.set_availability are called. Rows are independent; each answers created, skipped or error.",
+      input_schema: Schemas.create_products(),
+      output_schema: Schemas.batch_output(),
+      handler: {PhoenixKitCatalogue.API.CreateProducts, :call},
+      annotations: %{idempotent: false},
+      max_items: 500
     )
   end
 
