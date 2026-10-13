@@ -1,5 +1,5 @@
 defmodule PhoenixKitCatalogue.API.DeleteProductsTest do
-  @moduledoc "`catalogue.delete_products` (spec 6.1, 4.4, 11.2)."
+  @moduledoc "`catalogue.delete_products`."
 
   use PhoenixKitCatalogue.DataCase, async: false
 

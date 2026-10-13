@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.UpdateItemsTest do
   @moduledoc """
   `Catalogue.update_items/2`: one transaction, rows independent, one log
-  insert and one bulk broadcast per batch (spec 4.7).
+  insert and one bulk broadcast per batch.
   """
 
   use PhoenixKitCatalogue.DataCase, async: false

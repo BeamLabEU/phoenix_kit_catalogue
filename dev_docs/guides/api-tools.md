@@ -1,6 +1,6 @@
 # Shop API tools
 
-The catalogue's part of the shop API: eight admin tools that core's API layer (keys, scopes, rate limits, JSON Schema validation, the confirmation flow for dangerous operations, the REST and MCP transports) serves. This module declares the tools and owns the data rules; it does no authentication of its own. Design: the shop API spec in the owner's repository (`2026-10-10-shop-api-design.md`, sections 3-6).
+The catalogue's part of the shop API: eight admin tools that core's API layer (keys, scopes, rate limits, JSON Schema validation, the confirmation flow for dangerous operations, the REST and MCP transports) serves. This module declares the tools and owns the data rules; it does no authentication of its own.
 
 ## The tools
 

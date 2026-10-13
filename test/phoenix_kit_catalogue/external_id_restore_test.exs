@@ -91,7 +91,7 @@ defmodule PhoenixKitCatalogue.ExternalIdRestoreTest do
     assert Catalogue.get_item(other.uuid).status == "deleted"
   end
 
-  describe "moves between catalogues (the same guard, D11)" do
+  describe "moves between catalogues" do
     setup %{catalogue: catalogue} do
       %{target: fixture_catalogue(%{name: "Move target"}), source: catalogue}
     end

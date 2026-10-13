@@ -1,5 +1,5 @@
 defmodule PhoenixKitCatalogue.API.CreateProductsAttributesTest do
-  @moduledoc "`create_products` with attribute values (spec 6.1): validated up front, applied after the item."
+  @moduledoc "`create_products` with attribute values: validated up front, applied after the item."
 
   use PhoenixKitCatalogue.DataCase, async: false
 
@@ -42,7 +42,7 @@ defmodule PhoenixKitCatalogue.API.CreateProductsAttributesTest do
       assert set_uuid == ctx.set.uuid
       assert selected == [ctx.red.slug]
 
-      # Spec 4.7: the attribute writes carry the actor and `via: api` / the tool too.
+      # The attribute writes carry the actor and `via: api` / the tool too.
       for action <- ~w(attribute_set.attached attribute_set.selection_changed) do
         log =
           assert_activity_logged(action,

@@ -1,5 +1,5 @@
 defmodule PhoenixKitCatalogue.API.ListCategoriesTest do
-  @moduledoc "`catalogue.list_categories` (spec 6.1): the category tree with ids, names per language and positions."
+  @moduledoc "`catalogue.list_categories`: the category tree with ids, names per language and positions."
 
   use PhoenixKitCatalogue.DataCase, async: false
 

@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.API.DeleteProducts do
   @moduledoc false
-  # Tool `catalogue.delete_products` (spec 6.1, 4.4): trash, never delete.
+  # Tool `catalogue.delete_products`: trash, never delete.
 
   alias PhoenixKitCatalogue.API
   alias PhoenixKitCatalogue.API.Common

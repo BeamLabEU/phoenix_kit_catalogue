@@ -1,5 +1,5 @@
 defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
-  @moduledoc "`catalogue.update_products` (spec 6.1, 11.2)."
+  @moduledoc "`catalogue.update_products`."
 
   use PhoenixKitCatalogue.DataCase, async: false
 

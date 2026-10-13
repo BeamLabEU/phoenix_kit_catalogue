@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.API.UpdateProducts do
   @moduledoc false
-  # Tool `catalogue.update_products` (spec 6.1).
+  # Tool `catalogue.update_products`.
 
   alias PhoenixKitCatalogue.API
   alias PhoenixKitCatalogue.API.{Attributes, Common}
