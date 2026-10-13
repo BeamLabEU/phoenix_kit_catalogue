@@ -60,6 +60,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Manufacturers,
     PdfLibrary,
     PubSub,
+    RefLookup,
     Rules,
     Search,
     SmartPricing,
@@ -8214,4 +8215,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate list_items_keyset(opts), to: ItemPaging, as: :page
   defdelegate count_items_matching(opts), to: ItemPaging, as: :count
   defdelegate decode_items_cursor(cursor), to: ItemPaging, as: :decode_cursor
+
+  # ── Batched reference lookups for the shop API ───────────────────
+  defdelegate lookup_by_ids(kind, ids, opts \\ []), to: RefLookup, as: :by_ids
+  defdelegate lookup_by_skus(kind, skus, opts \\ []), to: RefLookup, as: :by_skus
+  defdelegate lookup_by_external_ids(kind, eids, opts \\ []), to: RefLookup, as: :by_external_ids
 end
