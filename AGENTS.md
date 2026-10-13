@@ -522,8 +522,9 @@ Pointers, not docs — the moduledocs are the contract.
   bulk path reads its `before` side with `MediaFolders.moving_items/1`
   inside its transaction. A hard delete asks `MediaFolders.release_plan/1`
   before it deletes and hands the plan to `release/1` after, which renames
-  the record's folder to its deterministic name so a new record of that
-  name cannot adopt the old files. A test that changes a hook key uses
+  the record's folder to its deterministic name (with a UUID suffix when
+  occupied) so a new record of that name cannot adopt the old files.
+  A test that changes a hook key uses
   `Test.MediaHooks`, never `Application.delete_env/2` — that would strip
   the defaults from every later test. Flat pre-layout folders are the
   media reorganizer's (`mix phoenix_kit.media.reorganize --source

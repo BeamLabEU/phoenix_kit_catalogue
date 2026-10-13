@@ -53,6 +53,7 @@ defmodule PhoenixKitCatalogue.MediaFolders do
   A hard delete leaves a record's folder and files in the media library,
   but `release_plan/1` / `release/1` rename the folder to the deterministic
   `catalogue-<kind>-<uuid>` first (when it is still as the hooks put it),
+  with a UUID suffix if that name is already occupied,
   so a new record of the same name starts a folder of its own.
 
   Folders that predate the layout (the flat `catalogue-item-<uuid>`
@@ -129,8 +130,11 @@ defmodule PhoenixKitCatalogue.MediaFolders do
   @spec folder_name(term(), String.t() | nil) :: {:ok, String.t()} | nil
   def folder_name(%Item{uuid: uuid} = item, _actor_uuid) when is_binary(uuid) do
     case hook_base(item) do
-      nil -> nil
-      name -> if namesake?(item, name), do: with_sku(name, item.sku), else: {:ok, name}
+      nil ->
+        nil
+
+      name ->
+        if namesake?(item, name), do: with_sku(name, item.sku), else: folder_name_result(name)
     end
   end
 
@@ -138,7 +142,7 @@ defmodule PhoenixKitCatalogue.MediaFolders do
       when schema in [Category, Catalogue] and is_binary(uuid) do
     case hook_base(record) do
       nil -> nil
-      name -> {:ok, name}
+      name -> folder_name_result(name)
     end
   end
 
@@ -244,7 +248,7 @@ defmodule PhoenixKitCatalogue.MediaFolders do
   @spec release([%{folder: Folder.t(), name: String.t()}]) :: :ok
   def release(plan) when is_list(plan) do
     Enum.each(plan, fn %{folder: folder, name: name} ->
-      with {:error, reason} <- Storage.update_folder(folder, %{name: name}) do
+      with {:ok, {:error, reason}} <- release_folder(folder, name) do
         Logger.warning(
           "[Catalogue] media folder #{folder.uuid} was not released from its deleted " <>
             "record: #{ResourceFolders.describe_failure(reason)}"
@@ -259,6 +263,42 @@ defmodule PhoenixKitCatalogue.MediaFolders do
       )
 
       :ok
+  catch
+    kind, reason ->
+      Logger.warning(
+        "[Catalogue] media folders were not released: " <>
+          ResourceFolders.describe_failure({kind, reason})
+      )
+
+      :ok
+  end
+
+  defp release_folder(folder, name) do
+    repo().transaction(fn ->
+      Storage.lock_folder_tree()
+      release_fresh_folder(folder, name)
+    end)
+  end
+
+  defp release_fresh_folder(folder, name) do
+    # A person may have changed the folder since the plan was read.
+    case ResourceFolders.live_folder(folder.uuid) do
+      %Folder{name: old_name, parent_uuid: parent} = fresh
+      when old_name == folder.name and parent == folder.parent_uuid ->
+        release_name =
+          free_name(
+            [name, "#{name}-#{folder.uuid}", "#{name}-#{Ecto.UUID.generate()}"],
+            fresh,
+            parent
+          )
+
+        if release_name,
+          do: write_changes(fresh, %{name: release_name}),
+          else: {:error, :name_taken}
+
+      _changed_or_gone ->
+        :ok
+    end
   end
 
   defp release_steps([]), do: []
@@ -340,7 +380,7 @@ defmodule PhoenixKitCatalogue.MediaFolders do
           do: own_name(after_save),
           else: folder.name
 
-      if is_binary(new_parent),
+      if not ctx.moves? or is_binary(new_parent),
         do: {[%{folder: folder, parent: new_parent, name: name, record: after_save}], cache},
         else: {[], cache}
     else
@@ -356,8 +396,8 @@ defmodule PhoenixKitCatalogue.MediaFolders do
         do: cached(cache, {:old, place(record)}, fn -> old_container(record) end),
         else: {folder.parent_uuid, cache}
 
-    {is_binary(parent) and folder.parent_uuid == parent and folder.name in old_names(record, ctx),
-     cache}
+    {(not ctx.moves? or is_binary(parent)) and folder.parent_uuid == parent and
+       folder.name in old_names(record, ctx), cache}
   end
 
   defp destination(folder, before, after_save, %{moves?: true} = ctx, cache) do
@@ -521,14 +561,12 @@ defmodule PhoenixKitCatalogue.MediaFolders do
   defp relocate(folder, parent_uuid, name, record) do
     result =
       repo().transaction(fn ->
-        case free_name(
-               [name, own_name(record), Attachments.legacy_folder_name(record)],
-               folder,
-               parent_uuid
-             ) do
-          nil -> {:error, :name_taken}
-          name -> write_changes(folder, changes(folder, parent_uuid, name))
-        end
+        # Take the tree lock before the name lock, as the batch path does.
+        # Core's update_folder rolls back on a refused move; a nested
+        # rollback would abort the catalogue operation too. Check the same
+        # tree invariants here and return refusals as values instead.
+        Storage.lock_folder_tree()
+        relocate_locked(folder, parent_uuid, name, record)
       end)
 
     with {:ok, {:error, reason}} <- result do
@@ -541,15 +579,47 @@ defmodule PhoenixKitCatalogue.MediaFolders do
     :ok
   end
 
+  defp relocate_locked(folder, parent_uuid, name, record) do
+    with :ok <- movable(folder, parent_uuid) do
+      case free_name(
+             [name, own_name(record), Attachments.legacy_folder_name(record)],
+             folder,
+             parent_uuid
+           ) do
+        nil -> {:error, :name_taken}
+        name -> write_changes(folder, changes(folder, parent_uuid, name))
+      end
+    end
+  end
+
   defp write_changes(_folder, attrs) when attrs == %{}, do: :ok
 
   defp write_changes(folder, attrs) do
-    with {:ok, _folder} <- Storage.update_folder(folder, attrs), do: :ok
+    # A concurrent name claim can still hit the unique constraint. A
+    # savepoint keeps that failed statement from aborting the caller.
+    with {:ok, _folder} <- folder |> Folder.changeset(attrs) |> repo().update(mode: :savepoint),
+         do: :ok
+  end
+
+  defp movable(_folder, nil), do: :ok
+
+  defp movable(folder, parent_uuid) do
+    case ResourceFolders.live_folder(parent_uuid) do
+      nil ->
+        {:error, :folder_unavailable}
+
+      %Folder{library_uuid: library} when library != folder.library_uuid ->
+        {:error, :other_library}
+
+      %Folder{} ->
+        if Storage.ancestor_of?(folder.uuid, parent_uuid), do: {:error, :cycle}, else: :ok
+    end
   end
 
   defp free_name(names, folder, parent_uuid) do
     names
     |> Enum.uniq()
+    |> Enum.filter(&(is_binary(&1) and String.length(&1) in 1..255))
     |> Enum.find(fn name ->
       ResourceFolders.lock_name(parent_uuid, name)
 
@@ -784,7 +854,18 @@ defmodule PhoenixKitCatalogue.MediaFolders do
     |> where([i], i.uuid != ^item.uuid and i.status != "deleted")
     |> where([i], i.catalogue_uuid == ^item.catalogue_uuid)
     |> same_category(item.category_uuid)
-    |> where([i], i.name in ^Enum.uniq([name, item.name || name]))
+    |> where(
+      [i],
+      fragment("btrim(?) = ?", i.name, ^name) or
+        fragment(
+          """
+          EXISTS (SELECT 1 FROM jsonb_each(?) AS t(locale, value)
+                  WHERE btrim(COALESCE(value->>'_name', value->>'name')) = ?)
+          """,
+          i.data,
+          ^name
+        )
+    )
     |> repo().all()
     |> Enum.any?(&(base_name(&1) == name))
   end
@@ -795,8 +876,12 @@ defmodule PhoenixKitCatalogue.MediaFolders do
   defp with_sku(name, sku) do
     case present(sku) do
       nil -> nil
-      sku -> {:ok, "#{name} (#{sku})"}
+      sku -> folder_name_result("#{name} (#{sku})")
     end
+  end
+
+  defp folder_name_result(name) do
+    if String.length(name) <= 255, do: {:ok, name}, else: nil
   end
 
   defp present(value) when is_binary(value) do

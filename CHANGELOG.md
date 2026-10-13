@@ -1,3 +1,17 @@
+## Unreleased
+
+### Fixed
+
+- A refused media-folder cycle no longer rolls back bulk category trash.
+- A hard delete frees the media folder's readable name even when its
+  deterministic fallback is occupied, so a replacement record keeps its own files.
+- Media-folder naming recognizes translated namesakes and falls back to a
+  deterministic name when a readable name plus SKU exceeds the folder-name limit.
+- An explicit media-folder naming hook follows renames and releases deleted
+  records' names when their folders sit at the media root.
+- The database-backed pagination test allows its async search to finish under
+  load instead of failing after the default 100 ms wait.
+
 ## 0.48.0 - 2026-10-13
 
 Reviews: `dev_docs/pull_requests/2026/147-quality-sweep/`,
