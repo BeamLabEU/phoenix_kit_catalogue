@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
   @moduledoc """
-  The catalogue's tool declarations against the spec's tables (4.3, 3.2, 6.1)
+  The catalogue's tool declarations against the shop API tool table
   and against the contract with core: valid structs, closed schemas that use
   only the keywords core's validator implements, and no way to write a shop
   price, markup, discount or raw `data` through a catalogue tool.
@@ -16,7 +16,7 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
   alias PhoenixKitCatalogue.API.Tools
   alias PhoenixKitCatalogue.Test.ApiCase
 
-  # name => {scope, read_only?, max_items}; spec 4.3 and 5.4
+  # name => {scope, read_only?, max_items}
   @table %{
     "catalogue.list_products" => {"catalogue.products:read", true, nil},
     "catalogue.get_products" => {"catalogue.products:read", true, 50},
@@ -33,7 +33,7 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
   @forbidden_properties ~w(base_price markup_percentage discount_percentage data cost_per_item
                            price compare_at_price price_modifiers)
 
-  test "exactly the eight tools of spec 6.1, in the spec's order" do
+  test "exactly the eight tools, in the documented order" do
     assert Enum.map(Tools.all(), & &1.name) == [
              "catalogue.list_products",
              "catalogue.get_products",
@@ -57,7 +57,7 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
     end
   end
 
-  test "scopes, read-only annotations and batch caps match the spec" do
+  test "scopes, read-only annotations and batch caps match the table" do
     for tool <- Tools.all() do
       {scope, read_only?, max_items} = Map.fetch!(@table, tool.name)
 

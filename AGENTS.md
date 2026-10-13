@@ -487,7 +487,9 @@ Pointers, not docs — the moduledocs are the contract.
   itself), and `Catalogue.RefLookup` through the facade only.
   `catalogue.delete_products` is `danger: :always` and trashes, never
   hard-deletes: it must only ever run under a core that enforces the
-  confirmation gate (the `phoenix_kit` floor in `mix.exs`).
+  confirmation gate. `API.Gate` keeps the tool out of the registry on a core
+  that lacks the gate; raise the `phoenix_kit` floor in `mix.exs` to the first
+  release that ships the shop API.
   Guide: `dev_docs/guides/api-tools.md`; tests: `test/phoenix_kit_catalogue/api/`,
   through `Test.ApiCase`.
 - **Moves and copies** — a move lands only in a live catalogue (and

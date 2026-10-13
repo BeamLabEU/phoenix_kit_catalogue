@@ -118,7 +118,7 @@ defmodule PhoenixKitCatalogue.ItemPagingTest do
 
     assert names(Catalogue.list_items_keyset(base ++ [status: "inactive"])) == ["Pine panel"]
 
-    # D16: an export can ask for the trashed rows too; an explicit status still wins
+    # An export can ask for the trashed rows too; an explicit status still wins
     assert base
            |> Kernel.++(include_deleted: true)
            |> Catalogue.list_items_keyset()

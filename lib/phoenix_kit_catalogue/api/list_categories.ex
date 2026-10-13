@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.API.ListCategories do
   @moduledoc false
-  # Tool `catalogue.list_categories` (spec 6.1).
+  # Tool `catalogue.list_categories`.
 
   alias PhoenixKitCatalogue.API
   alias PhoenixKitCatalogue.API.Presenter

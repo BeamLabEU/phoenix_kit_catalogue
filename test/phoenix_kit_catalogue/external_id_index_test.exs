@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.ExternalIdIndexTest do
   @moduledoc """
-  `data["api"]["external_id"]` is unique per catalogue among live rows
-  (spec 5.4). Written through the context, the index violation must come
+  `data["api"]["external_id"]` is unique per catalogue among live rows.
+  Written through the context, the index violation must come
   back as a changeset error, not an `Ecto.ConstraintError`.
   """
 
