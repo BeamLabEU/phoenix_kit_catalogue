@@ -61,9 +61,70 @@ defmodule PhoenixKitCatalogue.RefLookupTest do
     assert Catalogue.lookup_by_skus(:category, ["anything"]) == %{}
   end
 
+  test "a sku or external id with a NUL byte is dropped, the others are still found", %{
+    catalogue: catalogue
+  } do
+    fixture_item(%{
+      name: "A",
+      sku: "S-A",
+      catalogue_uuid: catalogue.uuid,
+      data: %{"api" => %{"external_id" => "E-A"}}
+    })
+
+    assert %{"S-A" => [_]} = by_sku = Catalogue.lookup_by_skus(:item, ["a\0b", "S-A"])
+    assert map_size(by_sku) == 1
+    assert %{"E-A" => [_]} = Catalogue.lookup_by_external_ids(:item, ["a\0b", "E-A"])
+    assert Catalogue.lookup_by_skus(:item, ["a\0b"]) == %{}
+    assert Catalogue.lookup_by_external_ids(:category, ["a\0b"]) == %{}
+  end
+
   test "empty input is an empty map without a query" do
-    assert Catalogue.lookup_by_ids(:item, []) == %{}
-    assert Catalogue.lookup_by_skus(:item, []) == %{}
-    assert Catalogue.lookup_by_external_ids(:category, []) == %{}
+    queries =
+      query_count(fn ->
+        assert Catalogue.lookup_by_ids(:item, []) == %{}
+        assert Catalogue.lookup_by_skus(:item, []) == %{}
+        assert Catalogue.lookup_by_external_ids(:category, []) == %{}
+        assert Catalogue.lookup_by_skus(:item, ["a\0b"]) == %{}
+      end)
+
+    assert queries == 0
+  end
+
+  test "each lookup is one query however many values it takes", %{catalogue: catalogue} do
+    fixture_item(%{name: "A", sku: "S-A", catalogue_uuid: catalogue.uuid})
+
+    assert query_count(fn ->
+             Catalogue.lookup_by_ids(:item, [Ecto.UUID.generate(), Ecto.UUID.generate()])
+           end) == 1
+
+    assert query_count(fn -> Catalogue.lookup_by_skus(:item, ["S-A", "S-B", "S-C"]) end) == 1
+    assert query_count(fn -> Catalogue.lookup_by_external_ids(:item, ["E-1", "E-2"]) end) == 1
+  end
+
+  defp query_count(fun) do
+    handler_id = {:ref_lookup_queries, self(), System.unique_integer()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:phoenix_kit_catalogue, :test, :repo, :query],
+      fn _event, _measurements, _metadata, _config -> send(test_pid, :query) end,
+      nil
+    )
+
+    try do
+      fun.()
+      count_queries(0)
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp count_queries(count) do
+    receive do
+      :query -> count_queries(count + 1)
+    after
+      0 -> count
+    end
   end
 end

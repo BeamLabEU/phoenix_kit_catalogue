@@ -9,7 +9,7 @@ defmodule PhoenixKitCatalogue.API.Common do
   @doc """
   The options every API write passes to the `Catalogue` context: the key
   owner as actor, `mode: "auto"`, and the metadata that marks the entry as an
-  API write (spec 4.7). `extra` is merged over them.
+  API write. `extra` is merged over them.
   """
   @spec write_opts(map(), String.t(), keyword()) :: keyword()
   def write_opts(ctx, tool, extra \\ []) do
@@ -45,7 +45,7 @@ defmodule PhoenixKitCatalogue.API.Common do
           {:ok, Ecto.UUID.t() | nil} | {:error, atom(), String.t(), map()}
   def parse_uuid(nil, _path), do: {:ok, nil}
 
-  def parse_uuid(value, path) when is_binary(value) do
+  def parse_uuid(value, path) when is_binary(value) and byte_size(value) == 36 do
     case Ecto.UUID.cast(value) do
       {:ok, uuid} -> {:ok, uuid}
       :error -> invalid(path, "must be a UUID")
@@ -62,18 +62,29 @@ defmodule PhoenixKitCatalogue.API.Common do
   database chain is at V5, where the unique indexes that make an `external_id`
   safe exist. Without them two rows could take the same id, and the later
   `CREATE UNIQUE INDEX` would fail on the duplicates. `version` defaults to
-  the applied chain version read from the database marker.
+  the applied chain version read from the database marker. The marker reader
+  answers `0` both for a database that was never migrated and when it could
+  not read the marker at all, so `0` is reported as "could not confirm".
   """
   @spec ensure_schema(non_neg_integer()) :: :ok | {:error, atom(), String.t(), map()}
   def ensure_schema(version \\ PhoenixKitCatalogue.Migrations.migrated_version_runtime()) do
     if version >= @required_schema do
       :ok
     else
-      {:error, :internal_error,
-       "The catalogue database schema is at version #{version}; the shop API tools need #{@required_schema} " <>
-         "(external_id indexes). Run the module's migrations (mix phoenix_kit.update) first.",
+      {:error, :internal_error, schema_message(version),
        %{required: @required_schema, applied: version}}
     end
+  end
+
+  defp schema_message(0) do
+    "Could not confirm the catalogue database schema version; the shop API tools need " <>
+      "#{@required_schema} (external_id indexes). Retry, or run the module's migrations " <>
+      "(mix phoenix_kit.update) if the database was never migrated."
+  end
+
+  defp schema_message(version) do
+    "The catalogue database schema is at version #{version}; the shop API tools need #{@required_schema} " <>
+      "(external_id indexes). Run the module's migrations (mix phoenix_kit.update) first."
   end
 
   @spec blank?(term()) :: boolean()
@@ -83,20 +94,24 @@ defmodule PhoenixKitCatalogue.API.Common do
 
   # --- batch rows -------------------------------------------------------------------
 
-  @spec row_ok(map(), String.t(), String.t() | nil, map()) :: map()
-  def row_ok(ref, action, id, extra \\ %{}),
-    do: Map.merge(%{"ref" => ref, "action" => action, "id" => id}, extra)
+  @spec row_ok(term(), String.t(), String.t() | nil, map()) :: map()
+  def row_ok(ref, action, id, extra \\ %{}) do
+    Map.merge(%{"ref" => ref, "action" => action, "id" => id}, extra)
+  end
 
-  @spec row_error(map(), atom(), String.t(), map()) :: map()
-  def row_error(ref, code, message, context \\ %{}),
-    do: %{"ref" => ref, "action" => "error", "error" => error_body(code, message, context)}
+  @spec row_error(term(), atom(), String.t(), map()) :: map()
+  def row_error(ref, code, message, context \\ %{}) do
+    %{"ref" => ref, "action" => "error", "error" => error_body(code, message, context)}
+  end
 
-  @spec row_skipped(map(), atom(), String.t(), map()) :: map()
-  def row_skipped(ref, code, message, context \\ %{}),
-    do: %{"ref" => ref, "action" => "skipped", "error" => error_body(code, message, context)}
+  @spec row_skipped(term(), atom(), String.t(), map()) :: map()
+  def row_skipped(ref, code, message, context \\ %{}) do
+    %{"ref" => ref, "action" => "skipped", "error" => error_body(code, message, context)}
+  end
 
-  defp error_body(code, message, context),
-    do: %{"code" => to_string(code), "message" => message, "context" => context}
+  defp error_body(code, message, context) do
+    %{"code" => to_string(code), "message" => message, "context" => context}
+  end
 
   @spec summary([map()]) :: %{String.t() => pos_integer()}
   def summary(rows), do: Enum.frequencies_by(rows, & &1["action"])
@@ -108,12 +123,13 @@ defmodule PhoenixKitCatalogue.API.Common do
   A dry run's answer: the would-be rows and a fingerprint of them. The
   fingerprint follows the rows' content (the current values the operation
   touches are in them), so a change of state between the preview and the
-  confirmation changes it (spec 4.4). Phase 1c's handler contract: `{:preview,
-  preview, fingerprint}` (assumed A9).
+  confirmation changes it. The `{:preview, preview, fingerprint}` triple is
+  what core's executor expects from a handler on a dry run.
   """
   @spec preview([map()]) :: {:preview, map(), String.t()}
-  def preview(rows),
-    do: {:preview, %{"rows" => rows, "summary" => summary(rows)}, fingerprint(rows)}
+  def preview(rows) do
+    {:preview, %{"rows" => rows, "summary" => summary(rows)}, fingerprint(rows)}
+  end
 
   @spec fingerprint(term()) :: String.t()
   def fingerprint(term) do
@@ -133,7 +149,7 @@ defmodule PhoenixKitCatalogue.API.Common do
   where `verdict` is `:ok` or `{:error, message}`; the caller threads `cache`
   (a map) through a batch so each category is read once.
   """
-  @spec category_verdict(String.t(), struct(), map()) :: {:ok | {:error, String.t()}, map()}
+  @spec category_verdict(term(), struct(), map()) :: {:ok | {:error, String.t()}, map()}
   def category_verdict(id, catalogue, cache) do
     case Map.fetch(cache, id) do
       {:ok, verdict} ->
@@ -149,7 +165,7 @@ defmodule PhoenixKitCatalogue.API.Common do
   # malformed id is answered here, per row, before it can reach Ecto as a
   # CastError.
   defp verdict_for(id, target) do
-    with true <- is_binary(id) and match?({:ok, _}, Ecto.UUID.cast(id)),
+    with true <- is_binary(id) and byte_size(id) == 36 and match?({:ok, _}, Ecto.UUID.cast(id)),
          %{} = category <- PhoenixKitCatalogue.Catalogue.get_category(id) do
       active_in?(category, target)
     else
@@ -163,9 +179,10 @@ defmodule PhoenixKitCatalogue.API.Common do
 
   # --- reference and changeset failures -----------------------------------------------
 
-  @spec resolution_error(map(), term()) :: map()
-  def resolution_error(ref, :not_found),
-    do: row_error(ref, :not_found, "No record matches this reference.")
+  @spec resolution_error(term(), term()) :: map()
+  def resolution_error(ref, :not_found) do
+    row_error(ref, :not_found, "No record matches this reference.")
+  end
 
   def resolution_error(ref, :invalid_ref) do
     message =

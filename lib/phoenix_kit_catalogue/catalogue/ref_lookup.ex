@@ -10,6 +10,8 @@ defmodule PhoenixKitCatalogue.Catalogue.RefLookup do
   UUIDs (the caller casts them; a raw `where: uuid in ^ids` on a malformed
   string raises `Ecto.Query.CastError`), skus and external ids are non-blank
   strings. Each function runs ONE query and answers a map keyed by the value.
+  A sku or external id containing a NUL byte can match nothing and Postgres
+  refuses it, so it is dropped from the query instead of failing the batch.
 
   ## Options
 
@@ -44,13 +46,17 @@ defmodule PhoenixKitCatalogue.Catalogue.RefLookup do
   def by_skus(:category, _skus, _opts), do: %{}
 
   def by_skus(:item, skus, opts) do
-    skus = Enum.uniq(skus)
+    case queryable_texts(skus) do
+      [] ->
+        %{}
 
-    :item
-    |> scoped(opts)
-    |> where([r], r.sku in ^skus)
-    |> repo().all()
-    |> Enum.group_by(& &1.sku)
+      skus ->
+        :item
+        |> scoped(opts)
+        |> where([r], r.sku in ^skus)
+        |> repo().all()
+        |> Enum.group_by(& &1.sku)
+    end
   end
 
   @doc "`%{external_id => [row]}`."
@@ -58,16 +64,30 @@ defmodule PhoenixKitCatalogue.Catalogue.RefLookup do
   def by_external_ids(_kind, [], _opts), do: %{}
 
   def by_external_ids(kind, eids, opts) do
-    eids = Enum.uniq(eids)
+    case queryable_texts(eids) do
+      [] ->
+        %{}
 
-    kind
-    |> scoped(opts)
-    |> where(
-      [r],
-      fragment("(? -> 'api' ->> 'external_id') = ANY(?)", r.data, type(^eids, {:array, :string}))
-    )
-    |> repo().all()
-    |> Enum.group_by(&get_in(&1.data || %{}, ["api", "external_id"]))
+      eids ->
+        kind
+        |> scoped(opts)
+        |> where(
+          [r],
+          fragment(
+            "(? -> 'api' ->> 'external_id') = ANY(?)",
+            r.data,
+            type(^eids, {:array, :string})
+          )
+        )
+        |> repo().all()
+        |> Enum.group_by(&get_in(&1.data || %{}, ["api", "external_id"]))
+    end
+  end
+
+  defp queryable_texts(values) do
+    values
+    |> Enum.uniq()
+    |> Enum.reject(&String.contains?(&1, <<0>>))
   end
 
   defp schema(:item), do: Item

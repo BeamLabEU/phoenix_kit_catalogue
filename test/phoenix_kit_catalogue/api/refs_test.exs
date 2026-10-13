@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.API.RefsTest do
   @moduledoc """
-  `PhoenixKitCatalogue.API.resolve_refs/2` (spec 5.4): `{id}`, `{sku}` or
+  `PhoenixKitCatalogue.API.resolve_refs/2`: `{id}`, `{sku}` or
   `{external_id}`, resolved inside one catalogue, never raising on input.
   """
 
@@ -12,6 +12,8 @@ defmodule PhoenixKitCatalogue.API.RefsTest do
   alias PhoenixKitCatalogue.API
   alias PhoenixKitCatalogue.API.Refs
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Test.Repo
 
   defp item(catalogue, name, extra \\ %{}),
     do: fixture_item(Map.merge(%{name: name, catalogue_uuid: catalogue.uuid}, extra))
@@ -72,6 +74,8 @@ defmodule PhoenixKitCatalogue.API.RefsTest do
       %{"id" => Ecto.UUID.generate(), "sku" => "X"},
       %{"sku" => ""},
       %{"sku" => "   "},
+      %{"id" => ""},
+      %{"id" => "   "},
       %{"external_id" => nil},
       %{"id" => 12},
       %{"sku" => 12},
@@ -85,11 +89,68 @@ defmodule PhoenixKitCatalogue.API.RefsTest do
     assert Enum.all?(results, &match?({_, {:error, :invalid_ref}}, &1))
   end
 
+  test "texts with a NUL byte name no row and do not fail their neighbours", %{
+    catalogue: catalogue
+  } do
+    a = item(catalogue, "A", Map.merge(%{sku: "SKU-OK"}, with_eid("EXT-OK")))
+
+    refs = [
+      %{"sku" => "a\u0000b"},
+      %{"sku" => "SKU-OK"},
+      %{"external_id" => "a\u0000b"},
+      %{"external_id" => "EXT-OK"},
+      %{"id" => "a\u0000b"}
+    ]
+
+    assert [
+             {_, {:error, :not_found}},
+             {_, {:ok, by_sku}},
+             {_, {:error, :not_found}},
+             {_, {:ok, by_eid}},
+             {_, {:error, :not_found}}
+           ] = API.resolve_refs(refs, catalogue_uuid: catalogue.uuid)
+
+    assert by_sku.uuid == a.uuid and by_eid.uuid == a.uuid
+  end
+
+  test "a NUL byte in a category external_id names no row", %{catalogue: catalogue} do
+    category =
+      fixture_category(catalogue, %{name: "Shelf", data: %{"api" => %{"external_id" => "C-OK"}}})
+
+    assert [{_, {:error, :not_found}}, {_, {:ok, found}}] =
+             API.resolve_refs(
+               [%{"external_id" => "a\u0000b"}, %{"external_id" => "C-OK"}],
+               kind: :category,
+               catalogue_uuid: catalogue.uuid
+             )
+
+    assert found.uuid == category.uuid
+  end
+
+  test "an id that is 16 characters of text is not read as raw UUID bytes", %{
+    catalogue: catalogue
+  } do
+    # Ecto.UUID.cast/1 turns the 16 bytes "abcdefghijklmnop" into this uuid
+    raw = "61626364-6566-6768-696a-6b6c6d6e6f70"
+    Repo.insert!(%Item{uuid: raw, name: "Raw", catalogue_uuid: catalogue.uuid})
+
+    assert [{_, {:error, :not_found}}, {_, {:ok, found}}] =
+             API.resolve_refs([%{"id" => "abcdefghijklmnop"}, %{"id" => raw}],
+               catalogue_uuid: catalogue.uuid
+             )
+
+    assert found.uuid == raw
+  end
+
   test "a sku matching two live items is ambiguous, with sorted candidates", %{
     catalogue: catalogue
   } do
     a = item(catalogue, "A1", %{sku: "DUP"})
     b = item(catalogue, "A2", %{sku: "DUP"})
+
+    # Rewriting the first row moves it to the end of the heap, so the order
+    # the database returns differs from the uuid order the answer must have.
+    {:ok, _} = Catalogue.update_item(a, %{name: "A1 renamed"})
 
     assert [{_, {:error, {:ambiguous_ref, candidates}}}] =
              API.resolve_refs([%{"sku" => "DUP"}], catalogue_uuid: catalogue.uuid)

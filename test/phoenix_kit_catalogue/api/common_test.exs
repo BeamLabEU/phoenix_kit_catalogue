@@ -57,10 +57,13 @@ defmodule PhoenixKitCatalogue.API.CommonTest do
              Common.parse_uuid("nope", "x")
 
     assert {:error, :validation_failed, _, _} = Common.parse_uuid(5, "x")
+
+    # 16 bytes are a valid raw UUID to Ecto.UUID.cast/1, but not a UUID as text
+    assert {:error, :validation_failed, _, _} = Common.parse_uuid("abcdefghijklmnop", "x")
   end
 
-  test "category_verdict/3 answers a malformed id without touching the database" do
-    # Row-level ids are free strings in the schemas; a CastError here would be a 500.
+  test "category_verdict/3 answers a malformed id with a message and caches it" do
+    # Row-level ids are free strings in the schemas; the verdict is a per-row message.
     assert {{:error, "must be a UUID"}, cache} =
              Common.category_verdict("short", %{uuid: Ecto.UUID.generate()}, %{})
 
@@ -78,7 +81,9 @@ defmodule PhoenixKitCatalogue.API.CommonTest do
              Common.ensure_schema(4)
 
     assert message =~ "version 4"
-    assert {:error, :internal_error, _, %{applied: 0}} = Common.ensure_schema(0)
+
+    assert {:error, :internal_error, unconfirmed, %{applied: 0}} = Common.ensure_schema(0)
+    assert unconfirmed =~ "Could not confirm"
 
     # the default reads the database marker; the test database is at the current chain version
     assert :ok = Common.ensure_schema()
@@ -160,17 +165,36 @@ defmodule PhoenixKitCatalogue.API.CommonTest do
     assert %{"path" => "catalogue_uuid", "message" => "can't be blank"} in errors
   end
 
-  test "external_id_conflict?/1 recognises the V5 constraint message only" do
-    taken =
-      %Item{}
-      |> Ecto.Changeset.change()
-      |> Ecto.Changeset.add_error(:data, "external_id is already taken in this catalogue")
+  test "external_id_conflict?/1 recognises the changeset of a duplicate external_id on the V5 index" do
+    catalogue = PhoenixKitCatalogue.LiveCase.fixture_catalogue(%{name: "Conflict Cat"})
 
+    attrs = %{
+      name: "A",
+      catalogue_uuid: catalogue.uuid,
+      data: %{"api" => %{"external_id" => "E"}}
+    }
+
+    assert {:ok, _} = PhoenixKitCatalogue.Catalogue.create_item(attrs)
+    assert {:error, taken} = PhoenixKitCatalogue.Catalogue.create_item(attrs)
+
+    assert Common.external_id_conflict?(taken)
+  end
+
+  test "external_id_conflict?/1 is false for other failures, even one worded alike" do
     other =
       %Item{} |> Ecto.Changeset.change() |> Ecto.Changeset.add_error(:name, "can't be blank")
 
-    assert Common.external_id_conflict?(taken)
+    elsewhere =
+      %Item{}
+      |> Ecto.Changeset.change()
+      |> Ecto.Changeset.add_error(:name, "external_id is already taken in this catalogue")
+
+    other_data =
+      %Item{} |> Ecto.Changeset.change() |> Ecto.Changeset.add_error(:data, "is invalid")
+
     refute Common.external_id_conflict?(other)
+    refute Common.external_id_conflict?(elsewhere)
+    refute Common.external_id_conflict?(other_data)
   end
 
   test "with_warnings/2" do

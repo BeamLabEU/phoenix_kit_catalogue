@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.API.CatalogueScopeTest do
   @moduledoc """
-  `PhoenixKitCatalogue.API.resolve_catalogue/2` (spec 5.4): the tool's
+  `PhoenixKitCatalogue.API.resolve_catalogue/2`: the tool's
   `catalogue_id` is required when more than one catalogue is active.
   """
 
@@ -36,7 +36,7 @@ defmodule PhoenixKitCatalogue.API.CatalogueScopeTest do
 
   test "no id and no active catalogue" do
     assert {:error, :validation_failed, message, %{errors: [error]}} = API.resolve_catalogue(nil)
-    assert message =~ "no active catalogue" or message =~ "There is no active catalogue"
+    assert message =~ "There is no active catalogue"
     assert error.path == "catalogue_id"
     assert error.allowed == []
   end
