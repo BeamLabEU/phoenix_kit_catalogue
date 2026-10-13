@@ -37,14 +37,15 @@ defmodule PhoenixKitCatalogue.API.CatalogueScope do
 
   def resolve(_other, _opts), do: Common.invalid("catalogue_id", "must be a catalogue UUID")
 
-  defp check_writable(%CatalogueSchema{status: "active"} = catalogue, _writable),
-    do: {:ok, catalogue}
+  defp check_writable(%CatalogueSchema{status: "active"} = catalogue, _writable) do
+    {:ok, catalogue}
+  end
 
   defp check_writable(catalogue, false), do: {:ok, catalogue}
 
-  defp check_writable(_catalogue, true),
-    do:
-      Common.invalid("catalogue_id", "The catalogue is archived: it can be read but not changed.")
+  defp check_writable(_catalogue, true) do
+    Common.invalid("catalogue_id", "The catalogue is archived: it can be read but not changed.")
+  end
 
   defp autodetect do
     case Catalogue.list_catalogues(status: "active", kind: :standard) do
@@ -63,7 +64,7 @@ defmodule PhoenixKitCatalogue.API.CatalogueScope do
     end
   end
 
-  defp not_found(id),
-    do:
-      {:error, :not_found, "No catalogue has this id.", %{catalogue_id: String.slice(id, 0, 100)}}
+  defp not_found(id) do
+    {:error, :not_found, "No catalogue has this id.", %{catalogue_id: String.slice(id, 0, 100)}}
+  end
 end

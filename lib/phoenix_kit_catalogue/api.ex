@@ -2,10 +2,9 @@ defmodule PhoenixKitCatalogue.API do
   @moduledoc """
   The catalogue's part of the shop API.
 
-  The catalogue declares its admin tools to core through the optional
-  `api_tools/0` callback (`PhoenixKitCatalogue.api_tools/0`); this module is
-  the surface the **sibling modules** build on (e-commerce and warehouse tools
-  take product references in the same three forms and resolve them here).
+  This module is the surface the **sibling modules** build on: e-commerce and
+  warehouse tools take product references in the same three forms and resolve
+  them here.
 
   ## References
 
@@ -39,8 +38,11 @@ defmodule PhoenixKitCatalogue.API do
     * `:include_deleted` — also match trashed rows (default `false`).
     * `:preload` — associations to preload (default none).
 
-  `reason` is `:not_found`, `:invalid_ref` (zero or several keys, a blank or
-  non-string value) or `{:ambiguous_ref, [uuid]}` (candidates, sorted).
+  `reason` is `:not_found` (including an `id` that is not a UUID and a text
+  containing a NUL byte), `:invalid_ref` (zero or several keys, a blank or
+  non-string value) or `{:ambiguous_ref, [uuid]}` (candidates, sorted). With
+  `include_deleted: true` a trashed row counts as a candidate too, so an
+  `external_id` held by a live and a trashed row is ambiguous.
   """
   @spec resolve_refs([term()], keyword()) :: [Refs.resolution()]
   def resolve_refs(refs, opts \\ []), do: Refs.resolve(refs, opts)
