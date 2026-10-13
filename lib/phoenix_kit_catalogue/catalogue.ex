@@ -82,9 +82,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # `description` is tracked but records only THAT it changed — see
   # `ActivityLog`'s `@flag_only_fields`. `slug` is a per-language map and is
   # reported per language (`slug.en-US`), so a changed slug leaves the old one
-  # in the log. A move is not here at all; it has its
-  # own action (`item.moved`, `category.moved`, `catalogue.moved_to_folder`)
-  # carrying both ends.
+  # in the log. A move is not here at all; it has its own action
+  # (`item.moved`, `category.moved`, `catalogue.moved_to_folder`) carrying both
+  # ends.
   @item_logged_fields [
     :name,
     :sku,
@@ -6086,6 +6086,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   trashed on its own — restoring its catalogue or category later leaves
   it in the trash. Returns `{:error, :not_found}` when the row is gone.
 
+  Options: `:actor_uuid`, `:mode`, `:broadcast` (`false` sends no PubSub
+  event) and `:log_metadata` (extra keys for the activity entry).
+
   ## Examples
 
       {:ok, item} = Catalogue.trash_item(item)
@@ -6137,6 +6140,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   brings back the items its own trash took.
 
   An item that is not deleted is returned unchanged.
+
+  Options: `:actor_uuid`, `:mode`, `:broadcast` (`false` sends no PubSub
+  event) and `:log_metadata` (extra keys for the activity entry).
 
   ## Examples
 

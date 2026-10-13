@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.ApiActivityTest do
   @moduledoc """
-  What the shop API adds to the change log (spec 4.7): who wrote it, how, and
+  What the shop API adds to the change log: who wrote it, how, and
   what moved, down to `data` sub-paths and per-language slugs.
   """
 
@@ -11,6 +11,8 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
+  alias PhoenixKitCatalogue.Catalogue.AttributeSets
+  alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Schemas.Item
 
   @actor "00000000-0000-7000-8000-000000000001"
@@ -62,6 +64,26 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
       assert String.ends_with?(changes["data.ecommerce.note"]["to"], "…")
     end
 
+    test "a long multi-byte value under 500 characters is not clipped" do
+      long = String.duplicate("ж", 300)
+      now = %Item{data: %{"ecommerce" => %{"note" => long}}}
+
+      assert %{"changes" => changes} =
+               ActivityLog.with_changes(%{}, %Item{data: %{}}, now, [], [["ecommerce", "note"]])
+
+      assert changes["data.ecommerce.note"]["to"] == long
+    end
+
+    test "a list leaf that changed is written as JSON" do
+      before = %Item{data: %{"ecommerce" => %{"tags" => []}}}
+      now = %Item{data: %{"ecommerce" => %{"tags" => ["a", "b"]}}}
+
+      assert %{"changes" => %{"data.ecommerce.tags" => diff}} =
+               ActivityLog.with_changes(%{}, before, now, [], [["ecommerce", "tags"]])
+
+      assert diff == %{"from" => "[]", "to" => ~s(["a","b"])}
+    end
+
     test "an untouched data path adds nothing" do
       item = %Item{data: %{"ecommerce" => %{"compare_at_price" => "10"}}}
 
@@ -83,7 +105,26 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
     end
   end
 
+  describe "slug diff" do
+    test "a language that goes from missing to blank adds nothing" do
+      before = %Item{slug: %{"en-US" => "same"}}
+      now = %Item{slug: %{"en-US" => "same", "de-DE" => ""}}
+
+      assert ActivityLog.with_changes(%{}, before, now, [:slug]) == %{}
+    end
+  end
+
   describe "ActivityLog.with_extra/2" do
+    test "the extra map never supplies the diff or the identity" do
+      extra = %{"changes" => %{"x" => 1}, "name" => "evil", "sku" => "S", "via" => "api"}
+
+      assert ActivityLog.with_extra(%{"note" => "n"}, extra) == %{"note" => "n", "via" => "api"}
+    end
+
+    test "atom keys of the extra map are not taken" do
+      assert ActivityLog.with_extra(%{"a" => 1}, %{via: "api", changes: %{}}) == %{"a" => 1}
+    end
+
     test "the entry's own keys win over the extra ones" do
       assert ActivityLog.with_extra(%{"name" => "real"}, %{"name" => "evil", "via" => "api"}) ==
                %{"name" => "real", "via" => "api"}
@@ -167,6 +208,29 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
       end
     end
 
+    test "update_category/3 reports a new parent and position in the diff" do
+      catalogue = fixture_catalogue(%{name: "Tree Cat"})
+      parent = fixture_category(catalogue, %{name: "Parent"})
+      child = fixture_category(catalogue, %{name: "Child"})
+
+      {:ok, _} =
+        Catalogue.update_category(child, %{parent_uuid: parent.uuid, position: 7}, opts())
+
+      row = assert_activity_logged("category.updated", resource_uuid: child.uuid)
+      assert row.metadata["changes"]["parent_uuid"] == %{"from" => "", "to" => parent.uuid}
+      assert row.metadata["changes"]["position"]["to"] == "7"
+    end
+
+    test "update_category/3 without a move adds neither parent_uuid nor position" do
+      catalogue = fixture_catalogue(%{name: "Still Cat"})
+      category = fixture_category(catalogue, %{name: "Still"})
+
+      {:ok, _} = Catalogue.update_category(category, %{name: "Still 2"}, opts())
+
+      row = assert_activity_logged("category.updated", resource_uuid: category.uuid)
+      assert Map.keys(row.metadata["changes"]) == ["name"]
+    end
+
     test "move_item_to_category/3 carries it" do
       catalogue = fixture_catalogue(%{name: "Meta Cat 3"})
       category = fixture_category(catalogue, %{name: "Target"})
@@ -182,12 +246,52 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
     test "trash_item/2 honours broadcast: false" do
       catalogue = fixture_catalogue(%{name: "Quiet Cat"})
       {:ok, item} = Catalogue.create_item(%{name: "Quiet", catalogue_uuid: catalogue.uuid})
-      :ok = PhoenixKitCatalogue.Catalogue.PubSub.subscribe()
+      :ok = PubSub.subscribe()
       flush_pubsub()
 
       {:ok, _} = Catalogue.trash_item(item, broadcast: false)
 
       refute_receive {:catalogue_data_changed, :item, _, _}, 100
+    end
+
+    test "restore_item/2 honours broadcast: false" do
+      catalogue = fixture_catalogue(%{name: "Quiet Cat 2"})
+      {:ok, item} = Catalogue.create_item(%{name: "Quiet 2", catalogue_uuid: catalogue.uuid})
+      {:ok, trashed} = Catalogue.trash_item(item, broadcast: false)
+      :ok = PubSub.subscribe()
+      flush_pubsub()
+
+      {:ok, _} = Catalogue.restore_item(trashed, broadcast: false)
+
+      refute_receive {:catalogue_data_changed, :item, _, _}, 100
+    end
+  end
+
+  if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
+    describe "attribute writes" do
+      setup do
+        AttributeSets.register_deletion_guard()
+        PhoenixKit.Settings.update_setting("entities_enabled", "true")
+        on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
+        :ok
+      end
+
+      test "attach_attribute_set/3 carries the log metadata and keeps the entry's own keys" do
+        {:ok, set} = Catalogue.create_attribute_set(%{name: "Meta colors"})
+        item = fixture_item(%{name: "Attach me"})
+
+        {:ok, _} =
+          Catalogue.attach_attribute_set(
+            item.uuid,
+            set.uuid,
+            opts(log_metadata: Map.put(@meta, "item_uuid", "evil"))
+          )
+
+        row = assert_activity_logged("attribute_set.attached", resource_uuid: set.uuid)
+        assert row.metadata["via"] == "api"
+        assert row.metadata["tool"] == "catalogue.update_products"
+        assert row.metadata["item_uuid"] == item.uuid
+      end
     end
   end
 
