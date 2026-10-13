@@ -95,6 +95,46 @@ defmodule PhoenixKitCatalogue.API.Schemas do
     }
   end
 
+  @doc "Rows of `catalogue.update_products`: `{ref, changes}`, both closed."
+  def update_products do
+    %{
+      "type" => "object",
+      "required" => ["items"],
+      "properties" => %{
+        "catalogue_id" => @uuid,
+        "items" => %{
+          "type" => "array",
+          "minItems" => 1,
+          "maxItems" => 500,
+          "items" => %{
+            "type" => "object",
+            "required" => ["ref", "changes"],
+            "properties" => %{"ref" => ref(), "changes" => product_changes()},
+            "additionalProperties" => false
+          }
+        }
+      },
+      "additionalProperties" => false
+    }
+  end
+
+  defp product_changes do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "name" => row_text(255),
+        "description" => %{"type" => ["string", "null"]},
+        "sku" => nullable_text(100),
+        "external_id" => nullable_text(200),
+        "category_id" => row_nullable_id(),
+        "status" => %{"type" => "string", "enum" => @statuses},
+        "unit" => %{"type" => "string", "enum" => units()},
+        "attributes" => attributes()
+      },
+      "additionalProperties" => false
+    }
+  end
+
   def list_categories do
     %{
       "type" => "object",

@@ -16,7 +16,9 @@ defmodule PhoenixKitCatalogue.API.Tools do
   @permission "catalogue"
 
   @spec all() :: [Tool.t()]
-  def all, do: [list_products(), get_products(), create_products(), list_categories()]
+  def all do
+    [list_products(), get_products(), create_products(), update_products(), list_categories()]
+  end
 
   defp list_products do
     Tool.new!(
@@ -78,6 +80,28 @@ defmodule PhoenixKitCatalogue.API.Tools do
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.CreateProducts, :call},
       annotations: %{idempotent: false},
+      max_items: 500
+    )
+  end
+
+  defp update_products do
+    Tool.new!(
+      name: "catalogue.update_products",
+      audience: :admin,
+      scope: "catalogue.products:write",
+      permission: @permission,
+      title: "Update products",
+      description:
+        "Changes up to 500 items, each named by a reference ({id} or {sku} or {external_id}) and a changes " <>
+          "object with any of name, description, sku, external_id, category_id, status (active, inactive or " <>
+          "discontinued), unit and attributes. null clears description, sku, external_id and category_id. " <>
+          "Fields not listed stay as they are, and so does everything the tool does not own (prices, shop " <>
+          "data, translations). A rename does not change the item's URL slug. Rows are independent; each " <>
+          "answers updated, unchanged or error.",
+      input_schema: Schemas.update_products(),
+      output_schema: Schemas.batch_output(),
+      handler: {PhoenixKitCatalogue.API.UpdateProducts, :call},
+      annotations: %{idempotent: true},
       max_items: 500
     )
   end
