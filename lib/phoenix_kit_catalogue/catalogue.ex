@@ -1846,6 +1846,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   caller only owns PART of `data` — e.g. a form that only rendered a
   subset of it. See `update_item/3`'s doc for the full rationale; the
   mechanism is identical.
+
+  Takes `:data_owned_paths`, `:logged_data_paths` and `:log_metadata` exactly as
+  `update_item/3` does (the row is read `FOR UPDATE`, the update applies to it,
+  only the named `data` paths are copied).
   """
   @spec update_category(Category.t(), map(), keyword()) ::
           {:ok, Category.t()}
@@ -1864,22 +1868,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
             do: lock_row_in_catalogue!(Category, category.uuid),
             else: category
 
-        attrs = narrow_data_ownership(Category, category.uuid, attrs, opts)
+        {attrs, base} = narrow_category_data(category, attrs, opts)
 
         changeset =
-          category
+          base
           |> Category.changeset(attrs)
-          |> keep_trash_status(Category, category.uuid)
+          |> keep_trash_status(Category, base.uuid)
           |> validate_parent_in_same_catalogue()
 
         case repo().update(changeset) do
-          {:ok, updated} -> updated
+          {:ok, updated} -> {base, updated}
           {:error, changeset} -> repo().rollback(changeset)
         end
       end)
 
     case result do
-      {:ok, updated} ->
+      {:ok, {before, updated}} ->
         log_activity(
           %{
             action: "category.updated",
@@ -1891,9 +1895,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
             metadata:
               ActivityLog.with_changes(
                 %{"name" => updated.name},
-                category,
+                before,
                 updated,
-                @category_logged_fields
+                @category_logged_fields,
+                Keyword.get(opts, :logged_data_paths, [])
               )
           },
           opts
@@ -1903,6 +1908,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp narrow_category_data(%Category{} = category, attrs, opts) do
+    case owned_paths!(opts) do
+      nil ->
+        {narrow_data_ownership(Category, category.uuid, attrs, opts), category}
+
+      paths ->
+        case lock_fresh(Category, category.uuid) do
+          nil -> repo().rollback(:not_found)
+          fresh -> {splice_owned_paths(fresh, attrs, paths), fresh}
+        end
     end
   end
 
@@ -1955,6 +1973,136 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {key, nil}, acc -> Map.delete(acc, key)
       {key, value}, acc -> Map.put(acc, key, value)
     end)
+  end
+
+  # `:data_owned_paths`: `nil` when the option is absent, the validated list
+  # otherwise. A malformed value is the caller's bug and raises.
+  defp owned_paths!(opts) do
+    case Keyword.get(opts, :data_owned_paths) do
+      nil ->
+        nil
+
+      paths ->
+        if Keyword.get(opts, :data_owned_keys) != nil do
+          raise ArgumentError, ":data_owned_paths and :data_owned_keys are mutually exclusive"
+        end
+
+        if valid_paths?(paths) do
+          paths
+        else
+          raise ArgumentError,
+                ":data_owned_paths must be a list of non-empty lists of non-empty strings " <>
+                  "(the first segment may not be \"_trash\"), got: #{inspect(paths)}"
+        end
+    end
+  end
+
+  defp valid_paths?(paths) when is_list(paths) do
+    Enum.all?(paths, fn
+      [first | _] = path ->
+        first != "_trash" and Enum.all?(path, &(is_binary(&1) and &1 != ""))
+
+      _other ->
+        false
+    end)
+  end
+
+  defp valid_paths?(_other), do: false
+
+  # `:slug_owned_langs`: `[]` when absent, the validated list otherwise.
+  defp slug_langs!(opts) do
+    case Keyword.get(opts, :slug_owned_langs, []) do
+      langs when is_list(langs) ->
+        if Enum.all?(langs, &(is_binary(&1) and &1 != "")),
+          do: langs,
+          else:
+            raise(
+              ArgumentError,
+              ":slug_owned_langs must be a list of non-empty strings, got: #{inspect(langs)}"
+            )
+
+      other ->
+        raise ArgumentError,
+              ":slug_owned_langs must be a list of non-empty strings, got: #{inspect(other)}"
+    end
+  end
+
+  # Merges the owned languages of `attrs[:slug]` into the fresh row's slug map.
+  defp splice_owned_slugs(_fresh, attrs, []), do: attrs
+
+  defp splice_owned_slugs(%{slug: fresh_slug}, attrs, langs) do
+    incoming = Helpers.fetch_attr(attrs, :slug) || %{}
+
+    merged =
+      Enum.reduce(langs, fresh_slug || %{}, fn lang, acc ->
+        case Map.get(incoming, lang) do
+          slug when is_binary(slug) and slug != "" -> Map.put(acc, lang, slug)
+          _blank -> Map.delete(acc, lang)
+        end
+      end)
+
+    Helpers.put_attr(attrs, :slug, merged)
+  end
+
+  defp lock_fresh(schema, uuid),
+    do: repo().one(from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE"))
+
+  # Copies the owned paths from `attrs["data"]` onto the fresh row's `data`;
+  # everything else in the result is the fresh row's. A path absent from the
+  # incoming data is left alone, an explicit `nil` deletes it.
+  defp splice_owned_paths(%{data: fresh_data}, attrs, paths) do
+    incoming = Helpers.fetch_attr(attrs, :data) || %{}
+
+    merged =
+      Enum.reduce(paths, fresh_data || %{}, fn path, acc ->
+        case fetch_path(incoming, path) do
+          {:ok, nil} -> delete_path(acc, path)
+          {:ok, value} -> put_path(acc, path, value)
+          :error -> acc
+        end
+      end)
+
+    Helpers.put_attr(attrs, :data, merged)
+  end
+
+  defp fetch_path(%{} = map, [key]), do: Map.fetch(map, key)
+
+  defp fetch_path(%{} = map, [key | rest]) do
+    case Map.get(map, key) do
+      %{} = child -> fetch_path(child, rest)
+      _other -> :error
+    end
+  end
+
+  defp fetch_path(_other, _path), do: :error
+
+  defp put_path(map, [key], value), do: Map.put(map, key, value)
+
+  defp put_path(map, [key | rest], value) do
+    child =
+      case Map.get(map, key) do
+        %{} = existing -> existing
+        _other -> %{}
+      end
+
+    Map.put(map, key, put_path(child, rest, value))
+  end
+
+  # Deletes the leaf and prunes the maps it leaves empty, so a record ends up
+  # looking like one that never had the key.
+  defp delete_path(map, [key]), do: Map.delete(map, key)
+
+  defp delete_path(map, [key | rest]) do
+    case Map.get(map, key) do
+      %{} = child ->
+        case delete_path(child, rest) do
+          empty when map_size(empty) == 0 -> Map.delete(map, key)
+          pruned -> Map.put(map, key, pruned)
+        end
+
+      _other ->
+        map
+    end
   end
 
   # Any change of parent, to the top level included: a move there skips
@@ -6005,34 +6153,56 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Omit the option (or pass `nil`) for the previous behavior: `data` is
   replaced wholesale by whatever `attrs["data"]` contains, same as a
   plain `Ecto.Changeset.cast/4` on a `:map` field.
+
+  ## `:data_owned_paths`
+
+  The nested counterpart of `:data_owned_keys`, for a writer that owns a few
+  leaves of a key other writers also use (the shop API owns
+  `["ecommerce", "compare_at_price"]`, the Shopify sync owns
+  `["ecommerce", "shopify"]`). A list of paths, each a non-empty list of
+  string keys (the first may not be `"_trash"`); `[]` owns nothing. The row
+  is read `FOR UPDATE` in the transaction and **the update is applied to that
+  fresh row**, not to the caller's copy: for every path present in
+  `attrs["data"]` its value replaces the fresh value at that path (an
+  explicit `nil` deletes the key and prunes the maps it empties); the rest of
+  `data`, and every column the caller did not change, is the fresh row's.
+  Returns `{:error, :not_found}` when the row is gone. Mutually exclusive
+  with `:data_owned_keys` (`ArgumentError`).
+
+  ## `:slug_owned_langs`
+
+  Only with `:data_owned_paths` (`ArgumentError` otherwise): a list of
+  language codes. The `slug` column is one map for all languages, so a caller
+  that read it earlier and writes it whole would silently overwrite a slug
+  another writer (the translation sweep, the item form, a second API call)
+  stored for ANOTHER language in between, and a lost slug is a moved URL with
+  no redirect. With this option `attrs[:slug]` is read as a set of per-language
+  deltas: for each listed language the value in `attrs[:slug]` replaces the
+  locked fresh row's value (an absent or blank value deletes that language's
+  slug), and every other language is the fresh row's. `[]` merges nothing.
+
+  ## Logging options
+
+    * `:log_metadata` — a string-keyed map merged into the `item.updated`
+      entry's metadata (the entry's own `"name"`, `"sku"` and `"changes"`
+      win on a clash). The shop API sets `via`, `key_prefix`, `request_id`
+      and `tool`.
+    * `:logged_data_paths` — `data` paths whose before/after values appear in
+      `metadata["changes"]` as `"data.<a>.<b>"`, next to the logged columns.
   """
   @spec update_item(Item.t(), map(), keyword()) ::
-          {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t())}
+          {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t()) | :not_found}
   def update_item(%Item{} = item, attrs, opts \\ []) do
-    skip_derive? = Keyword.get(opts, :skip_derive, false)
-
     result =
       repo().transaction(fn ->
-        # The category (FOR SHARE, in the derive) before the item row (FOR
-        # UPDATE, in the data narrowing): the order a category trash takes
-        # them, so a form save and a trash cannot deadlock.
-        {attrs, category} =
-          if skip_derive?, do: {attrs, nil}, else: derive_catalogue_uuid(item, attrs)
-
-        attrs = narrow_data_ownership(Item, item.uuid, attrs, opts)
-
-        case item
-             |> Item.changeset(attrs)
-             |> keep_trash_status(Item, item.uuid)
-             |> check_item_category(category)
-             |> repo().update() do
-          {:ok, updated} -> updated
-          {:error, changeset} -> repo().rollback(changeset)
+        case do_update_item(item, attrs, opts, []) do
+          {:ok, {before, updated, _changed?}} -> {before, updated}
+          {:error, reason} -> repo().rollback(reason)
         end
       end)
 
     case result do
-      {:ok, updated} ->
+      {:ok, {before, updated}} ->
         log_activity(
           %{
             action: "item.updated",
@@ -6044,9 +6214,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
             metadata:
               ActivityLog.with_changes(
                 %{"name" => updated.name, "sku" => updated.sku || ""},
-                item,
+                before,
                 updated,
-                @item_logged_fields
+                @item_logged_fields,
+                Keyword.get(opts, :logged_data_paths, [])
               )
           },
           opts
@@ -6056,6 +6227,99 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:error, _changeset} = error ->
         error
+    end
+  end
+
+  # One item update, run INSIDE the caller's transaction. Shared by
+  # `update_item/3` and `update_items/2`. Returns `{:ok, {before, updated,
+  # changed?}}` or `{:error, changeset | :not_found}`; `before` is the row the
+  # diff is taken against (the locked fresh row under `:data_owned_paths`, the
+  # caller's copy otherwise). `repo_opts` reach `repo().update/2` (the batch
+  # passes `mode: :savepoint` so one bad row cannot poison the transaction).
+  defp do_update_item(%Item{} = item, attrs, opts, repo_opts) do
+    skip_derive? = Keyword.get(opts, :skip_derive, false)
+
+    # The category (FOR SHARE, in the derive) before the item row (FOR
+    # UPDATE, in the data narrowing): the order a category trash takes
+    # them, so a form save and a trash cannot deadlock.
+    {attrs, category} =
+      if skip_derive?, do: {attrs, nil}, else: derive_catalogue_uuid(item, attrs)
+
+    with {:ok, attrs, base} <- narrow_item_data(item, attrs, opts) do
+      changeset =
+        base
+        |> Item.changeset(attrs)
+        |> keep_trash_status(Item, base.uuid)
+        |> check_item_category(category)
+
+      case repo().update(changeset, repo_opts) do
+        {:ok, updated} -> {:ok, {base, updated, map_size(changeset.changes) > 0}}
+        {:error, changeset} -> {:error, changeset}
+      end
+    end
+  end
+
+  defp narrow_item_data(%Item{} = item, attrs, opts) do
+    case owned_paths!(opts) do
+      nil ->
+        if Keyword.has_key?(opts, :slug_owned_langs),
+          do: raise(ArgumentError, ":slug_owned_langs needs :data_owned_paths (the row lock)")
+
+        {:ok, narrow_data_ownership(Item, item.uuid, attrs, opts), item}
+
+      paths ->
+        langs = slug_langs!(opts)
+
+        case lock_fresh(Item, item.uuid) do
+          nil ->
+            {:error, :not_found}
+
+          fresh ->
+            attrs =
+              fresh
+              |> splice_owned_paths(attrs, paths)
+              |> then(&splice_owned_slugs(fresh, &1, langs))
+
+            {:ok, attrs, fresh}
+        end
+    end
+  end
+
+  @doc """
+  What `update_item/3` WOULD change, without writing anything: the diff in the
+  shape `item.updated` logs (`%{"name" => %{"from" => a, "to" => b},
+  "data.ecommerce.compare_at_price" => ...}`), or the changeset when the
+  update is invalid. Takes the same `:data_owned_paths` and
+  `:logged_data_paths` options; no lock is taken (it works on the caller's
+  copy), no category derivation, no log entry, no broadcast. This is what the
+  shop API's dry run and confirmation preview are made of.
+  """
+  @spec preview_item_update(Item.t(), map(), keyword()) ::
+          {:ok, %{optional(String.t()) => map()}} | {:error, Ecto.Changeset.t(Item.t())}
+  def preview_item_update(%Item{} = item, attrs, opts \\ []) do
+    attrs =
+      case owned_paths!(opts) do
+        nil -> attrs
+        paths -> splice_owned_paths(item, attrs, paths)
+      end
+
+    changeset = Item.changeset(item, attrs)
+
+    if changeset.valid? do
+      updated = Ecto.Changeset.apply_changes(changeset)
+
+      metadata =
+        ActivityLog.with_changes(
+          %{},
+          item,
+          updated,
+          @item_logged_fields,
+          Keyword.get(opts, :logged_data_paths, [])
+        )
+
+      {:ok, Map.get(metadata, "changes", %{})}
+    else
+      {:error, changeset}
     end
   end
 
