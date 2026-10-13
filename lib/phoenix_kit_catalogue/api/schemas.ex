@@ -63,6 +63,38 @@ defmodule PhoenixKitCatalogue.API.Schemas do
     }
   end
 
+  @doc "Rows of `catalogue.create_products`: closed, no price, markup, discount or raw data."
+  def create_products do
+    %{
+      "type" => "object",
+      "required" => ["items"],
+      "properties" => %{
+        "catalogue_id" => @uuid,
+        "items" => %{
+          "type" => "array",
+          "minItems" => 1,
+          "maxItems" => 500,
+          "items" => %{
+            "type" => "object",
+            "required" => ["name"],
+            "properties" => %{
+              "external_id" => row_text(200),
+              "sku" => row_text(100),
+              "name" => row_text(255),
+              "description" => %{"type" => "string"},
+              "category_id" => @row_id,
+              "status" => %{"type" => "string", "enum" => @statuses},
+              "unit" => %{"type" => "string", "enum" => units()},
+              "attributes" => attributes()
+            },
+            "additionalProperties" => false
+          }
+        }
+      },
+      "additionalProperties" => false
+    }
+  end
+
   def list_categories do
     %{
       "type" => "object",
