@@ -7,16 +7,20 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
   Rows come ordered by `(updated_at, uuid)` ascending. `updated_at` has second
   precision, so one timestamp can cover many rows; the cursor therefore holds
   both values and the keyset predicate is `updated_at > c OR (updated_at = c
-  AND uuid > c_uuid)`. The cursor handed to a client is opaque
-  (`Base.url_encode64` of a JSON pair); `decode_cursor/1` answers `:error`
-  for anything this module did not issue.
+  AND uuid > c_uuid)`. The cursor is truncated to the second, so it is exact
+  only while the column keeps whole seconds (`timestamp(0)`). The cursor
+  handed to a client is opaque (`Base.url_encode64` of a JSON pair);
+  `decode_cursor/1` answers `:error` for anything this module did not issue.
 
   ## Options
 
     * `:catalogue_uuid` — required.
     * `:category_uuid` — exactly this category (not its subtree).
     * `:status` — `"active"`, `"inactive"` or `"discontinued"`; default every
-      status but `"deleted"`.
+      status but `"deleted"`. The context does not stop an explicit
+      `"deleted"` (it lists the trashed rows whatever `:include_deleted` says),
+      so a caller exposing this to clients must keep `"deleted"` out of its
+      accepted values.
     * `:include_deleted` — default `false`. `true` and no `:status`: trashed
       rows (status `"deleted"`) are listed too, so an incremental export can
       see deletions (a trash bumps `updated_at`). An explicit `:status` wins.
@@ -39,6 +43,10 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
 
   @default_limit 20
   @max_limit 100
+
+  # Postgres `timestamp` takes more, but Postgrex cannot encode a year before 1
+  # reliably, and a forged cursor must be refused rather than crash the query.
+  @year_range 1..9999
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
@@ -72,6 +80,7 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
     with {:ok, json} <- Base.url_decode64(cursor, padding: false),
          {:ok, [at, uuid]} when is_binary(at) and is_binary(uuid) <- Jason.decode(json),
          {:ok, at, _offset} <- DateTime.from_iso8601(at),
+         true <- at.year in @year_range,
          {:ok, uuid} <- Ecto.UUID.cast(uuid) do
       {:ok, {DateTime.truncate(at, :second), uuid}}
     else
@@ -81,8 +90,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
 
   def decode_cursor(_other), do: :error
 
-  defp encode_cursor(%Item{updated_at: at, uuid: uuid}),
-    do: Base.url_encode64(Jason.encode!([DateTime.to_iso8601(at), uuid]), padding: false)
+  defp encode_cursor(%Item{updated_at: at, uuid: uuid}) do
+    Base.url_encode64(Jason.encode!([DateTime.to_iso8601(at), uuid]), padding: false)
+  end
 
   defp clamp(limit) when is_integer(limit), do: limit |> max(1) |> min(@max_limit)
   defp clamp(_other), do: @default_limit
@@ -119,8 +129,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
   defp by_status(query, nil, true), do: query
   defp by_status(query, nil, _include_deleted), do: where(query, [item: i], i.status != "deleted")
 
-  defp by_status(query, status, _include_deleted),
-    do: where(query, [item: i], i.status == ^status)
+  defp by_status(query, status, _include_deleted) do
+    where(query, [item: i], i.status == ^status)
+  end
 
   defp by_category(query, nil), do: query
 
@@ -131,6 +142,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
   end
 
   defp updated_since(query, nil), do: query
+
+  # A bound before year 1 is older than every row (and cannot be encoded): no bound.
+  defp updated_since(query, %DateTime{year: year}) when year < 1, do: query
 
   defp updated_since(query, %DateTime{} = since) do
     since = DateTime.truncate(since, :second)
