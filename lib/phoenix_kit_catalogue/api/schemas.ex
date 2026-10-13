@@ -179,6 +179,19 @@ defmodule PhoenixKitCatalogue.API.Schemas do
     }
   end
 
+  @doc "`catalogue.delete_products`: references only."
+  def delete_products do
+    %{
+      "type" => "object",
+      "required" => ["refs"],
+      "properties" => %{
+        "catalogue_id" => @uuid,
+        "refs" => %{"type" => "array", "minItems" => 1, "maxItems" => 500, "items" => ref()}
+      },
+      "additionalProperties" => false
+    }
+  end
+
   def list_categories do
     %{
       "type" => "object",

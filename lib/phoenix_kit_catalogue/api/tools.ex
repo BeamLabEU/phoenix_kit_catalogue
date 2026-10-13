@@ -23,6 +23,7 @@ defmodule PhoenixKitCatalogue.API.Tools do
       create_products(),
       update_products(),
       set_translations(),
+      delete_products(),
       list_categories()
     ]
   end
@@ -132,6 +133,28 @@ defmodule PhoenixKitCatalogue.API.Tools do
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.SetTranslations, :call},
       annotations: %{idempotent: true},
+      max_items: 500
+    )
+  end
+
+  defp delete_products do
+    Tool.new!(
+      name: "catalogue.delete_products",
+      audience: :admin,
+      scope: "catalogue.products:delete",
+      permission: @permission,
+      title: "Delete products (to the trash)",
+      description:
+        "Moves up to 500 items, named by reference, to the trash. Nothing is erased: an operator can restore " <>
+          "them from the admin trash. This operation always needs confirmation: the first call changes nothing " <>
+          "and returns a preview with a confirmation code (or, for a key that requires approval, queues it for " <>
+          "a person); repeat the call with the code to execute. A reference to an item that is already in the " <>
+          "trash answers unchanged. Rows are independent; each answers removed, unchanged or error.",
+      input_schema: Schemas.delete_products(),
+      output_schema: Schemas.batch_output(),
+      handler: {PhoenixKitCatalogue.API.DeleteProducts, :call},
+      annotations: %{destructive: true, idempotent: true},
+      danger: :always,
       max_items: 500
     )
   end
