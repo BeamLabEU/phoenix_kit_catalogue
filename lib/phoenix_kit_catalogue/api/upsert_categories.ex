@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.API.UpsertCategories do
   @moduledoc false
-  # Tool `catalogue.upsert_categories` (spec 6.1, 5.4). Rows are processed in
+  # Tool `catalogue.upsert_categories`. Rows are processed in
   # order, in both modes: what an earlier row did is visible to the later ones
   # (in the database when executing; when previewing, in the walk state:
   # `sim` holds the values the earlier rows would have written, keyed by the
@@ -17,7 +17,6 @@ defmodule PhoenixKitCatalogue.API.UpsertCategories do
   @tool "catalogue.upsert_categories"
   @external_id_path ["api", "external_id"]
   @planned_text "(a category created earlier in this request)"
-  @max_position 2_147_483_647
 
   @spec call(map(), map()) ::
           {:ok, map()} | {:preview, map(), String.t()} | {:error, atom(), String.t(), map()}
@@ -75,11 +74,13 @@ defmodule PhoenixKitCatalogue.API.UpsertCategories do
 
   defp check_name(_row), do: :ok
 
-  # The column is a 32-bit integer; a larger value is this row's error, not a
-  # crash that would leave the rest of the batch unprocessed.
-  defp check_position(%{"position" => position})
-       when is_integer(position) and position > @max_position,
-       do: invalid("position", "must be at most #{@max_position}")
+  # A position far below the 32-bit column limit: a value at the limit would make
+  # the next automatic position overflow the column. Too large is this row's
+  # error, not a crash that would leave the rest of the batch unprocessed.
+  defp check_position(%{"position" => position}) when is_integer(position) do
+    max = Catalogue.max_category_position()
+    if position > max, do: invalid("position", "must be at most #{max}"), else: :ok
+  end
 
   defp check_position(_row), do: :ok
 

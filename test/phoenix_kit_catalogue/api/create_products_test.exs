@@ -1,5 +1,5 @@
 defmodule PhoenixKitCatalogue.API.CreateProductsTest do
-  @moduledoc "`catalogue.create_products` (spec 6.1, 11.2)."
+  @moduledoc "`catalogue.create_products`."
 
   use PhoenixKitCatalogue.DataCase, async: false
 
@@ -8,7 +8,7 @@ defmodule PhoenixKitCatalogue.API.CreateProductsTest do
   alias PhoenixKitCatalogue.API.CreateProducts
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
-  alias PhoenixKitCatalogue.Test.ApiCase
+  alias PhoenixKitCatalogue.Test.{ApiCase, QueryHook}
 
   @tool "catalogue.create_products"
 
@@ -110,6 +110,58 @@ defmodule PhoenixKitCatalogue.API.CreateProductsTest do
 
     slugs = for %{"id" => id} <- rows, do: Catalogue.get_item!(id).slug |> Map.values() |> hd()
     assert Enum.sort(slugs) == ["oak-panel", "oak-panel-2"]
+  end
+
+  describe "slugs for many equal names" do
+    # A candidate probe is the only statement that reads the slug projection.
+    defp slug_probes(queries), do: Enum.count(queries, &(&1 =~ "item_slugs"))
+
+    defp slug_of(id), do: Catalogue.get_item!(id).slug |> Map.values() |> hd()
+
+    test "a request of equal names probes the slugs about once per row", %{catalogue: catalogue} do
+      count = 100
+      items = for n <- 1..count, do: %{"sku" => "S-#{n}", "name" => "Oak Panel"}
+
+      {result, queries} = QueryHook.queries(fn -> create(catalogue, items) end)
+
+      rows = rows(result)
+      slugs = Enum.map(rows, &slug_of(&1["id"]))
+      assert Enum.uniq(slugs) |> length() == count
+      assert "oak-panel" in slugs and "oak-panel-#{count}" in slugs
+      # One walk per row would be count * (count + 1) / 2 = 5050 probes.
+      assert slug_probes(queries) <= 2 * count
+    end
+
+    test "slugs already in the database are probed once, not once per row", %{
+      catalogue: catalogue
+    } do
+      existing = 30
+
+      for n <- 1..existing do
+        {:ok, _} =
+          Catalogue.create_item(%{
+            name: "Oak Panel",
+            catalogue_uuid: catalogue.uuid,
+            slug: %{"en-US" => if(n == 1, do: "oak-panel", else: "oak-panel-#{n}")}
+          })
+      end
+
+      items = for n <- 1..existing, do: %{"sku" => "S-#{n}", "name" => "Oak Panel"}
+
+      {result, queries} = QueryHook.queries(fn -> create(catalogue, items) end)
+
+      slugs = result |> rows() |> Enum.map(&slug_of(&1["id"]))
+      assert Enum.uniq(slugs) |> length() == existing
+
+      assert Enum.all?(
+               slugs,
+               &(&1 not in ["oak-panel" | for(n <- 2..existing, do: "oak-panel-#{n}")])
+             )
+
+      # The walk over the 30 stored slugs happens once; without the request's
+      # memory it repeats for every row (30 * 31 probes).
+      assert slug_probes(queries) <= 4 * existing
+    end
   end
 
   test "an existing external_id or sku is skipped, never overwritten", %{catalogue: catalogue} do
