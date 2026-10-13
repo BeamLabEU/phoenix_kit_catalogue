@@ -609,11 +609,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_info({:catalogue_category_reorder, _, _, _, _}, socket), do: {:noreply, socket}
 
   # Cross-tab live bulk change: another open detail page just bulk-
-  # trashed / restored / moved / hard-deleted items. Two-step animation
-  # for receivers — flash the "leaving" colour on every affected DOM
-  # row immediately, schedule the actual state refresh after the flash
+  # trashed / restored / moved / hard-deleted / created / updated items.
+  # Two-step animation for receivers — flash the "leaving" colour on
+  # every affected DOM row immediately, schedule the actual state refresh after the flash
   # plays out (~800ms), then on refresh fire green flash for the
-  # arriving rows when the kind is :restored or :moved.
+  # arriving rows when the kind is :restored, :moved or :created.
   def handle_info(
         {:catalogue_bulk_change, cat_uuid, kind, uuids, from},
         %{assigns: %{catalogue_uuid: catalogue_uuid}} = socket
@@ -621,8 +621,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       when cat_uuid == catalogue_uuid and from != self() do
     leaving_status =
       case kind do
-        # Restored items aren't currently visible — nothing to flash red.
-        :restored -> nil
+        # Restored, created and updated rows are not on their way out:
+        # nothing to flash red.
+        kind when kind in [:restored, :created, :updated] -> nil
         # Trashed / moved / permanent-deleted: they're on this tab now,
         # so red-flash them as they're about to leave.
         _ -> :error
@@ -645,7 +646,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_info({:catalogue_bulk_change, _, _, _, _}, socket), do: {:noreply, socket}
 
   # Tail of the cross-tab bulk animation — applies the actual state
-  # refresh and the arriving-side green flash (for moves / restores).
+  # refresh and the arriving-side green flash (for moves / restores / creates).
   # `reset_and_load/1` already loads the level (no second `refresh_counts`);
   # an active search is re-run too, since the batch `:item` event that
   # would have done it was held back by `bulk_change_pending`. The
@@ -659,7 +660,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       |> rerun_active_search()
 
     socket =
-      if kind in [:restored, :moved],
+      if kind in [:restored, :moved, :created],
         do: Enum.reduce(uuids, socket, &flash_reorder(&2, &1, :ok)),
         else: socket
 
