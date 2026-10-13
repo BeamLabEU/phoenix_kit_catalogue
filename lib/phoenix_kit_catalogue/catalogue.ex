@@ -1850,11 +1850,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Takes `:data_owned_paths`, `:logged_data_paths` and `:log_metadata` exactly as
   `update_item/3` does (the row is read `FOR UPDATE`, the update applies to it,
   only the named `data` paths are copied).
+
+  The logged `from` values are those of the row as it is stored when the update
+  runs (the locked row), not of the caller's copy: under `:data_owned_paths`
+  always, and without it when the parent changes.
   """
   @spec update_category(Category.t(), map(), keyword()) ::
           {:ok, Category.t()}
           | {:error, Ecto.Changeset.t(Category.t()) | :not_found | :catalogue_moved}
   def update_category(%Category{} = category, attrs, opts \\ []) do
+    paths = owned_paths!(opts)
+
     result =
       locked_transaction(fn ->
         # A new parent is checked for a cycle against the tree as committed:
@@ -1868,7 +1874,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             do: lock_row_in_catalogue!(Category, category.uuid),
             else: category
 
-        {attrs, base} = narrow_category_data(category, attrs, opts)
+        {attrs, base} = narrow_category_data(category, attrs, paths, opts)
 
         changeset =
           base
@@ -1911,8 +1917,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  defp narrow_category_data(%Category{} = category, attrs, opts) do
-    case owned_paths!(opts) do
+  defp narrow_category_data(%Category{} = category, attrs, paths, opts) do
+    case paths do
       nil ->
         {narrow_data_ownership(Category, category.uuid, attrs, opts), category}
 
@@ -1941,9 +1947,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp splice_owned_data(schema, uuid, attrs, owned_keys) do
-    query = from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE")
-
-    case repo().one(query) do
+    case lock_fresh(schema, uuid) do
       nil ->
         attrs
 
@@ -1992,7 +1996,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         else
           raise ArgumentError,
                 ":data_owned_paths must be a list of non-empty lists of non-empty strings " <>
-                  "(the first segment may not be \"_trash\"), got: #{inspect(paths)}"
+                  "(the first segment may not be \"_trash\")"
         end
     end
   end
@@ -2009,39 +2013,60 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp valid_paths?(_other), do: false
 
-  # `:slug_owned_langs`: `[]` when absent, the validated list otherwise.
+  # `:slug_owned_langs`: `nil` when the option is absent, the validated list
+  # otherwise. The messages carry no values: an ArgumentError message may end
+  # up in a log.
   defp slug_langs!(opts) do
-    case Keyword.get(opts, :slug_owned_langs, []) do
+    case Keyword.get(opts, :slug_owned_langs) do
+      nil ->
+        nil
+
       langs when is_list(langs) ->
         if Enum.all?(langs, &(is_binary(&1) and &1 != "")),
           do: langs,
-          else:
-            raise(
-              ArgumentError,
-              ":slug_owned_langs must be a list of non-empty strings, got: #{inspect(langs)}"
-            )
+          else: raise(ArgumentError, ":slug_owned_langs must be a list of non-empty strings")
 
-      other ->
-        raise ArgumentError,
-              ":slug_owned_langs must be a list of non-empty strings, got: #{inspect(other)}"
+      _other ->
+        raise ArgumentError, ":slug_owned_langs must be a list of non-empty strings"
     end
   end
 
+  # Both options of the row-locked update, validated together: `{paths, langs}`,
+  # each `nil` when its option is absent.
+  defp owned_options!(opts) do
+    paths = owned_paths!(opts)
+    langs = slug_langs!(opts)
+
+    if langs != nil and paths == nil,
+      do: raise(ArgumentError, ":slug_owned_langs needs :data_owned_paths (the row lock)")
+
+    {paths, langs}
+  end
+
   # Merges the owned languages of `attrs[:slug]` into the fresh row's slug map.
-  defp splice_owned_slugs(_fresh, attrs, []), do: attrs
+  # `nil` langs (option absent): `attrs[:slug]` is cast whole like any column.
+  # With the option, and nothing to merge (`[]`, no `:slug` sent, or a `:slug`
+  # that is not a map), `:slug` is taken out of `attrs` so the fresh row's slug
+  # map stays exactly as it is.
+  defp splice_owned_slugs(_fresh, attrs, nil), do: attrs
 
   defp splice_owned_slugs(%{slug: fresh_slug}, attrs, langs) do
-    incoming = Helpers.fetch_attr(attrs, :slug) || %{}
+    case Helpers.fetch_attr(attrs, :slug) do
+      %{} = incoming when langs != [] ->
+        Helpers.put_attr(attrs, :slug, merge_slug_langs(fresh_slug || %{}, incoming, langs))
 
-    merged =
-      Enum.reduce(langs, fresh_slug || %{}, fn lang, acc ->
-        case Map.get(incoming, lang) do
-          slug when is_binary(slug) and slug != "" -> Map.put(acc, lang, slug)
-          _blank -> Map.delete(acc, lang)
-        end
-      end)
+      _nothing_to_merge ->
+        attrs |> Map.delete(:slug) |> Map.delete("slug")
+    end
+  end
 
-    Helpers.put_attr(attrs, :slug, merged)
+  defp merge_slug_langs(fresh_slug, incoming, langs) do
+    Enum.reduce(langs, fresh_slug, fn lang, acc ->
+      case Map.get(incoming, lang) do
+        slug when is_binary(slug) and slug != "" -> Map.put(acc, lang, slug)
+        _blank -> Map.delete(acc, lang)
+      end
+    end)
   end
 
   defp lock_fresh(schema, uuid),
@@ -6167,7 +6192,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   explicit `nil` deletes the key and prunes the maps it empties); the rest of
   `data`, and every column the caller did not change, is the fresh row's.
   Returns `{:error, :not_found}` when the row is gone. Mutually exclusive
-  with `:data_owned_keys` (`ArgumentError`).
+  with `:data_owned_keys` (`ArgumentError`). The returned struct is the locked
+  row, so associations the caller had preloaded are not loaded on it (reload
+  them if needed). A path that runs through a value that is not a map (say
+  `data["api"]` holding a string) replaces that value with a map when written.
 
   ## `:slug_owned_langs`
 
@@ -6179,7 +6207,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   no redirect. With this option `attrs[:slug]` is read as a set of per-language
   deltas: for each listed language the value in `attrs[:slug]` replaces the
   locked fresh row's value (an absent or blank value deletes that language's
-  slug), and every other language is the fresh row's. `[]` merges nothing.
+  slug), and every other language is the fresh row's. Nothing is merged, and
+  the fresh row's slug map is kept as it is, when the list is `[]` or when
+  `attrs` carries no `:slug` map at all (so a rename-only call never touches a
+  slug). Without the option `attrs[:slug]` is cast whole like any column.
 
   ## Logging options
 
@@ -6193,6 +6224,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec update_item(Item.t(), map(), keyword()) ::
           {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t()) | :not_found}
   def update_item(%Item{} = item, attrs, opts \\ []) do
+    # A bad option raises before any query is issued.
+    _ = owned_options!(opts)
+
     result =
       repo().transaction(fn ->
         case do_update_item(item, attrs, opts, []) do
@@ -6260,25 +6294,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp narrow_item_data(%Item{} = item, attrs, opts) do
-    case owned_paths!(opts) do
-      nil ->
-        if Keyword.has_key?(opts, :slug_owned_langs),
-          do: raise(ArgumentError, ":slug_owned_langs needs :data_owned_paths (the row lock)")
-
+    case owned_options!(opts) do
+      {nil, nil} ->
         {:ok, narrow_data_ownership(Item, item.uuid, attrs, opts), item}
 
-      paths ->
-        langs = slug_langs!(opts)
-
+      {paths, langs} ->
         case lock_fresh(Item, item.uuid) do
           nil ->
             {:error, :not_found}
 
           fresh ->
-            attrs =
-              fresh
-              |> splice_owned_paths(attrs, paths)
-              |> then(&splice_owned_slugs(fresh, &1, langs))
+            attrs = splice_owned_paths(fresh, attrs, paths)
+            attrs = splice_owned_slugs(fresh, attrs, langs)
 
             {:ok, attrs, fresh}
         end
@@ -6293,14 +6320,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
   `:logged_data_paths` options; no lock is taken (it works on the caller's
   copy), no category derivation, no log entry, no broadcast. This is what the
   shop API's dry run and confirmation preview are made of.
+
+  It models the column and `:data_owned_paths` changes only. `:slug_owned_langs`
+  is validated but not applied: `attrs[:slug]` is taken as the planned whole
+  slug map. A `status` change on a trashed row (which `update_item/3` discards)
+  and `:data_owned_keys` are not modelled.
   """
   @spec preview_item_update(Item.t(), map(), keyword()) ::
           {:ok, %{optional(String.t()) => map()}} | {:error, Ecto.Changeset.t(Item.t())}
   def preview_item_update(%Item{} = item, attrs, opts \\ []) do
     attrs =
-      case owned_paths!(opts) do
-        nil -> attrs
-        paths -> splice_owned_paths(item, attrs, paths)
+      case owned_options!(opts) do
+        {nil, _langs} -> attrs
+        {paths, _langs} -> splice_owned_paths(item, attrs, paths)
       end
 
     changeset = Item.changeset(item, attrs)
