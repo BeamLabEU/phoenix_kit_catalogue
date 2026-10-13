@@ -44,6 +44,10 @@ conventions, contracts and non-obvious boundaries.
 - **Admin-only.** No public routes, JSON endpoints, or webhook receivers. The
   plain HTTP routes — the stateless export download and the redirects from
   the module's old addresses — are both behind `:phoenix_kit_require_admin`.
+  The export download also asks for the `catalogue` permission with the
+  module enabled (core's `require_module_access/2`): the admin plug alone
+  passes for any role that reaches the admin area, and the file carries
+  every item with its prices.
 - **No per-item versioning.** Soft-delete (`status`) is the only history
   mechanism; the activity log is the audit trail.
 - **No always-on background work.** Two jobs, both opt-in by config:
@@ -323,7 +327,9 @@ Key invariants to preserve:
 
 Settings keys (`PhoenixKit.Settings`). Every key a person can change is on
 Settings → Catalogues (`Web.SettingsLive`), read and written through
-`Web.Settings`, except the two noted:
+`Web.Settings`, except the two noted. A write a person makes passes
+`actor_uuid:` and `source: "settings"`, or core's settings history files it
+under "system":
 
 | key | type | note |
 |---|---|---|
@@ -334,7 +340,7 @@ Settings → Catalogues (`Web.SettingsLive`), read and written through
 | `catalogue_translation_sweep_interval_minutes` | int | default `60` |
 | `catalogue_translation_sweep_langs` | json | `%{"codes" => [...]}`; a bare list is rejected by the `:map` column |
 | `catalogue_translation_sweep_max_per_run` | int | default `200`; despite the name, the most catalogue translation jobs queued at once — a tick tops up to it |
-| `catalogue_sort_catalogues` / `catalogue_sort_detail_items` / `catalogue_sort_detail_categories` | json | the module-global shared sort per scope (`%{"by" => …, "dir" => …}`), written by the admin sort selectors and read by the popup and widgets — not on the settings page |
+| `catalogue_sort_catalogues` / `catalogue_sort_detail_items` / `catalogue_sort_detail_categories` | string | the module-global shared sort per scope (`"<column>:<asc\|desc>"`), written by the admin sort selectors and read by the popup and widgets — not on the settings page. Core keeps every changed setting value as a permanent activity entry, so `ViewConfig.save_global_sort/4` writes only a changed sort and names the admin |
 
 Not a Settings key: per-user table/view preferences are core's
 `PhoenixKit.Users.ViewPrefs` rows (`Web.ViewConfig`) — `catalogue.<scope>` for a
@@ -514,11 +520,17 @@ Pointers, not docs — the moduledocs are the contract.
 - **Import** — `PhoenixKitCatalogue.Import` is a source registry
   (`Import.Source.Universal` for CSV/XLSX, `Import.Source.Pro100` for Pro100
   cabinet-software data); execution goes through `Import.{Mapper, Executor}` and
-  the `ImportLive` wizard (ETS buffering).
+  the `ImportLive` wizard (ETS buffering). A text upload is UTF-8, or UTF-16
+  with a byte-order mark, by the time a parser sees it (`Import.Encoding`);
+  anything else is refused with a message, never guessed — Windows-1252,
+  -1257 and -1251 give the same byte different letters. The import task, not
+  the page, writes `import.completed` / `import.failed`, so the outcome is
+  logged when the operator has closed the tab.
 - **Export** — `PhoenixKitCatalogue.Export.build/1` with a
   destination/format registry (Universal JSON, Pro100); UI in `ExportLive`,
-  download via the admin-gated `ExportController`. Inbound mirror of the import
-  sources.
+  download via the permission-gated `ExportController`, which answers 400 for
+  a destination, format or uuid it does not know (`build/1` raises on them).
+  Inbound mirror of the import sources.
 - **PDF library** — `Catalogue.PdfLibrary` + `Workers.PdfExtractor`.
   Content-hash dedup on core `phoenix_kit_files`; search is literal ILIKE with a
   trigram fallback. `enqueue_extraction/1` fails visibly when the host Oban
