@@ -1,5 +1,5 @@
 defmodule PhoenixKitCatalogue.API.SetTranslationsTest do
-  @moduledoc "`catalogue.set_translations` (spec 6.1, 6.4)."
+  @moduledoc "`catalogue.set_translations`."
 
   use PhoenixKitCatalogue.DataCase, async: false
 
@@ -9,7 +9,7 @@ defmodule PhoenixKitCatalogue.API.SetTranslationsTest do
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
-  alias PhoenixKitCatalogue.Test.ApiCase
+  alias PhoenixKitCatalogue.Test.{ApiCase, QueryHook}
 
   @tool "catalogue.set_translations"
 
@@ -384,5 +384,275 @@ defmodule PhoenixKitCatalogue.API.SetTranslationsTest do
     {:ok, _} = Catalogue.update_item(reread, %{slug: %{"de-DE" => "schon-da"}})
     assert {:preview, _, other} = translate(catalogue, entries, %{dry_run?: true})
     assert other != fingerprint
+  end
+
+  test "a full code that is not enabled is refused even when its base matches an enabled language",
+       %{catalogue: catalogue} do
+    a = item(catalogue, "Oak")
+    {:ok, _} = translate(catalogue, [entry(a, %{"de-DE" => %{"name" => "Eiche Deutschland"}})])
+
+    for bad <- ["de-AT", "de-CH", "de-", "de-de", "de-DE ", ""] do
+      assert [row] = rows(translate(catalogue, [entry(a, %{bad => %{"name" => "Eiche Fremd"}})]))
+      assert row["action"] == "error", "#{inspect(bad)} was accepted"
+      assert row["error"]["code"] == "validation_failed"
+      assert "de-DE" in row["error"]["context"]["allowed"]
+    end
+
+    assert Catalogue.get_item!(a.uuid).data["de-DE"] == %{"_name" => "Eiche Deutschland"}
+  end
+
+  test "a name is stored trimmed", %{catalogue: catalogue} do
+    a = item(catalogue, "Oak")
+
+    assert {:ok, %{"summary" => %{"updated" => 1}}} =
+             translate(catalogue, [entry(a, %{"de-DE" => %{"name" => "  Eiche  "}})])
+
+    assert Catalogue.get_item!(a.uuid).data["de-DE"] == %{"_name" => "Eiche"}
+  end
+
+  test "a blank or content-free slug is refused and the existing slug survives",
+       %{catalogue: catalogue} do
+    a = item(catalogue, "Oak", %{slug: %{"de-DE" => "alt"}})
+
+    for bad <- ["", "   ", "!!!"] do
+      assert [row] = rows(translate(catalogue, [entry(a, %{"de-DE" => %{"slug" => bad}})]))
+      assert row["action"] == "error", "#{inspect(bad)} was accepted"
+      assert row["error"]["code"] == "validation_failed"
+      assert [%{"path" => "translations.de-DE.slug"}] = row["error"]["context"]["errors"]
+    end
+
+    reread = Catalogue.get_item!(a.uuid)
+    assert reread.slug == %{"de-DE" => "alt"}
+    assert reread.data == %{}
+  end
+
+  test "a blank description or SEO text is refused; null clears it", %{catalogue: catalogue} do
+    a = item(catalogue, "Oak")
+
+    for field <- ["description", "seo_title", "seo_description"], bad <- ["", "  "] do
+      assert [row] = rows(translate(catalogue, [entry(a, %{"de-DE" => %{field => bad}})]))
+      assert row["action"] == "error", "#{field} #{inspect(bad)} was accepted"
+      assert [%{"path" => path}] = row["error"]["context"]["errors"]
+      assert path == "translations.de-DE." <> field
+    end
+
+    assert Catalogue.get_item!(a.uuid).data == %{}
+
+    {:ok, _} =
+      translate(catalogue, [entry(a, %{"de-DE" => %{"seo_title" => "T", "name" => "E"}})])
+
+    assert {:ok, %{"summary" => %{"updated" => 1}}} =
+             translate(catalogue, [entry(a, %{"de-DE" => %{"seo_title" => nil}})])
+
+    assert Catalogue.get_item!(a.uuid).data["de-DE"] == %{"_name" => "E"}
+  end
+
+  test "clearing a field of a flat item that has nothing to clear leaves the item alone",
+       %{catalogue: catalogue} do
+    a = item(catalogue, "Oak", %{data: %{"meta" => 1}})
+
+    assert {:ok, %{"results" => [row], "summary" => %{"unchanged" => 1}}} =
+             translate(catalogue, [entry(a, %{"de-DE" => %{"name" => nil}})])
+
+    assert row["action"] == "unchanged"
+    assert Catalogue.get_item!(a.uuid).data == %{"meta" => 1}
+    refute_activity_logged("item.updated", resource_uuid: a.uuid)
+  end
+
+  test "twenty languages are counted, twenty-one are refused before any language is looked at",
+       %{catalogue: catalogue} do
+    a = item(catalogue, "Oak")
+    languages = fn n -> Map.new(1..n, &{"x#{&1}", %{"name" => "N"}}) end
+
+    assert [row] = rows(translate(catalogue, [entry(a, languages.(21))]))
+    assert row["action"] == "error"
+    assert row["error"]["message"] =~ "at most 20"
+
+    assert [row] = rows(translate(catalogue, [entry(a, languages.(20))]))
+    assert row["action"] == "error"
+    refute row["error"]["message"] =~ "at most 20"
+  end
+
+  describe "slugs across dialects of one base language" do
+    setup do
+      {:ok, _} = Languages.add_language("de-AT")
+      :ok
+    end
+
+    test "one item may use the same slug in two dialects, given or generated",
+         %{catalogue: catalogue} do
+      a = item(catalogue, "Oak")
+      b = item(catalogue, "Pine")
+
+      assert {:ok, %{"summary" => %{"updated" => 2}}} =
+               translate(catalogue, [
+                 entry(a, %{"de-DE" => %{"slug" => "eiche"}, "de-AT" => %{"slug" => "eiche"}}),
+                 entry(b, %{"de-DE" => %{"name" => "Kiefer"}, "de-AT" => %{"name" => "Kiefer"}})
+               ])
+
+      assert Catalogue.get_item!(a.uuid).slug == %{"de-DE" => "eiche", "de-AT" => "eiche"}
+      assert Catalogue.get_item!(b.uuid).slug == %{"de-DE" => "kiefer", "de-AT" => "kiefer"}
+    end
+
+    test "another item of the request may not take that slug in the sibling dialect",
+         %{catalogue: catalogue} do
+      a = item(catalogue, "Oak")
+      b = item(catalogue, "Pine")
+
+      assert [ok, refused] =
+               rows(
+                 translate(catalogue, [
+                   entry(a, %{"de-DE" => %{"slug" => "eiche"}}),
+                   entry(b, %{"de-AT" => %{"slug" => "eiche"}})
+                 ])
+               )
+
+      assert ok["action"] == "updated"
+      assert refused["action"] == "error"
+      assert [%{"path" => "translations.de-AT.slug"}] = refused["error"]["context"]["errors"]
+      assert Catalogue.get_item!(b.uuid).slug == %{}
+    end
+  end
+
+  test "a dry run of a request that changes nothing reports unchanged", %{catalogue: catalogue} do
+    a = item(catalogue, "Oak")
+    entries = [entry(a, %{"de-DE" => %{"name" => "Eiche"}})]
+    {:ok, _} = translate(catalogue, entries)
+
+    assert {:preview, %{"rows" => [row], "summary" => %{"unchanged" => 1}}, _} =
+             translate(catalogue, entries, %{dry_run?: true})
+
+    assert row["action"] == "unchanged"
+    assert row["changes"] == %{}
+  end
+
+  test "a multilang item whose bucket for the language is not a map gets a map on write and is left alone on clear",
+       %{catalogue: catalogue, primary: primary} do
+    a = item(catalogue, "Oak", %{data: %{"_primary_language" => primary, "de-DE" => "junk"}})
+
+    assert [row] = rows(translate(catalogue, [entry(a, %{"de-DE" => %{"name" => nil}})]))
+    assert row["action"] == "unchanged"
+    assert Catalogue.get_item!(a.uuid).data["de-DE"] == "junk"
+
+    assert {:ok, %{"summary" => %{"updated" => 1}}} =
+             translate(catalogue, [entry(a, %{"de-DE" => %{"name" => "Eiche"}})])
+
+    assert Catalogue.get_item!(a.uuid).data["de-DE"] == %{"_name" => "Eiche"}
+  end
+
+  test "a request whose rows are all rejected opens no transaction", %{catalogue: catalogue} do
+    a = item(catalogue, "Oak")
+
+    {result, queries} =
+      QueryHook.queries(fn -> translate(catalogue, [entry(a, %{"xx" => %{"name" => "x"}})]) end)
+
+    assert {:ok, %{"summary" => %{"error" => 1}}} = result
+    refute Enum.any?(queries, &(&1 =~ ~r/\A(begin|commit)/i))
+  end
+
+  describe "a world that changes between planning and writing" do
+    # `update_items/2` locks the categories right after the request was planned and
+    # before it locks and reads the items.
+    @after_planning "FOR SHARE"
+
+    test "a slug another writer stored for a different language meanwhile is kept",
+         %{catalogue: catalogue} do
+      a = item(catalogue, "Oak")
+
+      result =
+        QueryHook.after_query(
+          @after_planning,
+          fn ->
+            {:ok, _} =
+              Catalogue.update_item(Catalogue.get_item!(a.uuid), %{slug: %{"fr-FR" => "chene"}})
+          end,
+          fn -> translate(catalogue, [entry(a, %{"de-DE" => %{"name" => "Eiche"}})]) end
+        )
+
+      assert {:ok, %{"summary" => %{"updated" => 1}}} = result
+      assert Catalogue.get_item!(a.uuid).slug == %{"fr-FR" => "chene", "de-DE" => "eiche"}
+    end
+
+    test "a slug taken meanwhile is a row error and writes nothing of that row",
+         %{catalogue: catalogue} do
+      holder = item(catalogue, "Holder")
+      a = item(catalogue, "Oak")
+      b = item(catalogue, "Pine")
+
+      result =
+        QueryHook.after_query(
+          @after_planning,
+          fn ->
+            {:ok, _} =
+              Catalogue.update_item(Catalogue.get_item!(holder.uuid), %{
+                slug: %{"de-DE" => "eiche"}
+              })
+          end,
+          fn ->
+            translate(catalogue, [
+              entry(a, %{"de-DE" => %{"name" => "Eiche"}}),
+              entry(b, %{"de-DE" => %{"name" => "Kiefer"}})
+            ])
+          end
+        )
+
+      assert [taken, ok] = rows(result)
+      assert taken["action"] == "error"
+      assert taken["error"]["code"] == "validation_failed"
+      assert ok["action"] == "updated"
+
+      reread = Catalogue.get_item!(a.uuid)
+      assert reread.slug == %{}
+      refute Map.has_key?(reread.data, "de-DE")
+      assert Catalogue.get_item!(b.uuid).slug == %{"de-DE" => "kiefer"}
+    end
+
+    test "an item trashed meanwhile is a not_found row that says the translations were stored",
+         %{catalogue: catalogue} do
+      a = item(catalogue, "Oak")
+      b = item(catalogue, "Pine")
+
+      result =
+        QueryHook.after_query(
+          @after_planning,
+          fn -> {:ok, _} = Catalogue.trash_item(Catalogue.get_item!(a.uuid)) end,
+          fn ->
+            translate(catalogue, [
+              entry(a, %{"de-DE" => %{"name" => "Eiche"}}),
+              entry(b, %{"de-DE" => %{"name" => "Kiefer"}})
+            ])
+          end
+        )
+
+      assert [trashed, ok] = rows(result)
+      assert trashed["action"] == "error"
+      assert trashed["error"]["code"] == "not_found"
+      assert trashed["id"] == a.uuid
+      assert trashed["error"]["context"] == %{"saved" => true}
+      assert ok["action"] == "updated"
+      assert {:ok, %{"summary" => %{"error" => 1, "updated" => 1}}} = result
+    end
+
+    test "an item deleted meanwhile is a not_found row", %{catalogue: catalogue} do
+      a = item(catalogue, "Oak")
+      b = item(catalogue, "Pine")
+
+      result =
+        QueryHook.after_query(
+          @after_planning,
+          fn -> {:ok, _} = Catalogue.delete_item(Catalogue.get_item!(a.uuid)) end,
+          fn ->
+            translate(catalogue, [
+              entry(a, %{"de-DE" => %{"name" => "Eiche"}}),
+              entry(b, %{"de-DE" => %{"name" => "Kiefer"}})
+            ])
+          end
+        )
+
+      assert [gone, ok] = rows(result)
+      assert gone["action"] == "error"
+      assert gone["error"]["code"] == "not_found"
+      assert ok["action"] == "updated"
+    end
   end
 end

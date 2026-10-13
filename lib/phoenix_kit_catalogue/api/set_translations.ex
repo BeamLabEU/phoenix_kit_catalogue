@@ -1,14 +1,12 @@
 defmodule PhoenixKitCatalogue.API.SetTranslations do
   @moduledoc false
-  # Tool `catalogue.set_translations` (spec 6.1, 6.4). See the task text for the rules.
+  # Tool `catalogue.set_translations`.
   #
   # Language buckets are top-level keys of `data` (`data["de-DE"]["_name"]`,
-  # with `data["_primary_language"]`); the spec's example path
-  # `["translations", "de"]` does not match the stored shape (D14). Everything
-  # is written as leaf paths under the row lock, never by wrapping the item's
-  # whole flat `data` under the primary key, which is what
-  # `Multilang.put_language_data/3` does on a flat item and would move
-  # `data["ecommerce"]` out from under the shop.
+  # with `data["_primary_language"]`). Everything is written as leaf paths under
+  # the row lock, never by wrapping the item's whole flat `data` under the
+  # primary key, which is what `Multilang.put_language_data/3` does on a flat
+  # item and would move `data["ecommerce"]` out from under the shop.
 
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Utils.Multilang
@@ -19,6 +17,9 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
 
   @tool "catalogue.set_translations"
   @max_languages 20
+  # Fields whose text must not be blank: clearing is `null`.
+  @text_fields ~w(name description seo_title seo_description slug)
+  @bare_code ~r/\A[A-Za-z]{2,3}\z/
   @bucket_keys %{
     "name" => "_name",
     "description" => "_description",
@@ -42,7 +43,7 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
 
       plan = plan(Enum.zip(entries, resolutions))
 
-      if ctx.dry_run?, do: preview(plan), else: execute(plan, catalogue, ctx)
+      if ctx.dry_run?, do: preview(plan), else: execute(plan, ctx)
     end
   end
 
@@ -54,9 +55,8 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
     enabled = Multilang.enabled_languages()
 
     {planned, _state} =
-      Enum.map_reduce(pairs, %{seen: MapSet.new(), claimed: MapSet.new()}, fn {entry,
-                                                                               {ref, resolution}},
-                                                                              state ->
+      Enum.map_reduce(pairs, %{seen: MapSet.new(), claimed: %{}}, fn {entry, {ref, resolution}},
+                                                                     state ->
         plan_one(entry["translations"], ref, resolution, enabled, state)
       end)
 
@@ -130,7 +130,7 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
            :ok <- check_not_primary(lang, primary, path),
            :ok <- check_distinct(lang, acc, path),
            :ok <- check_fields(fields, path) do
-        {:cont, {:ok, [{lang, fields} | acc]}}
+        {:cont, {:ok, [{lang, trim_name(fields)} | acc]}}
       else
         {:error, _path, _message, _context} = error -> {:halt, error}
       end
@@ -141,27 +141,45 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
     end
   end
 
+  # A full code must be an enabled language as written; only a bare code ("de")
+  # may stand for the one enabled language of that base ("de-DE").
   defp resolve_language(given, enabled, path) do
-    if given in enabled do
-      {:ok, given}
-    else
-      base = DialectMapper.extract_base(given)
+    cond do
+      given in enabled ->
+        {:ok, given}
 
-      case Enum.filter(enabled, &(DialectMapper.extract_base(&1) == base)) do
-        [one] ->
-          {:ok, one}
+      Regex.match?(@bare_code, given) ->
+        resolve_bare_language(given, enabled, path)
 
-        [] ->
-          {:error, path, "is not an enabled language", %{"allowed" => enabled}}
-
-        several ->
-          {:error, path, "matches several enabled languages; use the full code",
-           %{"allowed" => several}}
-      end
+      true ->
+        {:error, path, "is not an enabled language", %{"allowed" => enabled}}
     end
   end
 
-  # Same conceptual language under a different precision ("en" / "en-US").
+  defp resolve_bare_language(given, enabled, path) do
+    base = DialectMapper.extract_base(given)
+
+    case Enum.filter(enabled, &(DialectMapper.extract_base(&1) == base)) do
+      [one] ->
+        {:ok, one}
+
+      [] ->
+        {:error, path, "is not an enabled language", %{"allowed" => enabled}}
+
+      several ->
+        {:error, path, "matches several enabled languages; use the full code",
+         %{"allowed" => several}}
+    end
+  end
+
+  defp trim_name(%{"name" => name} = fields) when is_binary(name),
+    do: %{fields | "name" => String.trim(name)}
+
+  defp trim_name(fields), do: fields
+
+  # Same conceptual language under a different precision ("en" / "en-US"). The
+  # last test covers a stored primary language with a region next to a bare
+  # enabled code; core does not enable bare codes today.
   defp check_not_primary(lang, primary, path) do
     if lang == primary or DialectMapper.extract_base(lang) == primary or
          lang == DialectMapper.extract_base(primary) do
@@ -183,11 +201,20 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
   defp check_fields(fields, path) when map_size(fields) == 0,
     do: {:error, path, "must name at least one field", %{}}
 
-  defp check_fields(%{"name" => name}, path) when is_binary(name) do
-    if Common.blank?(name), do: {:error, path <> ".name", "must not be blank", %{}}, else: :ok
+  # A blank text would be stored as a value nothing treats as absent: clearing is `null`.
+  defp check_fields(fields, path) do
+    Enum.find_value(@text_fields, :ok, fn key ->
+      with %{^key => text} when is_binary(text) <- fields,
+           true <- Common.blank?(text) do
+        {:error, path <> "." <> key, blank_message(key), %{}}
+      else
+        _fine -> nil
+      end
+    end)
   end
 
-  defp check_fields(_fields, _path), do: :ok
+  defp blank_message("slug"), do: "must not be blank; send null to remove it"
+  defp blank_message(_key), do: "must not be blank; send null to clear it"
 
   defp assemble(item, languages, multilang?, primary, claimed) do
     slugs = item.slug || %{}
@@ -207,17 +234,18 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
   end
 
   defp update_for(acc, slugs, multilang?, primary) do
-    # Flat data becomes multilang only when a bucket is actually written.
+    # Flat data becomes multilang only when a value is actually written: a clear
+    # that finds nothing to clear leaves the item alone.
     {data, paths} =
-      if multilang? or acc.paths == [],
+      if multilang? or not writes_value?(acc.data),
         do: {acc.data, acc.paths},
         else:
           {Map.put(acc.data, "_primary_language", primary), [["_primary_language"] | acc.paths]}
 
-    # D13: the slug column is one map for all languages. Send only the languages this
-    # call changed (added, changed or removed) as per-language deltas; `update_item/3`
-    # merges them into the LOCKED row, so a slug another writer stored for a different
-    # language since we read the item is not overwritten.
+    # The slug column is one map for all languages. Send only the languages this call
+    # changed (added, changed or removed) as per-language deltas; `update_item/3` merges
+    # them into the LOCKED row, so a slug another writer stored for a different language
+    # since we read the item is not overwritten.
     slug_langs =
       for lang <- Enum.uniq(Map.keys(slugs) ++ Map.keys(acc.slugs)),
           Map.get(slugs, lang) != Map.get(acc.slugs, lang),
@@ -234,6 +262,12 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
         slug_owned_langs: slug_langs
       ]
     }
+  end
+
+  defp writes_value?(data) do
+    Enum.any?(data, fn {_lang, bucket} ->
+      Enum.any?(bucket, fn {_key, value} -> value != nil end)
+    end)
   end
 
   defp translate(item, lang, fields, acc) do
@@ -273,6 +307,9 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
     slug = Slugs.from_title(text, lang)
 
     cond do
+      Slugs.hash_fallback?(slug, text) ->
+        {:error, path, "has no characters a URL can carry; send letters or digits", %{}}
+
       slug == current ->
         {:ok, acc.slugs, acc.claimed}
 
@@ -280,7 +317,7 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
         {:error, path, "is already taken in this language", %{"slug" => slug}}
 
       true ->
-        {:ok, Map.put(acc.slugs, lang, slug), MapSet.put(acc.claimed, claim(slug, lang))}
+        {:ok, Map.put(acc.slugs, lang, slug), claim(acc.claimed, item, slug, lang)}
     end
   end
 
@@ -291,19 +328,24 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
       )
 
     slug = Slugs.unique(base, lang, taken?(item, acc.claimed))
-    {:ok, Map.put(acc.slugs, lang, slug), MapSet.put(acc.claimed, claim(slug, lang))}
+    {:ok, Map.put(acc.slugs, lang, slug), claim(acc.claimed, item, slug, lang)}
   end
 
-  # Taken in the database by another item, or claimed earlier in this request.
+  # Taken in the database by another item, or claimed earlier in this request by
+  # another item (the same item may use one slug in two dialects of a language).
   defp taken?(item, claimed) do
     fn candidate, lang ->
-      MapSet.member?(claimed, claim(candidate, lang)) or
-        Catalogue.item_slug_taken?(candidate, lang, exclude_uuid: item.uuid)
+      case Map.fetch(claimed, claim_key(candidate, lang)) do
+        {:ok, owner} -> owner != item.uuid
+        :error -> Catalogue.item_slug_taken?(candidate, lang, exclude_uuid: item.uuid)
+      end
     end
   end
 
+  defp claim(claimed, item, slug, lang), do: Map.put(claimed, claim_key(slug, lang), item.uuid)
+
   # The projection is per base language ("de-DE" and "de-AT" both live in "de").
-  defp claim(slug, lang), do: {lang |> String.split("-") |> hd() |> String.downcase(), slug}
+  defp claim_key(slug, lang), do: {DialectMapper.extract_base(lang), slug}
 
   # --- dry run -------------------------------------------------------------------------
 
@@ -337,21 +379,25 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
 
   # --- execution -------------------------------------------------------------------------
 
-  defp execute(plan, _catalogue, ctx) do
+  defp execute(plan, ctx) do
     opts = Common.write_opts(ctx, @tool)
 
     rows =
       for {:update, _ref, item, update} <- plan, do: {item.uuid, update.attrs, update.row_opts}
 
-    case Catalogue.update_items(rows, opts) do
+    case write(rows, opts) do
       {:ok, outcomes} ->
         by_uuid = Map.new(outcomes)
         plan |> Enum.map(&finish(&1, by_uuid)) |> Common.batch_result()
 
-      {:error, reason} ->
-        {:error, :internal_error, "The batch could not be written.", %{reason: inspect(reason)}}
+      {:error, _reason} ->
+        {:error, :internal_error, "The batch could not be written.", %{}}
     end
   end
+
+  # A request whose rows were all rejected opens no transaction.
+  defp write([], _opts), do: {:ok, []}
+  defp write(rows, opts), do: Catalogue.update_items(rows, opts)
 
   defp finish({:rejected, ref, message, context}, _outcomes),
     do: Common.row_error(ref, :validation_failed, message, context)
@@ -361,12 +407,24 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
 
   defp finish({:update, ref, item, _update}, outcomes) do
     case Map.get(outcomes, item.uuid) do
+      {kind, %{status: "deleted"} = trashed} -> trashed_row(ref, trashed, kind == :updated)
       {:updated, _updated} -> Common.row_ok(ref, "updated", item.uuid)
       {:unchanged, _updated} -> Common.row_ok(ref, "unchanged", item.uuid)
       {:error, %Ecto.Changeset{} = changeset} -> changeset_failure(ref, changeset)
       {:error, :not_found} -> Common.row_error(ref, :not_found, "The item no longer exists.")
       _other -> Common.row_error(ref, :internal_error, "The item could not be written.")
     end
+  end
+
+  # The item was trashed between planning and writing. The write is the one
+  # `Catalogue.update_item/3` makes on a trashed row (its status stays `deleted`),
+  # so the translations may have been stored: the row says so.
+  defp trashed_row(ref, item, saved?) do
+    ref
+    |> Common.row_error(:not_found, "The item was trashed before the change was applied.", %{
+      "saved" => saved?
+    })
+    |> Map.put("id", item.uuid)
   end
 
   # A slug taken by a writer between planning and writing surfaces here.
