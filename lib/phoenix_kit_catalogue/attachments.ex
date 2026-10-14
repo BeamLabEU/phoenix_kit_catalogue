@@ -66,7 +66,9 @@ defmodule PhoenixKitCatalogue.Attachments do
   `attachments_files_panel/1`. The hook returns `{:cont, socket}` for every
   message, so the host's own catch-all (all three forms have one) absorbs
   the events at debug level and a core `MediaBrowser` mounted later still
-  receives them.
+  receives them. Every system-wide file event reaches the form this way: a
+  pattern match, and for `processed` an O(grid) membership check, with the
+  host's catch-all logging the copy at debug.
 
   ## Resource shape
 
@@ -265,7 +267,7 @@ defmodule PhoenixKitCatalogue.Attachments do
     featured? = socket.assigns[:featured_image_uuid] == uuid
 
     if in_grid? or featured? do
-      version = uuid |> Storage.get_file_instance_by_name("thumbnail") |> instance_version()
+      version = thumbnail_version(uuid)
 
       socket
       |> put_grid_version(in_grid?, uuid, version)
@@ -290,8 +292,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   # The THUMBNAIL instance's version, never the original's. Nil when no
   # instance exists (yet, or ever: an image smaller than the size, failed
   # processing) — the unversioned URL is then the right one.
-  defp instance_version(nil), do: nil
-  defp instance_version(instance), do: URLSigner.version(instance)
+  defp thumbnail_version(uuid), do: uuid |> List.wrap() |> thumbnail_versions() |> Map.get(uuid)
 
   # One query for all the grid's images; refreshed on every rebuild of the
   # list so a version never outlives the list it was read for.
@@ -302,12 +303,15 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   defp thumbnail_versions([]), do: %{}
 
+  # Core has no batch reader for instances (only `get_file_instance_by_name/2`,
+  # one file at a time), hence the direct query. A failed read must never
+  # take the form down — it only means unversioned URLs.
   defp thumbnail_versions(uuids) do
     from(i in FileInstance,
       where: i.file_uuid in ^uuids and i.variant_name == "thumbnail",
       select: {i.file_uuid, i.checksum}
     )
-    |> PhoenixKit.RepoHelper.repo().all()
+    |> repo().all()
     |> Enum.flat_map(fn {uuid, checksum} ->
       case URLSigner.version(checksum) do
         nil -> []
@@ -319,7 +323,13 @@ defmodule PhoenixKitCatalogue.Attachments do
     error ->
       Logger.warning("thumbnail versions read failed: #{inspect(error)}")
       %{}
+  catch
+    :exit, reason ->
+      Logger.warning("thumbnail versions read failed: #{inspect(reason)}")
+      %{}
   end
+
+  defp repo, do: PhoenixKit.RepoHelper.repo()
 
   # The single place the featured file is assigned, so its version is
   # always read together with it.
@@ -327,7 +337,7 @@ defmodule PhoenixKitCatalogue.Attachments do
     version =
       case file do
         %{file_type: "image", uuid: file_uuid} ->
-          thumbnail_versions([file_uuid]) |> Map.get(file_uuid)
+          thumbnail_version(file_uuid)
 
         _ ->
           nil

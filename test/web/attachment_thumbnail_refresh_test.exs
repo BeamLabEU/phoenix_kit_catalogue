@@ -81,6 +81,10 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
 
   defp assigns(view), do: :sys.get_state(view.pid).socket.assigns
 
+  # `:sys.get_state/1` returns only after the view has handled every message
+  # already in its mailbox, so the broadcast is known delivered before we look.
+  defp settle(view), do: _ = :sys.get_state(view.pid)
+
   test "an image without a thumbnail instance renders the unversioned URL", ctx do
     %{conn: conn, scope: scope, item: item, user_uuid: user} = ctx
     file = insert_file!(user, "a.jpg")
@@ -101,6 +105,7 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
 
     instance = make_thumbnail!(file)
     Storage.broadcast_file_processed(file)
+    settle(view)
 
     version = URLSigner.version(instance)
     assert [src] = thumb_srcs(render(view), file)
@@ -116,6 +121,7 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
 
     make_thumbnail!(file, "fedcba9876543210fedcba9876543210")
     Storage.broadcast_file_processed(file)
+    settle(view)
 
     assert [src] = thumb_srcs(render(view), file)
     assert src =~ "?v=fedcba9876543210"
@@ -134,6 +140,7 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
 
     instance = make_thumbnail!(file)
     Storage.broadcast_file_processed(file)
+    settle(view)
 
     version = URLSigner.version(instance)
     srcs = thumb_srcs(render(view), file)
@@ -168,6 +175,7 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
 
     render_hook(view, "reorder_files", %{"ordered_ids" => [b, a]})
     send(view.pid, {:catalogue_data_changed, :item, item.uuid, cat.uuid})
+    settle(view)
 
     assert [src] = thumb_srcs(render(view), a)
     assert src =~ "?v=#{URLSigner.version(instance)}"
@@ -183,6 +191,7 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
     {:ok, _} = Attachments.attach_files(item, [file])
     instance = make_thumbnail!(file)
     send(view.pid, {:catalogue_data_changed, :item, item.uuid, cat.uuid})
+    settle(view)
 
     assert [src] = thumb_srcs(render(view), file)
     assert src =~ "?v=#{URLSigner.version(instance)}"
@@ -199,6 +208,7 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
     # *another* uuid arrives: nothing re-read, nothing changed.
     make_thumbnail!(file)
     Storage.broadcast_file_processed(Ecto.UUID.generate())
+    settle(view)
 
     for msg <- [
           {:phoenix_kit_file_thumbnail_updated, file},
@@ -213,6 +223,8 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
         ] do
       send(view.pid, msg)
     end
+
+    settle(view)
 
     html = render(view)
     assert Process.alive?(view.pid)
@@ -239,6 +251,7 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
       assert src =~ "?v=#{version}"
 
       Storage.broadcast_file_processed(file)
+      settle(view)
       assert render(view) =~ "/thumbnail/"
       assert Process.alive?(view.pid)
     end
@@ -257,6 +270,7 @@ defmodule PhoenixKitCatalogue.Web.AttachmentThumbnailRefreshTest do
 
     instance = make_thumbnail!(file)
     Storage.broadcast_file_processed(file)
+    settle(view)
 
     assert [src] = thumb_srcs(render(view), file)
     assert src =~ "?v=#{URLSigner.version(instance)}"
