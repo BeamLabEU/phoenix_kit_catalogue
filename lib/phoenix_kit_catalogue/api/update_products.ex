@@ -305,7 +305,13 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
         by_uuid = Map.new(outcomes)
         finished = Enum.map(plan, &finish(&1, by_uuid, opts, catalogue))
 
-        saved = for {%{"id" => id}, true} <- finished, do: id
+        # The moves' media folders follow their items in one pass, now that every
+        # row has been written.
+        finished
+        |> Enum.flat_map(fn {_row, _saved?, moves} -> moves end)
+        |> Catalogue.follow_media_folders(opts[:actor_uuid])
+
+        saved = for {%{"id" => id}, true, _moves} <- finished, do: id
         Catalogue.broadcast_item_batch_change(catalogue.uuid, :updated, saved)
         finished |> Enum.map(&elem(&1, 0)) |> Common.batch_result()
 
@@ -319,27 +325,29 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
   defp write_columns(rows, opts),
     do: Catalogue.update_items(rows, Keyword.put(opts, :broadcast, false))
 
-  # `{row, saved?}`: `saved?` tells whether the item was written to, so that it is
-  # announced even when a later step of its row failed.
+  # `{row, saved?, moves}`: `saved?` tells whether the item was written to, so that
+  # it is announced even when a later step of its row failed; `moves` are the
+  # `{before, moved}` pairs of the category moves that went through, for the media
+  # folders to follow.
   defp finish({:rejected, ref, message, context}, _outcomes, _opts, _catalogue),
-    do: {Common.row_error(ref, :validation_failed, message, context), false}
+    do: {Common.row_error(ref, :validation_failed, message, context), false, []}
 
   defp finish({:resolution_error, ref, reason}, _outcomes, _opts, _catalogue),
-    do: {Common.resolution_error(ref, reason), false}
+    do: {Common.resolution_error(ref, reason), false, []}
 
   defp finish({:update, ref, item, update}, outcomes, opts, catalogue) do
     case Map.get(outcomes, item.uuid) do
       {kind, %{status: "deleted"} = trashed} ->
-        {trashed_row(ref, trashed, kind == :updated), kind == :updated}
+        {trashed_row(ref, trashed, kind == :updated), kind == :updated, []}
 
       {kind, updated} when kind in [:updated, :unchanged] ->
         follow_up(ref, kind, updated, update, opts, catalogue)
 
       {:error, reason} ->
-        {failure(ref, reason, update, catalogue), false}
+        {failure(ref, reason, update, catalogue), false, []}
 
       nil ->
-        {Common.row_error(ref, :internal_error, "The item was not part of the write."), false}
+        {Common.row_error(ref, :internal_error, "The item was not part of the write."), false, []}
     end
   end
 
@@ -360,11 +368,11 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
     attributes_changed? = Attributes.changed?(updated.uuid, update.attributes)
 
     case move_category(updated, update.category, opts, catalogue) do
-      {:ok, moved?} ->
+      {:ok, moved?, moves} ->
         saved? = kind == :updated or moved?
-        apply_attributes_step(ref, updated, update, opts, saved?, attributes_changed?)
+        apply_attributes_step(ref, updated, update, opts, saved?, attributes_changed?, moves)
 
-      {:error, reason, moved?} ->
+      {:error, reason, moved?, moves} ->
         saved? = kind == :updated or moved?
 
         {step_failure(
@@ -374,17 +382,17 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
            move_sentence(reason),
            reason,
            saved?
-         ), saved?}
+         ), saved?, moves}
     end
   end
 
-  defp apply_attributes_step(ref, updated, update, opts, saved?, attributes_changed?) do
+  defp apply_attributes_step(ref, updated, update, opts, saved?, attributes_changed?, moves) do
     case apply_attributes(updated, update.attributes, opts) do
       :ok ->
         changed? = saved? or attributes_changed?
 
         {Common.row_ok(ref, if(changed?, do: "updated", else: "unchanged"), updated.uuid),
-         changed?}
+         changed?, moves}
 
       {:error, reason} ->
         # Attribute sets are written one by one, so some may be stored: announce the item.
@@ -395,7 +403,7 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
            attribute_sentence(reason),
            reason,
            saved?
-         ), true}
+         ), true, moves}
     end
   end
 
@@ -426,28 +434,32 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
   defp attribute_sentence(:entities_disabled), do: "attribute sets are not available"
   defp attribute_sentence(_other), do: "the write was refused"
 
-  # `{:ok, moved?}` or `{:error, reason, moved?}`; `moved?` is true when the item did
-  # change category although the row failed (the category was re-homed meanwhile).
-  defp move_category(_item, :keep, _opts, _catalogue), do: {:ok, false}
-  defp move_category(%{category_uuid: same}, same, _opts, _catalogue), do: {:ok, false}
+  # `{:ok, moved?, moves}` or `{:error, reason, moved?, moves}`; `moved?` is true when
+  # the item did change category although the row failed (the category was re-homed
+  # meanwhile). `moves` are the `{before, moved}` pairs for the media folders.
+  defp move_category(_item, :keep, _opts, _catalogue), do: {:ok, false, []}
+  defp move_category(%{category_uuid: same}, same, _opts, _catalogue), do: {:ok, false, []}
 
   defp move_category(item, category, opts, catalogue) do
     # A move logs one `item.moved` entry per item, the context's own action with
     # readable from/to references, so N moves are N log inserts; the batch is
-    # announced once by `execute/3` (`broadcast: false`).
-    move_opts = Keyword.take(opts, [:actor_uuid, :mode, :log_metadata]) ++ [broadcast: false]
+    # announced once by `execute/3` (`broadcast: false`), and the folders follow
+    # the moved items once there too (`follow_media_folders: false`).
+    move_opts =
+      Keyword.take(opts, [:actor_uuid, :mode, :log_metadata]) ++
+        [broadcast: false, follow_media_folders: false]
 
     case Catalogue.move_item_to_category(item, category, move_opts) do
-      {:ok, %{catalogue_uuid: catalogue_uuid}} when catalogue_uuid == catalogue.uuid ->
-        {:ok, true}
+      {:ok, %{catalogue_uuid: catalogue_uuid} = moved} when catalogue_uuid == catalogue.uuid ->
+        {:ok, true, [{item, moved}]}
 
       {:ok, moved} ->
         # The category was re-homed after planning; the move follows the category.
         Catalogue.broadcast_item_batch_change(moved.catalogue_uuid, :updated, [moved.uuid])
-        {:error, :catalogue_changed, true}
+        {:error, :catalogue_changed, true, [{item, moved}]}
 
       {:error, reason} ->
-        {:error, reason, false}
+        {:error, reason, false, []}
     end
   end
 
