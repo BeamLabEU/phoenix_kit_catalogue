@@ -2,10 +2,11 @@ defmodule PhoenixKitCatalogue.UkLocaleTest do
   @moduledoc """
   Pins the Ukrainian (`uk`) catalogue.
 
-  Like every locale of this module it carries exactly the msgids of
-  `default.pot` (`msgid_plural` included), in both directions, because new
-  strings are added by hand to the template and to every locale. It has no
-  fuzzy or empty entries, and each `msgstr` keeps the `%{...}` bindings of its
+  Every locale of this module carries exactly the msgids of `default.pot`
+  (`msgid_plural` included), in both directions, because new strings are
+  added by hand to the template and to every locale; that check runs over
+  every locale directory. The Ukrainian file also has no fuzzy or empty
+  entries, and each `msgstr` keeps the `%{...}` bindings of its
   msgid. It also resolves through the backend, picks the right plural branch,
   localizes the `strftime` date formats, and leaves English untouched.
   """
@@ -22,18 +23,34 @@ defmodule PhoenixKitCatalogue.UkLocaleTest do
     {"%b %d, %Y %H:%M", "11.10.2026 10:05"}
   ]
 
-  describe "uk catalogue file" do
-    test "has exactly the msgids of default.pot" do
-      assert File.exists?(@uk_path), "#{@uk_path} is missing"
-
+  # New strings are added by hand to the template and to every locale, so
+  # nothing but this keeps a locale from missing one or keeping a stale
+  # one — and a missing string renders as English without a word.
+  describe "every locale's catalogue file" do
+    test "has exactly the msgids of default.pot, in both directions" do
       pot_ids = msgid_keys(parse!(@pot_path))
-      uk_ids = msgid_keys(parse!(@uk_path))
-
       assert MapSet.size(pot_ids) > 1000
-      assert MapSet.to_list(MapSet.difference(pot_ids, uk_ids)) == []
-      assert MapSet.to_list(MapSet.difference(uk_ids, pot_ids)) == []
-    end
 
+      locales = locales()
+      assert "uk" in locales
+      assert length(locales) >= 6
+
+      for locale <- locales do
+        path = Path.join(["priv", "gettext", locale, "LC_MESSAGES", "default.po"])
+        assert File.exists?(path), "#{path} is missing"
+
+        ids = msgid_keys(parse!(path))
+
+        assert MapSet.to_list(MapSet.difference(pot_ids, ids)) == [],
+               "#{locale} lacks msgids that default.pot has"
+
+        assert MapSet.to_list(MapSet.difference(ids, pot_ids)) == [],
+               "#{locale} has msgids that default.pot lacks"
+      end
+    end
+  end
+
+  describe "uk catalogue file" do
     test "has no empty msgstr and no fuzzy entries" do
       messages = parse!(@uk_path).messages
 
@@ -100,6 +117,12 @@ defmodule PhoenixKitCatalogue.UkLocaleTest do
       assert ngettext_item(1) == "1 item"
       assert ngettext_item(5) == "5 items"
     end
+  end
+
+  # Every directory under priv/gettext is a locale.
+  defp locales do
+    root = Path.join("priv", "gettext")
+    root |> File.ls!() |> Enum.filter(&File.dir?(Path.join(root, &1))) |> Enum.sort()
   end
 
   defp parse!(path) do

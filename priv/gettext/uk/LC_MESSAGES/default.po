@@ -239,6 +239,12 @@ msgstr "Відсутня назва позиції."
 msgid "CSV file is empty."
 msgstr "Файл CSV порожній."
 
+msgid "This CSV file is not UTF-8 text. Save it as \"CSV UTF-8\" in your spreadsheet program and upload it again."
+msgstr "Цей CSV-файл не в кодуванні UTF-8. Збережіть його в табличному редакторі як «CSV UTF-8» і завантажте знову."
+
+msgid "This JSON file is not a catalogue export: it needs an \"items\" list of items with plain values."
+msgstr "Цей JSON-файл не є експортом каталогу: у ньому має бути список «items» із позицій із простими значеннями."
+
 msgid "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
 msgstr "Неможливо відновити — батьківський каталог видалено. Спочатку відновіть каталог."
 
@@ -1034,6 +1040,12 @@ msgstr "Папку остаточно видалено."
 
 msgid "Failed to create folder."
 msgstr "Не вдалося створити папку."
+
+msgid "That name is too long: %{count} characters at most."
+msgstr "Ця назва задовга: не більше %{count} символів."
+
+msgid "Could not save that name."
+msgstr "Не вдалося зберегти цю назву."
 
 msgid "Failed to delete folder."
 msgstr "Не вдалося видалити папку."
@@ -1924,6 +1936,9 @@ msgstr "Файл"
 
 msgid "File format does not match the selected format."
 msgstr "Формат файлу не відповідає вибраному."
+
+msgid "This file is not UTF-8 text. Save it as UTF-8 and upload it again."
+msgstr "Цей файл не в кодуванні UTF-8. Збережіть його в UTF-8 і завантажте знову."
 
 msgid "File has too many rows to import. Please split it into smaller files."
 msgstr "Файл містить забагато рядків для імпорту. Розділіть його на менші файли."
