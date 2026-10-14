@@ -17,6 +17,36 @@ defmodule PhoenixKitCatalogue.GettextTest do
     assert Code.ensure_loaded?(PhoenixKitCatalogue.Gettext)
   end
 
+  test "the backend is split per locale and domain and still answers dgettext lookups" do
+    msgid = "Another active row already uses the same external id."
+
+    for {locale, expected} <- [
+          {"en", msgid},
+          {"ru", "Другая активная запись уже использует этот внешний идентификатор."},
+          {"uk", "Інший активний запис уже використовує цей зовнішній ідентифікатор."}
+        ] do
+      assert Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
+               Gettext.dgettext(PhoenixKitCatalogue.Gettext, "default", msgid)
+             end) == expected
+    end
+
+    # A domain or a locale the backend has no catalogue for answers the msgid.
+    assert Gettext.with_locale(PhoenixKitCatalogue.Gettext, "uk", fn ->
+             Gettext.dgettext(PhoenixKitCatalogue.Gettext, "no_such_domain", msgid)
+           end) == msgid
+
+    assert Gettext.with_locale(PhoenixKitCatalogue.Gettext, "xx", fn ->
+             Gettext.dgettext(PhoenixKitCatalogue.Gettext, "default", msgid)
+           end) == msgid
+
+    # Each locale's default-domain catalogue is a module of its own.
+    for locale <- ~w(de en et fr ru uk) do
+      assert Code.ensure_loaded?(
+               Module.concat(PhoenixKitCatalogue.Gettext, "T_#{locale}_default")
+             )
+    end
+  end
+
   test "every string the UI shows is actually in the catalogues (ru + et)" do
     # The failure this guards is silent by construction: `gettext/1` returns
     # the msgid when a string is missing, so a page renders correct-looking
