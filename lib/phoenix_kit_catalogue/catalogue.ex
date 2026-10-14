@@ -7742,10 +7742,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   kind (`:kind_mismatch`). A move across catalogues tells both.
 
   The item's media folder follows it into the new category's folder. A caller
-  that moves many items passes `follow_media_folders: false` and hands every
-  `{before, moved}` pair to `follow_media_folders/2` once afterwards, which
-  moves the folders in one pass instead of one by one; the folders are not
-  moved until it does.
+  that moves many items uses `move_item_to_category_deferred/3` instead and
+  follows all the folders in one pass afterwards.
 
   ## Examples
 
@@ -7760,6 +7758,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def move_item_to_category(%Item{} = item, category_uuid, opts)
       when is_nil(category_uuid) or is_binary(category_uuid) do
+    with {:ok, {before, moved}} <- checked_item_move(item, category_uuid, opts) do
+      MediaFolders.follow([{before, moved}], opts[:actor_uuid])
+      {:ok, moved}
+    end
+  end
+
+  @doc """
+  `move_item_to_category/3` without the media folder step, for a caller that moves
+  many items: it returns the `{before, moved}` pair of the move, where `before` is
+  the row the move locked (not the caller's possibly stale copy), and the caller
+  hands the pairs of all its moves to `follow_moved_items/2` once. The item's folder
+  stays where it is until it does.
+  """
+  @spec move_item_to_category_deferred(Item.t(), Ecto.UUID.t() | nil, keyword()) ::
+          {:ok, {Item.t(), Item.t()}}
+          | {:error,
+             :category_not_found | :not_found | :kind_mismatch | Ecto.Changeset.t(Item.t())}
+  def move_item_to_category_deferred(%Item{} = item, category_uuid, opts \\ [])
+      when is_nil(category_uuid) or is_binary(category_uuid),
+      do: checked_item_move(item, category_uuid, opts)
+
+  defp checked_item_move(item, category_uuid, opts) do
     if is_nil(category_uuid) or valid_uuid?(category_uuid),
       do: do_move_item_to_category(item, category_uuid, opts),
       else: {:error, :category_not_found}
@@ -7808,23 +7828,44 @@ defmodule PhoenixKitCatalogue.Catalogue do
       if before.catalogue_uuid != moved.catalogue_uuid and Keyword.get(opts, :broadcast, true),
         do: PubSub.broadcast(:item, nil, before.catalogue_uuid)
 
-      if Keyword.get(opts, :follow_media_folders, true),
-        do: MediaFolders.follow([{before, moved}], opts[:actor_uuid])
-
-      {:ok, moved}
+      {:ok, {before, moved}}
     end
   end
 
   @doc """
-  Moves and renames the media folders of records that changed place or name,
-  given `[{before, after}]` structs, as the context does itself after a save
-  (`MediaFolders.follow/2`). For a caller that saved records with the folder
-  step switched off (`move_item_to_category/3`'s `follow_media_folders: false`):
-  it follows all of them in one pass. Never fails: a failure is logged and the
-  folder stays.
+  Moves and renames the media folders of items moved with
+  `move_item_to_category_deferred/3`, given the `{before, moved}` pairs of all the
+  moves, in one pass instead of one by one (`MediaFolders.follow/2`).
+
+  `moved` is re-read, all rows in one query, just before the pass: an item that was
+  renamed or moved again since its own move (a window as long as the caller's
+  batch) is followed to where it is now, not to where the move left it. An item that
+  is gone keeps the pair as given. Never fails: a failure is logged and the folders
+  stay.
   """
-  @spec follow_media_folders([{struct(), struct()}], Ecto.UUID.t() | nil) :: :ok
-  defdelegate follow_media_folders(pairs, actor_uuid), to: MediaFolders, as: :follow
+  @spec follow_moved_items([{Item.t(), Item.t()}], Ecto.UUID.t() | nil) :: :ok
+  def follow_moved_items([], _actor_uuid), do: :ok
+
+  def follow_moved_items(pairs, actor_uuid) when is_list(pairs) do
+    pairs
+    |> current_pairs()
+    |> MediaFolders.follow(actor_uuid)
+  end
+
+  defp current_pairs(pairs) do
+    uuids = Enum.map(pairs, fn {_before, moved} -> moved.uuid end)
+    current = from(i in Item, where: i.uuid in ^uuids) |> repo().all() |> Map.new(&{&1.uuid, &1})
+
+    Enum.map(pairs, fn {before, moved} -> {before, Map.get(current, moved.uuid, moved)} end)
+  rescue
+    exception ->
+      Logger.warning(
+        "[Catalogue] moved items could not be re-read for their media folders: " <>
+          Exception.message(exception)
+      )
+
+      pairs
+  end
 
   defp locked_move_item_to_catalogue(item, catalogue_uuid) do
     from_catalogue_uuid =

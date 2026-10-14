@@ -555,8 +555,20 @@ Pointers, not docs — the moduledocs are the contract.
   bulk path reads its `before` side with `MediaFolders.moving_items/1`
   inside its transaction. `update_items/2` (the shop API's batch write) follows
   its changed rows in one pass after the commit, and a caller moving many items
-  passes `follow_media_folders: false` to `move_item_to_category/3` and hands the
-  pairs to `Catalogue.follow_media_folders/2` once. A hard delete asks
+  uses `move_item_to_category_deferred/3`, which returns the `{before, moved}`
+  pair (`before` is the row the move locked, not the caller's copy), and hands
+  the pairs to `Catalogue.follow_moved_items/2` once; that re-reads the moved
+  rows in one query first, so a rename made meanwhile is followed too, and the
+  caller runs it in an `after` so that a row that raises does not leave the
+  earlier moves' folders behind (`update_products` does). A pass costs per
+  renamed record about 12 queries and 2 advisory locks (the folder-tree lock
+  and a name lock; a plain move into one container is one `UPDATE` for the whole
+  group): 100 renames through `update_items/2` measured 1,209 queries and 187 ms
+  against 206 and 37 ms with the layout off, with core's settings cache running
+  (without it each rename adds some 35 settings reads, which the test environment
+  shows). `MediaFolders.follow/2` renames one folder at a time, so a 500-row
+  rename (the API's cap) is some 6,000 post-commit queries in the request.
+  A hard delete asks
   `MediaFolders.release_plan/1` before it deletes and hands the plan to
   `release/1` after, which renames the record's folder to its deterministic
   name (with a UUID suffix when occupied) so a new record of that name cannot
