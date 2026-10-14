@@ -147,6 +147,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:featured_image_uuid, :string, default: nil)
   attr(:featured_image_file, :any, default: nil)
+
+  attr(:thumb_version, :string,
+    default: nil,
+    doc:
+      "The thumbnail instance's content version once it exists (`?v=`); nil keeps the " <>
+        "unversioned URL, which core answers with a placeholder until the variant is made."
+  )
+
   attr(:subtitle, :string, default: nil)
   attr(:class, :string, default: "")
 
@@ -178,7 +186,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
               title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open original")}
             >
               <img
-                src={URLSigner.signed_url(@featured_image_uuid, "thumbnail")}
+                src={URLSigner.signed_url(@featured_image_uuid, "thumbnail", version: @thumb_version)}
                 alt={@featured_image_file.original_file_name}
                 class="w-24 h-24 rounded-md object-cover bg-base-200 border border-base-300"
               />
@@ -246,6 +254,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:files_state, :map, required: true)
   attr(:featured_image_uuid, :any, default: nil)
   attr(:featured_image_file, :any, default: nil)
+  attr(:featured_thumb_version, :string, default: nil)
+  attr(:thumb_versions, :map, default: %{})
   attr(:featured_subtitle, :string, required: true)
   attr(:files_hint, :string, required: true)
   attr(:remove_confirm, :string, required: true)
@@ -256,6 +266,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
     <.featured_image_card
       featured_image_uuid={@featured_image_uuid}
       featured_image_file={@featured_image_file}
+      thumb_version={@featured_thumb_version}
       subtitle={@featured_subtitle}
     />
 
@@ -361,7 +372,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
                   class="shrink-0"
                 >
                   <img
-                    src={URLSigner.signed_url(file.uuid, "thumbnail")}
+                    src={URLSigner.signed_url(file.uuid, "thumbnail", version: @thumb_versions[file.uuid])}
                     alt={file.original_file_name}
                     class="w-14 h-14 rounded object-cover bg-base-200 border border-base-300"
                   />
