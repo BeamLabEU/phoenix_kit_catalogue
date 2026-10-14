@@ -56,6 +56,7 @@ defmodule PhoenixKitCatalogue.Errors do
           | :unsupported_file_format
           | :csv_empty
           | :csv_not_utf8
+          | :wrong_encoding
           | :bad_json_shape
           | :file_too_large
           | :too_many_rows
@@ -177,6 +178,13 @@ defmodule PhoenixKitCatalogue.Errors do
       Gettext.gettext(
         PhoenixKitCatalogue.Gettext,
         "This CSV file is not UTF-8 text. Save it as \"CSV UTF-8\" in your spreadsheet program and upload it again."
+      )
+
+  def message(:wrong_encoding),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This file is not in that encoding. Choose another one."
       )
 
   def message(:bad_json_shape),
