@@ -554,7 +554,16 @@ Pointers, not docs — the moduledocs are the contract.
   renames or moves a catalogue, category or item calls `follow/2` too; a
   bulk path reads its `before` side with `MediaFolders.moving_items/1`
   inside its transaction. `update_items/2` (the shop API's batch write) follows
-  its changed rows in one pass after the commit, and a caller moving many items
+  its changed rows in one pass after the commit. Called inside a caller's
+  transaction, as the shop API's price, availability and image writes do (they
+  also reach `update_item/3` through `attach_files/3`), that "after" is only
+  after its own statements: the activity entries, their announcement and the
+  catalogue's bulk events go out before the caller commits (`broadcast: false`
+  holds back the catalogue events, not core's activity announcement), the folder
+  pass runs inside the transaction, and neither it nor the activity insert runs
+  under a savepoint, so a failing statement of either aborts the caller's
+  transaction while the function still answers `{:ok, _}`. Such a caller writes
+  only rows that move no folder. A caller moving many items
   uses `move_item_to_category_deferred/3`, which returns the `{before, moved}`
   pair (`before` is the row the move locked, not the caller's copy), and hands
   the pairs to `Catalogue.follow_moved_items/2` once; that re-reads the moved

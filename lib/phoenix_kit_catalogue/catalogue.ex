@@ -6535,16 +6535,32 @@ defmodule PhoenixKitCatalogue.Catalogue do
   and moves in one `MediaFolders.follow/2` pass, like after `update_item/3`;
   a row that failed or changed nothing leaves its folder where it is.
 
-  Called inside the caller's own transaction, the transaction here is the
-  caller's, so "after the commit" is only after the caller's statements: the
-  activity entries and the folder pass run inside it, the folders and the rows
-  commit or roll back together, and the pass holds the site-wide folder-tree
-  lock until the caller commits. The pass never raises, but a statement of it
-  that fails in the database (a batch move that meets a concurrent name claim runs
-  without a savepoint) may leave the caller's transaction aborted while this
-  function still answers `{:ok, _}`; the caller finds out at its next statement.
-  A caller that cannot accept that keeps `update_items/2` out of its transaction
-  (the shop API does).
+  Called inside the caller's own transaction (the shop API's price and
+  availability writes do), the transaction here is the caller's, so "after the
+  commit" means only after this function's own statements, not after the
+  caller's commit:
+
+    * The activity entries are inserted inside it, and core announces them as
+      soon as they are inserted; the `{:catalogue_bulk_change, ...}` and
+      `{:catalogue_data_changed, :item, nil, catalogue}` events go out right
+      after. All of them reach their listeners before the caller commits, and
+      a rollback of the caller's transaction leaves them announced. Pass
+      `broadcast: false` to hold back the two catalogue events and send them
+      after the commit with `broadcast_item_batch_change/3`; the activity
+      announcement is core's and cannot be held back.
+    * The folder pass runs inside it, so the folders and the rows commit or
+      roll back together, and a pass that has work to do holds the site-wide
+      folder-tree lock until the caller commits. Rows that change neither name
+      nor category (a price or an availability) give it nothing to do.
+    * Neither the activity insert nor the folder pass runs under a savepoint.
+      Both never raise, but a statement of either that fails in the database
+      (an activity insert that errors, a batch move that meets a concurrent
+      name claim) leaves the caller's transaction aborted while this function
+      still answers `{:ok, _}`; the caller finds out at its next statement, and
+      its own commit fails.
+
+  A caller inside a transaction should therefore write only rows that move no
+  folder, or keep `update_items/2` out of its transaction.
   """
   @spec update_items([{Ecto.UUID.t(), map()} | {Ecto.UUID.t(), map(), keyword()}], keyword()) ::
           {:ok, [{Ecto.UUID.t(), item_outcome()}]} | {:error, term()}
