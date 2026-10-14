@@ -553,10 +553,15 @@ Pointers, not docs — the moduledocs are the contract.
   but only a folder still where and as the hooks put it. A new path that
   renames or moves a catalogue, category or item calls `follow/2` too; a
   bulk path reads its `before` side with `MediaFolders.moving_items/1`
-  inside its transaction. A hard delete asks `MediaFolders.release_plan/1`
-  before it deletes and hands the plan to `release/1` after, which renames
-  the record's folder to its deterministic name (with a UUID suffix when
-  occupied) so a new record of that name cannot adopt the old files.
+  inside its transaction. `update_items/2` (the shop API's batch write) follows
+  its changed rows in one pass after the commit, and a caller moving many items
+  passes `follow_media_folders: false` to `move_item_to_category/3` and hands the
+  pairs to `Catalogue.follow_media_folders/2` once. A hard delete asks
+  `MediaFolders.release_plan/1` before it deletes and hands the plan to
+  `release/1` after, which renames the record's folder to its deterministic
+  name (with a UUID suffix when occupied) so a new record of that name cannot
+  adopt the old files. A trash leaves the trashed records' own folders where
+  they are.
   A test that changes a hook key uses
   `Test.MediaHooks`, never `Application.delete_env/2` — that would strip
   the defaults from every later test. Flat pre-layout folders are the

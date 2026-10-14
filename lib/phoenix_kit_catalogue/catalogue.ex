@@ -1943,7 +1943,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           opts
         )
 
-        MediaFolders.follow([{category, updated}], opts[:actor_uuid])
+        MediaFolders.follow([{before, updated}], opts[:actor_uuid])
         {:ok, updated}
 
       {:error, _reason} = error ->
@@ -6380,7 +6380,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           opts
         )
 
-        MediaFolders.follow([{item, updated}], opts[:actor_uuid])
+        MediaFolders.follow([{before, updated}], opts[:actor_uuid])
         {:ok, updated}
 
       {:error, _changeset} = error ->
@@ -6531,7 +6531,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   `ActivityLog.log_many/1`, and one `{:catalogue_bulk_change, catalogue_uuid,
   :updated, uuids, from}` per catalogue the changed rows live in (a row that
   moves to another catalogue through `category_uuid` is announced to the new
-  catalogue only).
+  catalogue only). The media folders of the changed rows follow their renames
+  and moves in one `MediaFolders.follow/2` pass, like after `update_item/3`;
+  a row that failed or changed nothing leaves its folder where it is.
   """
   @spec update_items([{Ecto.UUID.t(), map()} | {Ecto.UUID.t(), map(), keyword()}], keyword()) ::
           {:ok, [{Ecto.UUID.t(), item_outcome()}]} | {:error, term()}
@@ -6550,10 +6552,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case repo().transaction(fn -> run_update_items(rows, opts) end) do
       {:ok, results} ->
-        entries = for {_uuid, _outcome, entry} <- results, entry != nil, do: entry
+        entries = for {_uuid, _outcome, entry, _before} <- results, entry != nil, do: entry
         ActivityLog.log_many(entries)
+        follow_updated_items(results, opts)
         broadcast_updated_items(results, opts)
-        {:ok, Enum.map(results, fn {uuid, outcome, _entry} -> {uuid, outcome} end)}
+        {:ok, Enum.map(results, fn {uuid, outcome, _entry, _before} -> {uuid, outcome} end)}
 
       {:error, reason} ->
         {:error, reason}
@@ -6565,7 +6568,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp normalize_update_row({uuid, attrs, row_opts}) when is_list(row_opts),
     do: {uuid, attrs, row_opts}
 
-  # Runs inside the transaction. Returns `[{uuid, outcome, log_entry | nil}]`.
+  # Runs inside the transaction. Returns `[{uuid, outcome, log_entry | nil,
+  # before | nil}]`; `before` is the row as it was, for the rows that changed.
   defp run_update_items(rows, opts) do
     canonical = Enum.map(rows, fn {uuid, _attrs, _row_opts} -> canonical_uuid(uuid) end)
     items = lock_items_for_batch(rows, Enum.reject(canonical, &is_nil/1))
@@ -6577,12 +6581,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
         key = canon || uuid
 
         if MapSet.member?(seen, key) do
-          {{uuid, {:error, :duplicate_row}, nil}, seen}
+          {{uuid, {:error, :duplicate_row}, nil, nil}, seen}
         else
-          {outcome, entry} =
+          {outcome, entry, before} =
             update_batch_row(Map.get(items, canon), attrs, Keyword.merge(opts, row_opts))
 
-          {{uuid, outcome, entry}, MapSet.put(seen, key)}
+          {{uuid, outcome, entry, before}, MapSet.put(seen, key)}
         end
       end)
 
@@ -6633,18 +6637,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
     |> Map.new(&{&1.uuid, &1})
   end
 
-  defp update_batch_row(nil, _attrs, _opts), do: {{:error, :not_found}, nil}
+  defp update_batch_row(nil, _attrs, _opts), do: {{:error, :not_found}, nil, nil}
 
   defp update_batch_row(%Item{} = item, attrs, opts) do
     case do_update_item(item, attrs, opts, mode: :savepoint) do
-      {:ok, {before, updated, true}} -> {{:updated, updated}, batch_entry(before, updated, opts)}
-      {:ok, {_before, updated, false}} -> {{:unchanged, updated}, nil}
-      {:error, reason} -> {{:error, reason}, nil}
+      {:ok, {before, updated, true}} ->
+        {{:updated, updated}, batch_entry(before, updated, opts), before}
+
+      {:ok, {_before, updated, false}} ->
+        {{:unchanged, updated}, nil, nil}
+
+      {:error, reason} ->
+        {{:error, reason}, nil, nil}
     end
   rescue
     error in Postgrex.Error ->
       Logger.warning("update_items row #{item.uuid} failed: #{pg_error_summary(error)}")
-      {{:error, :database_error}, nil}
+      {{:error, :database_error}, nil, nil}
   end
 
   # Only the structured, value-free fields of a database error: its message and
@@ -6678,11 +6687,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
     }
   end
 
+  # After the commit, like every other write: the folders of the rows that
+  # changed follow them, in one pass for the whole batch. A row that failed or
+  # changed nothing has no pair, so its folder stays where it is.
+  defp follow_updated_items(results, opts) do
+    results
+    |> Enum.flat_map(fn
+      {_uuid, {:updated, updated}, _entry, before} -> [{before, updated}]
+      _other -> []
+    end)
+    |> MediaFolders.follow(opts[:actor_uuid])
+  end
+
   defp broadcast_updated_items(results, opts) do
     if Keyword.get(opts, :broadcast, true) do
       results
       |> Enum.flat_map(fn
-        {_uuid, {:updated, item}, _entry} -> [item]
+        {_uuid, {:updated, item}, _entry, _before} -> [item]
         _other -> []
       end)
       |> Enum.group_by(& &1.catalogue_uuid, & &1.uuid)
@@ -7720,6 +7741,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   (`:category_not_found`) and a category in a catalogue of the other
   kind (`:kind_mismatch`). A move across catalogues tells both.
 
+  The item's media folder follows it into the new category's folder. A caller
+  that moves many items passes `follow_media_folders: false` and hands every
+  `{before, moved}` pair to `follow_media_folders/2` once afterwards, which
+  moves the folders in one pass instead of one by one; the folders are not
+  moved until it does.
+
   ## Examples
 
       {:ok, item} = Catalogue.move_item_to_category(item, new_category_uuid)
@@ -7781,10 +7808,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
       if before.catalogue_uuid != moved.catalogue_uuid and Keyword.get(opts, :broadcast, true),
         do: PubSub.broadcast(:item, nil, before.catalogue_uuid)
 
-      MediaFolders.follow([{before, moved}], opts[:actor_uuid])
+      if Keyword.get(opts, :follow_media_folders, true),
+        do: MediaFolders.follow([{before, moved}], opts[:actor_uuid])
+
       {:ok, moved}
     end
   end
+
+  @doc """
+  Moves and renames the media folders of records that changed place or name,
+  given `[{before, after}]` structs, as the context does itself after a save
+  (`MediaFolders.follow/2`). For a caller that saved records with the folder
+  step switched off (`move_item_to_category/3`'s `follow_media_folders: false`):
+  it follows all of them in one pass. Never fails: a failure is logged and the
+  folder stays.
+  """
+  @spec follow_media_folders([{struct(), struct()}], Ecto.UUID.t() | nil) :: :ok
+  defdelegate follow_media_folders(pairs, actor_uuid), to: MediaFolders, as: :follow
 
   defp locked_move_item_to_catalogue(item, catalogue_uuid) do
     from_catalogue_uuid =
