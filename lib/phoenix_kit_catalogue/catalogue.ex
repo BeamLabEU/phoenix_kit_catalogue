@@ -71,6 +71,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Tree
   }
 
+  alias PhoenixKit.Modules.Storage.ResourceFolders
   alias PhoenixKit.Utils.Values
   alias PhoenixKitCatalogue.MediaFolders
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Folder, Item, ItemAttributeSet}
@@ -7899,7 +7900,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     exception ->
       Logger.warning(
         "[Catalogue] moved items could not be re-read for their media folders: " <>
-          Exception.message(exception)
+          ResourceFolders.describe_failure(exception)
       )
 
       pairs

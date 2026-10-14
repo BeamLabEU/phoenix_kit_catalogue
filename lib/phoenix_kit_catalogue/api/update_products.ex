@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
   @moduledoc false
   # Tool `catalogue.update_products`.
 
+  alias PhoenixKit.Modules.Storage.ResourceFolders
   alias PhoenixKitCatalogue.API
   alias PhoenixKitCatalogue.API.{Attributes, Common}
   alias PhoenixKitCatalogue.Catalogue
@@ -341,9 +342,9 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
       moves -> moves |> Enum.reverse() |> Catalogue.follow_moved_items(actor_uuid)
     end
   rescue
-    exception -> log_follow_failure(Exception.message(exception))
+    exception -> log_follow_failure(ResourceFolders.describe_failure(exception))
   catch
-    kind, reason -> log_follow_failure(inspect({kind, reason}))
+    kind, reason -> log_follow_failure(ResourceFolders.describe_failure({kind, reason}))
   end
 
   defp log_follow_failure(reason),
