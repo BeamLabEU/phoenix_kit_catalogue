@@ -990,7 +990,25 @@ defmodule PhoenixKitCatalogue.GettextTest do
            "See fail ei ole UTF-8 tekst. Salvesta see UTF-8 kodeeringus ja laadi uuesti üles.",
            "Этот файл не в кодировке UTF-8. Сохраните его в UTF-8 и загрузите снова."},
           {"Could not save that name.", "Seda nime ei õnnestunud salvestada.",
-           "Не удалось сохранить это название."}
+           "Не удалось сохранить это название."},
+          # The import wizard's encoding step.
+          {"This file is not in that encoding. Choose another one.",
+           "See fail ei ole selles kodeeringus. Vali mõni teine.",
+           "Этот файл не в этой кодировке. Выберите другую."},
+          {"File encoding", "Faili kodeering", "Кодировка файла"},
+          {"This file does not say which encoding it is in. Check that the letters in the preview read correctly, and choose another encoding if they do not.",
+           "Failist ei selgu, mis kodeeringus see on. Kontrolli, kas tähed on eelvaates õiged, ja kui ei ole, vali teine kodeering.",
+           "В файле не указано, в какой он кодировке. Проверьте, правильно ли читаются буквы в предпросмотре, и, если нет, выберите другую кодировку."},
+          {"Encoding", "Kodeering", "Кодировка"},
+          {"Preview", "Eelvaade", "Предпросмотр"},
+          {"Western European (Windows-1252)", "Lääne-Euroopa (Windows-1252)",
+           "Западноевропейская (Windows-1252)"},
+          {"Baltic (Windows-1257)", "Balti (Windows-1257)", "Балтийская (Windows-1257)"},
+          {"Cyrillic (Windows-1251)", "Kirillitsa (Windows-1251)", "Кириллица (Windows-1251)"},
+          {"Central European (Windows-1250)", "Kesk-Euroopa (Windows-1250)",
+           "Центральноевропейская (Windows-1250)"},
+          {"Western European (ISO-8859-15)", "Lääne-Euroopa (ISO-8859-15)",
+           "Западноевропейская (ISO-8859-15)"}
         ] do
       test "#{msgid}" do
         assert po_msgstr("en", unquote(msgid)) == unquote(msgid)

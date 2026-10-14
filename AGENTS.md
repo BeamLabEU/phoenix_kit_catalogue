@@ -605,10 +605,15 @@ Pointers, not docs — the moduledocs are the contract.
 - **Import** — `PhoenixKitCatalogue.Import` is a source registry
   (`Import.Source.Universal` for CSV/XLSX, `Import.Source.Pro100` for Pro100
   cabinet-software data); execution goes through `Import.{Mapper, Executor}` and
-  the `ImportLive` wizard (ETS buffering). A text upload is UTF-8, or UTF-16
-  with a byte-order mark, by the time a parser sees it (`Import.Encoding`);
-  anything else is refused with a message, never guessed — Windows-1252,
-  -1257 and -1251 give the same byte different letters. The import task, not
+  the `ImportLive` wizard (ETS buffering). A text upload is UTF-8 by the time
+  a parser sees it (`Import.Encoding`): UTF-8 and UTF-16 with a byte-order
+  mark are read as they are, and any other text file is in a single-byte
+  code page its bytes cannot name — Windows-1252, -1257 and -1251 give the
+  same byte different letters. The wizard's encoding step proposes a page
+  and previews the file in it; a parser applies only the page the operator
+  confirmed (`encoding:`), never a guess of its own, and every later parse
+  of the same upload passes the wizard's `file_encoding`. A NUL byte, or a
+  byte the confirmed page does not define, is refused. The import task, not
   the page, writes `import.completed` / `import.failed`, so the outcome is
   logged when the operator has closed the tab.
 - **Export** — `PhoenixKitCatalogue.Export.build/1` with a
