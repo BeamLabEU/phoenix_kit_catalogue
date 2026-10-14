@@ -6780,6 +6780,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   @spec trash_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, :not_found | term()}
   def trash_item(%Item{} = item, opts \\ []) do
+    with {:ok, _outcome, trashed} <- trash_item_outcome(item, opts), do: {:ok, trashed}
+  end
+
+  @doc """
+  `trash_item/2` that tells whether THIS call trashed the item: `{:ok, :trashed,
+  item}`, or `{:ok, :already_trashed, item}` when it was in the trash already (a
+  concurrent trash that landed first) and nothing was changed or logged.
+  """
+  @spec trash_item_outcome(Item.t(), keyword()) ::
+          {:ok, :trashed | :already_trashed, Item.t()} | {:error, :not_found | term()}
+  def trash_item_outcome(%Item{} = item, opts \\ []) do
     result =
       locked_transaction(fn ->
         _locked = lock_row_in_catalogue!(Item, item.uuid)
@@ -6809,7 +6820,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         )
       end
 
-      {:ok, trashed}
+      {:ok, if(trashed_now > 0, do: :trashed, else: :already_trashed), trashed}
     end
   end
 

@@ -112,9 +112,13 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
   end
 
   defp trash(ref, item, opts) do
-    case Catalogue.trash_item(item, opts) do
-      {:ok, _trashed} ->
+    case Catalogue.trash_item_outcome(item, opts) do
+      {:ok, :trashed, _trashed} ->
         Common.row_ok(ref, "removed", item.uuid)
+
+      # Someone else trashed it after the request was planned.
+      {:ok, :already_trashed, _trashed} ->
+        Common.row_ok(ref, "unchanged", item.uuid)
 
       {:error, :not_found} ->
         Common.row_error(ref, :not_found, "The item no longer exists.")

@@ -7,7 +7,7 @@ defmodule PhoenixKitCatalogue.API.DeleteProductsTest do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
-  alias PhoenixKitCatalogue.Test.ApiCase
+  alias PhoenixKitCatalogue.Test.{ApiCase, QueryHook}
 
   @tool "catalogue.delete_products"
 
@@ -86,6 +86,31 @@ defmodule PhoenixKitCatalogue.API.DeleteProductsTest do
     assert by_id["id"] == a.uuid
     assert by_sku["action"] == "error"
     assert by_sku["error"]["code"] == "not_found"
+  end
+
+  test "an item someone else trashed after the request was planned is unchanged", %{
+    catalogue: catalogue
+  } do
+    a = item(catalogue, "Alpha")
+    :ok = PubSub.subscribe()
+    flush()
+
+    # The other writer's trash lands between planning and this call's own.
+    result =
+      QueryHook.after_query(
+        ~r/pg_advisory_xact_lock/,
+        fn -> {:ok, _} = Catalogue.trash_item(Catalogue.get_item!(a.uuid)) end,
+        fn -> delete(catalogue, [%{"id" => a.uuid}]) end
+      )
+
+    assert [row] = rows(result)
+    assert row["action"] == "unchanged"
+    assert row["id"] == a.uuid
+    assert Catalogue.get_item!(a.uuid).status == "deleted"
+    # One entry: the other writer's, none for this call.
+    assert_activity_logged("item.trashed", resource_uuid: a.uuid)
+    # Nothing was trashed by the request, so nothing is announced as trashed.
+    refute_receive {:catalogue_bulk_change, _, :trashed, _, _}, 50
   end
 
   test "bad rows are reported at their position and never poison the others", %{
