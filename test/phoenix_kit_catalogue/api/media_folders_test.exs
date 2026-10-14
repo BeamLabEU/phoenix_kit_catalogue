@@ -112,6 +112,84 @@ defmodule PhoenixKitCatalogue.API.MediaFoldersTest do
       assert Enum.all?(moving, &(Enum.take(where_is(&1), 3) == ["Catalogues", "Shop", "Tables"]))
     end
 
+    test "a product renamed by someone else before its move still has its folder follow", ctx do
+      # The other writer renames the stool after the batch write and before the
+      # stool's own move: the move works on the row it locked, not on the copy
+      # the request planned with, so the folder (renamed along by that save) is
+      # still recognised as the item's and goes along into the new category.
+      result =
+        QueryHook.after_query(
+          ~r/INSERT INTO "phoenix_kit_activities"/,
+          fn ->
+            {:ok, _} =
+              Catalogue.update_item(Catalogue.get_item!(ctx.stool.uuid), %{name: "Stool v2"})
+          end,
+          fn ->
+            run_update(ctx.catalogue, [
+              entry(ctx.bench, %{"name" => "Long bench"}),
+              entry(ctx.stool, %{"category_id" => ctx.tables.uuid})
+            ])
+          end
+        )
+
+      assert {:ok, %{"summary" => %{"updated" => 2}}} = result
+      assert Catalogue.get_item!(ctx.stool.uuid).category_uuid == ctx.tables.uuid
+      assert where_is(ctx.stool) == ["Catalogues", "Shop", "Tables", "Stool v2"]
+    end
+
+    test "a product renamed between its move and the folder pass gets its new name", ctx do
+      # The rename lands after the move committed and before the one folder pass:
+      # the admin's own save finds the folder not yet in the new category and
+      # leaves it, so the pass has to take the item as it is by then.
+      result =
+        QueryHook.after_query(
+          ~r/INSERT INTO "phoenix_kit_activities"/,
+          fn ->
+            {:ok, _} =
+              Catalogue.update_item(Catalogue.get_item!(ctx.stool.uuid), %{name: "Stool v2"})
+          end,
+          fn ->
+            run_update(ctx.catalogue, [entry(ctx.stool, %{"category_id" => ctx.tables.uuid})])
+          end
+        )
+
+      assert {:ok, %{"summary" => %{"updated" => 1}}} = result
+      assert where_is(ctx.stool) == ["Catalogues", "Shop", "Tables", "Stool v2"]
+
+      # and a later rename still finds the folder
+      {:ok, _} = Catalogue.update_item(Catalogue.get_item!(ctx.stool.uuid), %{name: "Stool v3"})
+      assert where_is(ctx.stool) == ["Catalogues", "Shop", "Tables", "Stool v3"]
+    end
+
+    test "a row that raises leaves the folders of the moves already made following", ctx do
+      # The second move raises (a check constraint a hook adds after the first
+      # move's log entry), after the first one committed.
+      outcome =
+        try do
+          QueryHook.after_query(
+            ~r/INSERT INTO "phoenix_kit_activities"/,
+            fn ->
+              Repo.query!(
+                "ALTER TABLE phoenix_kit_cat_items ADD CONSTRAINT api_test_ck " <>
+                  "CHECK (name <> 'Bench') NOT VALID"
+              )
+            end,
+            fn ->
+              run_update(ctx.catalogue, [
+                entry(ctx.stool, %{"category_id" => ctx.tables.uuid}),
+                entry(ctx.bench, %{"category_id" => ctx.tables.uuid})
+              ])
+            end
+          )
+        rescue
+          exception -> {:raised, exception}
+        end
+
+      assert {:raised, _exception} = outcome
+      assert Catalogue.get_item!(ctx.stool.uuid).category_uuid == ctx.tables.uuid
+      assert where_is(ctx.stool) == ["Catalogues", "Shop", "Tables", "Stool"]
+    end
+
     test "a rename together with a move leaves one folder, named and placed anew", ctx do
       before = folder_count()
 
