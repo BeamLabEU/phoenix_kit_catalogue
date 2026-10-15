@@ -61,11 +61,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
     PubSub,
     Rules,
     Search,
+    Shared,
     SmartPricing,
     SupplierComments,
     SupplierFields,
     Suppliers,
     Translations,
+    Trash,
     Tree
   }
 
@@ -74,6 +76,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Folder, Item, ItemAttributeSet}
 
   require Logger
+
+  @reorder_max_uuids Shared.reorder_max_uuids()
 
   # What an `.updated` entry reports as changed, per resource. The activity
   # feed used to say only that a row had been updated, naming it but never
@@ -100,40 +104,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @category_logged_fields [:name, :status, :description]
 
-  # A move's two ends, snapshotted with the names they had at the time. The
-  # log used to carry `from_category_uuid`/`to_category_uuid` and friends —
-  # true, and unreadable: the owner saw walls of uuids and could not tell
-  # where a thing had gone (boss via Max, 2026-09-20).
-  #
-  # Resolved on the WRITE, deliberately: a name looked up on read changes
-  # under the reader and vanishes entirely once the category is deleted,
-  # which is the moment the log is the only record of where something was.
-  defp category_ref(nil), do: ActivityLog.ref(nil, nil, uncategorized_label())
-
-  defp category_ref(uuid) do
-    ActivityLog.ref(uuid, name_of(&get_category/1, uuid), uncategorized_label())
-  end
-
-  defp catalogue_ref(uuid), do: ActivityLog.ref(uuid, name_of(&get_catalogue/1, uuid))
-
   defp folder_ref(nil), do: ActivityLog.ref(nil, nil, folder_root_label())
 
   defp folder_ref(uuid),
-    do: ActivityLog.ref(uuid, name_of(&get_folder/1, uuid), folder_root_label())
-
-  defp name_of(getter, uuid) when is_binary(uuid) do
-    case getter.(uuid) do
-      %{name: name} -> name
-      _ -> nil
-    end
-  rescue
-    _ -> nil
-  end
-
-  defp name_of(_getter, _uuid), do: nil
-
-  defp uncategorized_label,
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")
+    do: ActivityLog.ref(uuid, Shared.name_of(&get_folder/1, uuid), folder_root_label())
 
   defp folder_root_label,
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "All catalogues")
@@ -152,196 +126,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # (owned by `PhoenixKitCatalogue.Catalogue.Slugs`'s generation rule, kept in
   # sync by the `trg_cat_item_slugs` / `trg_cat_category_slugs` triggers).
   @item_slugs_table "phoenix_kit_cat_item_slugs"
+
   @category_slugs_table "phoenix_kit_cat_category_slugs"
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
-
-  # Same source of truth as `PhoenixKit.SchemaPrefix` (`config :phoenix_kit,
-  # prefix: ...`), for the one place in this module that reaches the slug
-  # projection tables with raw SQL instead of a schema-backed Ecto query —
-  # a named-schema install must not silently query `public`.
-  defp qualified(table) do
-    case Application.get_env(:phoenix_kit, :prefix) do
-      prefix when is_binary(prefix) and prefix not in ["", "public"] -> "#{prefix}.#{table}"
-      _ -> table
-    end
-  end
-
-  # `log_activity/1` was extracted to `PhoenixKitCatalogue.Catalogue.ActivityLog`
-  # so the per-section submodules can share it without circular imports.
-  # Internal callers in the remaining sections still use this thin
-  # alias for diff churn minimization.
-  # `log_activity/1` writes an audit-log entry **and** fans out a
-  # `{:catalogue_data_changed, kind, uuid, parent_catalogue_uuid}` event
-  # so list LVs subscribed via `PubSub.subscribe/0` re-fetch. The two are
-  # coupled here because every write in this module that's worth auditing
-  # is also worth signalling — keeping them paired prevents accidental
-  # "I logged but forgot to broadcast" drift. Submodules under
-  # `PhoenixKitCatalogue.Catalogue.*` call `ActivityLog.log/1` and
-  # `PubSub.broadcast/3` directly to keep their dependencies explicit.
-  #
-  # The optional `parent_catalogue_uuid` field on `attrs` is used purely
-  # for PubSub routing (it's stripped before the activity entry is
-  # persisted). Bulk callers can pass `broadcast: false` in the second
-  # argument to suppress the per-row fan-out and emit a single roll-up
-  # broadcast at the end of the batch.
-  defp log_activity(attrs, opts \\ []) do
-    {parent_catalogue_uuid, attrs} = Map.pop(attrs, :parent_catalogue_uuid)
-
-    # The caller's `mode` wins over the site's default ("manual"): the
-    # importer passes `mode: "auto"`, and until 2026-09-12 every site but
-    # `create_item/2` dropped it, so the log could not tell an import
-    # from a hand edit.
-    attrs =
-      case Keyword.get(opts, :mode) do
-        mode when is_binary(mode) -> Map.put(attrs, :mode, mode)
-        _ -> attrs
-      end
-
-    ActivityLog.log(attrs)
-
-    if Keyword.get(opts, :broadcast, true) do
-      broadcast_for(attrs, parent_catalogue_uuid)
-    end
-
-    :ok
-  end
-
-  defp broadcast_for(%{resource_type: "catalogue", resource_uuid: uuid}, _parent),
-    do: PubSub.broadcast(:catalogue, uuid, uuid)
-
-  defp broadcast_for(%{resource_type: "category", resource_uuid: uuid}, parent),
-    do: PubSub.broadcast(:category, uuid, parent || lookup_parent(:category, uuid))
-
-  defp broadcast_for(%{resource_type: "item", resource_uuid: uuid}, parent),
-    do: PubSub.broadcast(:item, uuid, parent || lookup_parent(:item, uuid))
-
-  # Folders are module-global, not scoped to a single catalogue, so there's
-  # no parent_catalogue_uuid to thread — the index LV reloads its whole tree
-  # on any :folder event regardless of the parent slot.
-  defp broadcast_for(%{resource_type: "folder", resource_uuid: uuid}, _parent),
-    do: PubSub.broadcast(:folder, uuid)
-
-  # Batch writes (bulk trash / restore / move, category reorder) log ONE
-  # activity row for the whole batch and carry no single `resource_uuid`.
-  # They still have to fan out — the index "Items" column and every open
-  # detail page count them — so the batch rides the same kind with a
-  # `nil` uuid and the catalogue as parent. Consumers already treat the
-  # uuid as informational and refresh the whole slice.
-  defp broadcast_for(%{resource_type: "item"}, parent) when is_binary(parent),
-    do: PubSub.broadcast(:item, nil, parent)
-
-  defp broadcast_for(%{resource_type: "category"}, parent) when is_binary(parent),
-    do: PubSub.broadcast(:category, nil, parent)
-
-  # Manufacturer/supplier/smart_rule activity rows never reach this
-  # helper today — `Manufacturers`, `Suppliers`, and `Rules` call
-  # `PubSub.broadcast/3` directly and bypass `log_activity`. Anything
-  # else falls through to `:ok` so adding a new resource type doesn't
-  # crash the audit-log path before its broadcast clause is wired up.
-  defp broadcast_for(_attrs, _parent), do: :ok
-
-  # Fallback: when a caller doesn't thread `parent_catalogue_uuid:` into
-  # the activity-log attrs, look it up here so detail LVs can still
-  # filter cross-catalogue noise. One indexed pkey lookup per broadcast
-  # — adds ~ms to mutations on the rare path where the parent isn't
-  # already in scope. High-frequency callers (smart-rules sync, item
-  # CRUD) should thread it explicitly to avoid the lookup.
-  defp lookup_parent(:category, uuid) when is_binary(uuid) do
-    case repo().one(from(c in Category, where: c.uuid == ^uuid, select: c.catalogue_uuid)) do
-      nil -> nil
-      parent_uuid -> parent_uuid
-    end
-  end
-
-  defp lookup_parent(:item, uuid) when is_binary(uuid) do
-    Helpers.item_catalogue_uuid(uuid)
-  end
-
-  defp lookup_parent(_kind, _uuid), do: nil
-
-  # Same cap reasoning as entities — even a workspace with hundreds of
-  # catalogues, categories, or items per group never paints a thousand
-  # at once. Beyond this we'd want an explicit batched API rather than
-  # an unbounded transaction. Resolved at compile time so the literal
-  # is available inside `when length(x) > @reorder_max_uuids` guards.
-  # Single source of truth shared with `Catalogue.Rules` via
-  # `config :phoenix_kit_catalogue, :reorder_max_uuids, N`.
-  @reorder_max_uuids Application.compile_env(
-                       :phoenix_kit_catalogue,
-                       :reorder_max_uuids,
-                       1000
-                     )
-
-  # Reorder logging helpers shared by `reorder_catalogues/2`,
-  # `reorder_categories/4`, and `reorder_items/4`.
-  # `log_reorder_rejected/5` and `log_reorder_db_error/5` cover the
-  # audit-trail gap on early rejection (`:too_many_uuids`,
-  # `:not_siblings`, `:wrong_scope`) and post-transaction failure.
-  # `db_pending: true` lets audit consumers tell rejected/failed rows
-  # apart from successful ones.
-  #
-  # All logging helpers run **outside** the database transaction, so
-  # callers that wrap a reorder in an outer transaction (e.g.
-  # a future in-transaction caller) can rely on the rejection
-  # row landing even when the outer rolls back.
-
-  defp log_reorder_rejected(kind, reason, count, parent_catalogue_uuid, opts) do
-    ActivityLog.log(
-      Map.merge(
-        %{
-          action: reorder_action_for(kind),
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: to_string(kind),
-          metadata: %{
-            "count" => count,
-            "db_pending" => true,
-            "rejected" => to_string(reason)
-          }
-        },
-        if(parent_catalogue_uuid,
-          do: %{parent_catalogue_uuid: parent_catalogue_uuid},
-          else: %{}
-        )
-      )
-    )
-  end
-
-  defp log_reorder_db_error(kind, ordered_uuids, parent_catalogue_uuid, opts, extras \\ []) do
-    metadata =
-      %{
-        "count" => length(ordered_uuids),
-        "db_pending" => true
-      }
-      |> maybe_put_metadata("category_uuid", Keyword.get(extras, :category_uuid))
-
-    ActivityLog.log(
-      Map.merge(
-        %{
-          action: reorder_action_for(kind),
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: to_string(kind),
-          resource_uuid: List.first(ordered_uuids),
-          metadata: metadata
-        },
-        if(parent_catalogue_uuid,
-          do: %{parent_catalogue_uuid: parent_catalogue_uuid},
-          else: %{}
-        )
-      )
-    )
-  end
-
-  defp reorder_action_for(:catalogue), do: "catalogue.reordered"
-  defp reorder_action_for(:category), do: "category.reordered"
-  defp reorder_action_for(:item), do: "item.reordered"
-  defp reorder_action_for(:folder), do: "folder.reordered"
-  defp reorder_action_for(:level), do: "catalogue.level_reordered"
-
-  defp maybe_put_metadata(map, _key, nil), do: map
-  defp maybe_put_metadata(map, key, value), do: Map.put(map, key, value)
 
   # Auto-assigns a position to a new catalogue when the caller hasn't
   # supplied one — places the new row at the end of the manual-order
@@ -354,8 +142,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
       # `folder_uuid` is set). Positions are one interleaved sequence
       # per folder level — a global catalogue-only max would collide
       # with folders already occupying those slots.
-      folder = attrs |> Helpers.fetch_attr(:folder_uuid) |> normalize_folder_uuid()
-      Helpers.put_attr(attrs, :position, next_level_position(folder))
+      folder = attrs |> Helpers.fetch_attr(:folder_uuid) |> Shared.normalize_folder_uuid()
+      Helpers.put_attr(attrs, :position, Shared.next_level_position(folder))
     end
   end
 
@@ -392,11 +180,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate list_manufacturers(opts \\ []), to: Manufacturers
+
   defdelegate get_manufacturer(uuid), to: Manufacturers
+
   defdelegate get_manufacturer!(uuid), to: Manufacturers
+
   defdelegate create_manufacturer(attrs, opts \\ []), to: Manufacturers
+
   defdelegate update_manufacturer(manufacturer, attrs, opts \\ []), to: Manufacturers
+
   defdelegate delete_manufacturer(manufacturer, opts \\ []), to: Manufacturers
+
   defdelegate change_manufacturer(manufacturer, attrs \\ %{}), to: Manufacturers
 
   @doc """
@@ -413,11 +207,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate list_suppliers(opts \\ []), to: Suppliers
+
   defdelegate get_supplier(uuid), to: Suppliers
+
   defdelegate get_supplier!(uuid), to: Suppliers
+
   defdelegate create_supplier(attrs, opts \\ []), to: Suppliers
+
   defdelegate update_supplier(supplier, attrs, opts \\ []), to: Suppliers
+
   defdelegate delete_supplier(supplier, opts \\ []), to: Suppliers
+
   defdelegate change_supplier(supplier, attrs \\ %{}), to: Suppliers
 
   @doc "Resolves a supplier UUID to a unified map regardless of source (local or CRM)."
@@ -431,6 +231,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate crm_link_available?(), to: CrmLink, as: :available?
+
   defdelegate crm_link_candidates(), to: CrmLink, as: :list_candidates
 
   defdelegate link_supplier_to_crm(supplier, company_uuid, opts \\ []),
@@ -453,6 +254,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   local projections of it too.
   """
   defdelegate items_supplied_by(party_uuid), to: Suppliers
+
   defdelegate items_manufactured_by(party_uuid), to: Manufacturers
 
   @doc "Batch supplier resolution for a page of rows — see `Suppliers.resolve_many/1`."
@@ -467,17 +269,27 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   # ── Duplication (see `Catalogue.Duplication`) ────────────────────
   defdelegate duplicate_item(item, opts \\ []), to: Duplication
+
   defdelegate duplicate_category(category, opts \\ []), to: Duplication
+
   defdelegate duplicate_catalogue(catalogue, opts \\ []), to: Duplication
+
   defdelegate catalogue_copy_counts(catalogue_uuid), to: Duplication
+
   defdelegate bulk_duplicate_items(uuids, opts \\ []), to: Duplication
+
   defdelegate bulk_duplicate_categories(uuids, opts \\ []), to: Duplication
 
   defdelegate list_supplier_infos_for_item(item_uuid), to: ItemSupplierInfos, as: :list_for_item
+
   defdelegate supplier_cost_ranges(item_uuids), to: ItemSupplierInfos, as: :cost_ranges
+
   defdelegate get_supplier_info(uuid), to: ItemSupplierInfos, as: :get
+
   defdelegate create_supplier_info(attrs, opts \\ []), to: ItemSupplierInfos, as: :create
+
   defdelegate update_supplier_info(info, attrs, opts \\ []), to: ItemSupplierInfos, as: :update
+
   defdelegate delete_supplier_info(info, opts \\ []), to: ItemSupplierInfos, as: :delete
 
   defdelegate set_primary_supplier_info(info, opts \\ []),
@@ -519,8 +331,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     to: Links
 
   defdelegate list_suppliers_for_manufacturer(manufacturer_uuid), to: Links
+
   defdelegate list_manufacturers_for_supplier(supplier_uuid), to: Links
+
   defdelegate linked_supplier_uuids(manufacturer_uuid), to: Links
+
   defdelegate linked_manufacturer_uuids(supplier_uuid), to: Links
 
   defdelegate sync_manufacturer_suppliers(manufacturer_uuid, supplier_uuids, opts \\ []),
@@ -732,12 +547,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def create_catalogue(attrs, opts \\ []) do
     result =
       repo().transaction(fn ->
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
         attrs = maybe_put_catalogue_position(attrs)
 
         case %Catalogue{}
              |> Catalogue.changeset(attrs)
-             |> stamp_created_deleted()
+             |> Shared.stamp_created_deleted()
              |> repo().insert() do
           {:ok, catalogue} -> catalogue
           {:error, changeset} -> repo().rollback(changeset)
@@ -746,7 +561,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, catalogue} = ok ->
-        log_activity(
+        Shared.log_activity(
           %{
             action: "catalogue.created",
             mode: "manual",
@@ -775,11 +590,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     # snapshot cannot clobber what another process wrote meanwhile.
     result =
       repo().transaction(fn ->
-        attrs = narrow_data_ownership(Catalogue, catalogue.uuid, attrs, opts)
+        attrs = Shared.narrow_data_ownership(Catalogue, catalogue.uuid, attrs, opts)
 
         case catalogue
              |> Catalogue.changeset(attrs)
-             |> keep_trash_status(Catalogue, catalogue.uuid)
+             |> Shared.keep_trash_status(Catalogue, catalogue.uuid)
              |> repo().update() do
           {:ok, updated} -> updated
           {:error, changeset} -> repo().rollback(changeset)
@@ -788,7 +603,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, updated} = ok ->
-        log_activity(
+        Shared.log_activity(
           %{
             action: "catalogue.updated",
             mode: "manual",
@@ -828,7 +643,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:ok, _} = ok ->
         MediaFolders.release(release)
 
-        log_activity(%{
+        Shared.log_activity(%{
           action: "catalogue.deleted",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -868,22 +683,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
       repo().transaction(fn ->
         root = catalogue.uuid
         lock_catalogue!(root)
-        lock_catalogue_categories!(root)
+        Trash.lock_catalogue_categories!(root)
         now = DateTime.utc_now()
 
         {items, _} =
           from(i in Item, where: i.catalogue_uuid == ^root and i.status != "deleted")
-          |> stamp_trashed("catalogue", root, now)
+          |> Trash.stamp_trashed("catalogue", root, now)
           |> repo().update_all([])
 
         {categories, _} =
           from(c in Category, where: c.catalogue_uuid == ^root and c.status != "deleted")
-          |> stamp_trashed("catalogue", root, now)
+          |> Trash.stamp_trashed("catalogue", root, now)
           |> repo().update_all([])
 
         {self, _} =
           from(c in Catalogue, where: c.uuid == ^root and c.status != "deleted")
-          |> stamp_trashed("self", root, now)
+          |> Trash.stamp_trashed("self", root, now)
           |> repo().update_all([])
 
         updated = repo().get(Catalogue, root) || repo().rollback(:not_found)
@@ -894,7 +709,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     # trashed by this call, so there is nothing to record.
     with {:ok, {updated, rows_trashed}} <- result do
       if rows_trashed > 0 do
-        log_activity(%{
+        Shared.log_activity(%{
           action: "catalogue.trashed",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -936,7 +751,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def restore_catalogue(%Catalogue{} = catalogue, opts \\ []) do
     result =
       repo().transaction(fn ->
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
         lock_catalogue!(catalogue.uuid)
 
         case repo().get(Catalogue, catalogue.uuid) do
@@ -948,7 +763,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, {:restored, {updated, categories_restored, items_restored}}} ->
-        log_activity(%{
+        Shared.log_activity(%{
           action: "catalogue.restored",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -976,32 +791,35 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     {categories_restored, _} =
       from(c in Category, where: c.catalogue_uuid == ^root and c.status == "deleted")
-      |> trashed_by_or_unstamped(root)
-      |> restore_trashed(:category, now)
+      |> Trash.trashed_by_or_unstamped(root)
+      |> Trash.restore_trashed(:category, now)
       |> repo().update_all([])
 
     stamped_items =
       from(i in Item, as: :item, where: i.catalogue_uuid == ^root and i.status == "deleted")
-      |> trashed_by_or_unstamped(root)
+      |> Trash.trashed_by_or_unstamped(root)
 
     {items_restored, _} =
       stamped_items
-      |> outside_trashed_categories()
-      |> restore_trashed(:item, now)
+      |> Trash.outside_trashed_categories()
+      |> Trash.restore_trashed(:item, now)
       |> repo().update_all([])
 
-    restamp_left_behind!(stamped_items)
+    Trash.restamp_left_behind!(stamped_items)
 
     # Restore to where it came from — unless that home is gone. A
     # hard-deleted folder already SET NULLed the reference (root); a
     # legacy-trashed folder is merely hidden, so restoring into it would
     # strand the catalogue — normalize that to root too.
-    query = from(c in Catalogue, where: c.uuid == ^root) |> restore_trashed(:catalogue, now)
+    query = from(c in Catalogue, where: c.uuid == ^root) |> Trash.restore_trashed(:catalogue, now)
 
     query =
       case restored_folder_home(catalogue.folder_uuid) do
-        :keep -> query
-        :root -> update(query, set: [folder_uuid: nil, position: ^next_level_position(nil)])
+        :keep ->
+          query
+
+        :root ->
+          update(query, set: [folder_uuid: nil, position: ^Shared.next_level_position(nil)])
       end
 
     repo().update_all(query, [])
@@ -1071,7 +889,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     with {:ok, {ref_count, release}} <- result do
       MediaFolders.release(release)
 
-      log_activity(%{
+      Shared.log_activity(%{
         action: "catalogue.permanently_deleted",
         mode: "manual",
         actor_uuid: opts[:actor_uuid],
@@ -1093,7 +911,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # then fails its foreign key, instead of surviving the delete unfiled
   # through `ON DELETE SET NULL`.
   defp lock_catalogue_rows!(catalogue_uuid) do
-    lock_catalogue_categories!(catalogue_uuid)
+    Trash.lock_catalogue_categories!(catalogue_uuid)
 
     repo().one(
       from(c in Catalogue, where: c.uuid == ^catalogue_uuid, lock: "FOR UPDATE", select: c.uuid)
@@ -1285,7 +1103,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp maybe_outside_trashed_categories(query, opts) do
     if Keyword.get(opts, :outside_trashed_categories, false),
-      do: outside_trashed_categories(query),
+      do: Trash.outside_trashed_categories(query),
       else: query
   end
 
@@ -1788,7 +1606,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec get_category_by_slug(String.t(), String.t(), keyword()) ::
           {:ok, Category.t()} | {:ok, Category.t(), String.t()} | {:error, :not_found}
   def get_category_by_slug(slug, lang, opts \\ []) do
-    find_by_slug(@category_slugs_table, "category_uuid", slug, lang, opts, fn uuid, _opts ->
+    Shared.find_by_slug(@category_slugs_table, "category_uuid", slug, lang, opts, fn uuid,
+                                                                                     _opts ->
       get_category(uuid)
     end)
   end
@@ -1822,7 +1641,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         %Category{}
         |> Category.changeset(put_default_category_position(attrs))
         |> validate_parent_in_same_catalogue()
-        |> stamp_created_deleted()
+        |> Shared.stamp_created_deleted()
         |> repo().insert()
         |> case do
           {:ok, category} -> category
@@ -1832,7 +1651,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, category} = ok ->
-        log_activity(
+        Shared.log_activity(
           %{
             action: "category.created",
             mode: "manual",
@@ -1865,7 +1684,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           | {:error, Ecto.Changeset.t(Category.t()) | :not_found | :catalogue_moved}
   def update_category(%Category{} = category, attrs, opts \\ []) do
     result =
-      locked_transaction(fn ->
+      Trash.locked_transaction(fn ->
         # A new parent is checked for a cycle against the tree as committed:
         # under the lock of the catalogue the row is in now (not the
         # caller's copy's), taken before any row lock — the order
@@ -1874,15 +1693,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
         # then run on the locked row.
         category =
           if reparenting?(category, attrs),
-            do: lock_row_in_catalogue!(Category, category.uuid),
+            do: Trash.lock_row_in_catalogue!(Category, category.uuid),
             else: category
 
-        attrs = narrow_data_ownership(Category, category.uuid, attrs, opts)
+        attrs = Shared.narrow_data_ownership(Category, category.uuid, attrs, opts)
 
         changeset =
           category
           |> Category.changeset(attrs)
-          |> keep_trash_status(Category, category.uuid)
+          |> Shared.keep_trash_status(Category, category.uuid)
           |> validate_parent_in_same_catalogue()
 
         case repo().update(changeset) do
@@ -1893,7 +1712,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, updated} ->
-        log_activity(
+        Shared.log_activity(
           %{
             action: "category.updated",
             mode: "manual",
@@ -1918,57 +1737,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:error, _reason} = error ->
         error
     end
-  end
-
-  # Shared by `update_item/3` and `update_category/3`'s `:data_owned_keys`
-  # option — see `update_item/3`'s doc for the full rationale. `nil` (no
-  # option passed) is a no-op so every existing caller keeps the plain
-  # full-replace behavior.
-  #
-  # Must run INSIDE the caller's transaction: the `FOR UPDATE` lock this
-  # takes only protects against a concurrent writer landing between our
-  # read and the eventual `repo().update()` if both happen on the same
-  # connection/transaction.
-  defp narrow_data_ownership(schema, uuid, attrs, opts) when is_map(attrs) do
-    case Keyword.get(opts, :data_owned_keys) do
-      nil -> attrs
-      owned_keys -> splice_owned_data(schema, uuid, attrs, owned_keys)
-    end
-  end
-
-  defp splice_owned_data(schema, uuid, attrs, owned_keys) do
-    query = from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE")
-
-    case repo().one(query) do
-      nil ->
-        attrs
-
-      %{data: fresh_data} ->
-        incoming_data = Helpers.fetch_attr(attrs, :data) || %{}
-        owned = Map.take(incoming_data, owned_keys)
-        merged = apply_owned_data(fresh_data || %{}, owned)
-        Helpers.put_attr(attrs, :data, merged)
-    end
-  end
-
-  # An owned key present in `owned` with a non-`nil` value overwrites the
-  # fresh row's value for that key — the caller's normal write. An owned
-  # key present with an EXPLICIT `nil` is a "clear this" marker (see
-  # `PhoenixKitCatalogue.Attachments.inject_attachment_data/2` /
-  # `inject_media_order/2`, which write `nil` rather than simply omitting
-  # the key) and comes out of the result entirely — the record must end
-  # up looking exactly like one that never had the key, not one holding
-  # a JSON `null` (`Schemas.Item`/`Schemas.Category`'s changeset enforces
-  # the same thing at cast time; doing it here too keeps this function's
-  # own contract self-evident). A key `owned` doesn't mention at all —
-  # because the caller's `attrs["data"]` never mentioned it — is left
-  # untouched, distinct from an explicit `nil`: that's the whole point of
-  # `:data_owned_keys` (see `update_item/3`'s doc).
-  defp apply_owned_data(fresh_data, owned) do
-    Enum.reduce(owned, fresh_data, fn
-      {key, nil}, acc -> Map.delete(acc, key)
-      {key, value}, acc -> Map.put(acc, key, value)
-    end)
   end
 
   # Any change of parent, to the top level included: a move there skips
@@ -2066,7 +1834,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:ok, _} = ok ->
         MediaFolders.release(release)
 
-        log_activity(%{
+        Shared.log_activity(%{
           action: "category.deleted",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -2130,11 +1898,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     disposition = Keyword.get(opts, :items, :cascade)
 
     result =
-      locked_transaction(fn ->
-        category = lock_row_in_catalogue!(Category, category.uuid)
+      Trash.locked_transaction(fn ->
+        category = Trash.lock_row_in_catalogue!(Category, category.uuid)
         now = DateTime.utc_now()
         subtree = Tree.subtree_uuids(category.uuid)
-        lock_categories!(subtree)
+        Trash.lock_categories!(subtree)
         moving = disposition_moving(disposition, subtree)
 
         case apply_item_disposition(disposition, subtree, category, now) do
@@ -2145,12 +1913,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
               from(c in Category,
                 where: c.uuid in ^subtree and c.uuid != ^root and c.status != "deleted"
               )
-              |> stamp_trashed("category", root, now)
+              |> Trash.stamp_trashed("category", root, now)
               |> repo().update_all([])
 
             {self, _} =
               from(c in Category, where: c.uuid == ^root and c.status != "deleted")
-              |> stamp_trashed("self", root, now)
+              |> Trash.stamp_trashed("self", root, now)
               |> repo().update_all([])
 
             changed? = children + self + items_handled > 0
@@ -2173,7 +1941,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
         # `broadcast: false` lets `bulk_trash_categories/3` run this inside
         # its own transaction and fan out once after that commits.
-        log_activity(
+        Shared.log_activity(
           %{
             action: "category.trashed",
             mode: "manual",
@@ -2227,7 +1995,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       from(i in Item,
         where: i.category_uuid in ^subtree and i.status != "deleted"
       )
-      |> stamp_trashed("category", category.uuid, now)
+      |> Trash.stamp_trashed("category", category.uuid, now)
       |> repo().update_all([])
 
     {:ok, count}
@@ -2326,10 +2094,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
           | {:error, :parent_catalogue_deleted | :not_found | term()}
   def restore_category(%Category{} = category, opts \\ []) do
     result =
-      locked_transaction(fn ->
-        fresh = lock_row_in_catalogue!(Category, category.uuid)
+      Trash.locked_transaction(fn ->
+        fresh = Trash.lock_row_in_catalogue!(Category, category.uuid)
 
-        if catalogue_deleted?(fresh.catalogue_uuid),
+        if Shared.catalogue_deleted?(fresh.catalogue_uuid),
           do: repo().rollback(:parent_catalogue_deleted)
 
         if fresh.status == "deleted",
@@ -2339,7 +2107,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, {:restored, {updated, categories_restored, items_restored}}} ->
-        log_activity(%{
+        Shared.log_activity(%{
           action: "category.restored",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -2367,31 +2135,31 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp do_restore_category(%Category{uuid: root}) do
     now = DateTime.utc_now()
     subtree = Tree.subtree_uuids(root)
-    lock_categories!(subtree)
+    Trash.lock_categories!(subtree)
 
     from(c in Category, where: c.uuid == ^root)
-    |> restore_trashed(:category, now)
+    |> Trash.restore_trashed(:category, now)
     |> repo().update_all([])
 
     {categories_restored, _} =
       from(c in Category,
         where: c.uuid in ^subtree and c.uuid != ^root and c.status == "deleted"
       )
-      |> trashed_by(root)
-      |> restore_trashed(:category, now)
+      |> Trash.trashed_by(root)
+      |> Trash.restore_trashed(:category, now)
       |> repo().update_all([])
 
     stamped_items =
       from(i in Item, as: :item, where: i.category_uuid in ^subtree and i.status == "deleted")
-      |> trashed_by(root)
+      |> Trash.trashed_by(root)
 
     {items_restored, _} =
       stamped_items
-      |> outside_trashed_categories()
-      |> restore_trashed(:item, now)
+      |> Trash.outside_trashed_categories()
+      |> Trash.restore_trashed(:item, now)
       |> repo().update_all([])
 
-    restamp_left_behind!(stamped_items)
+    Trash.restamp_left_behind!(stamped_items)
 
     {repo().get!(Category, root), categories_restored, items_restored}
   end
@@ -2419,8 +2187,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
           {:ok, Category.t()} | {:error, term()}
   def permanently_delete_category(%Category{} = category, opts \\ []) do
     result =
-      locked_transaction(fn ->
-        fresh = lock_row_in_catalogue!(Category, category.uuid)
+      Trash.locked_transaction(fn ->
+        fresh = Trash.lock_row_in_catalogue!(Category, category.uuid)
 
         if opts[:only_trashed] == true and fresh.status != "deleted",
           do: repo().rollback(:not_in_trash)
@@ -2430,7 +2198,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         # the subtree meanwhile waits on its category row and then fails
         # its foreign key, instead of surviving uncategorized through
         # `ON DELETE SET NULL`.
-        lock_categories!(subtree)
+        Trash.lock_categories!(subtree)
 
         {doomed, kept} = permanent_delete_split(fresh, subtree)
 
@@ -2474,7 +2242,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:ok, {subtree_size, items_cascaded, kept_count, release}} ->
         MediaFolders.release(release)
 
-        log_activity(%{
+        Shared.log_activity(%{
           action: "category.permanently_deleted",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -2741,15 +2509,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
     parent_uuid = opts[:parent_uuid]
 
     cond do
-      not valid_uuid?(target_catalogue_uuid) -> {:error, :catalogue_not_found}
-      not (is_nil(parent_uuid) or valid_uuid?(parent_uuid)) -> {:error, :parent_not_found}
+      not Shared.valid_uuid?(target_catalogue_uuid) -> {:error, :catalogue_not_found}
+      not (is_nil(parent_uuid) or Shared.valid_uuid?(parent_uuid)) -> {:error, :parent_not_found}
       true -> do_move_category_to_catalogue(category, target_catalogue_uuid, parent_uuid, opts)
     end
   end
 
   defp do_move_category_to_catalogue(category, target_catalogue_uuid, parent_uuid, opts) do
     result =
-      locked_transaction(fn ->
+      Trash.locked_transaction(fn ->
         # Both catalogues' trash/restore locks first, in sorted order: a
         # trash or restore in either one otherwise deadlocks against this
         # move, each holding a row the other updates next.
@@ -2759,7 +2527,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           ) ||
             repo().rollback(:not_found)
 
-        lock_catalogues!([source_catalogue_uuid, target_catalogue_uuid])
+        Trash.lock_catalogues!([source_catalogue_uuid, target_catalogue_uuid])
 
         # Take an exclusive row lock on the category being moved. This
         # serializes concurrent `create_item`/`update_item` calls that
@@ -2775,7 +2543,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
         # Read under both locks, so a trash of the target cannot land
         # between this check and the commit.
-        check_move_destination!(source_catalogue_uuid, target_catalogue_uuid)
+        Shared.check_move_destination!(source_catalogue_uuid, target_catalogue_uuid)
 
         subtree = lock_subtree!(category.uuid)
         if parent_uuid, do: check_move_parent!(parent_uuid, target_catalogue_uuid, subtree)
@@ -2817,7 +2585,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, {moved, categories_updated, items_updated, source_catalogue_uuid, from_parent_uuid}} ->
-        log_activity(
+        Shared.log_activity(
           %{
             action: "category.moved",
             mode: "manual",
@@ -2831,9 +2599,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
               "items_cascaded" => items_updated,
               "changes" =>
                 ActivityLog.changes([
-                  {:catalogue, catalogue_ref(source_catalogue_uuid),
-                   catalogue_ref(target_catalogue_uuid)},
-                  {:parent, category_ref(from_parent_uuid), category_ref(parent_uuid)}
+                  {:catalogue, Shared.catalogue_ref(source_catalogue_uuid),
+                   Shared.catalogue_ref(target_catalogue_uuid)},
+                  {:parent, Shared.category_ref(from_parent_uuid),
+                   Shared.category_ref(parent_uuid)}
                 ])
             }
           },
@@ -2863,7 +2632,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # Re-read until the subtree stops changing under the locks.
   defp lock_subtree!(root_uuid, attempts \\ 3) do
     subtree = Tree.subtree_uuids(root_uuid)
-    lock_categories!(subtree)
+    Trash.lock_categories!(subtree)
 
     cond do
       Enum.sort(Tree.subtree_uuids(root_uuid)) == Enum.sort(subtree) -> subtree
@@ -2875,31 +2644,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp broadcast_moved_out(catalogue_uuid) do
     PubSub.broadcast(:category, nil, catalogue_uuid)
     PubSub.broadcast(:item, nil, catalogue_uuid)
-  end
-
-  # The canonical string form only: `Ecto.UUID.cast/1` also accepts any
-  # 16-byte binary, which later dumps and lock keys would mishandle.
-  defp valid_uuid?(value), do: is_binary(value) and Ecto.UUID.cast(value) == {:ok, value}
-
-  # A move destination must be a live catalogue of the source's kind:
-  # standard items price from base price + markup, smart items from
-  # their rules, so a row carried across kinds would lose its meaning.
-  # Runs under the destination's catalogue lock (the callers take it).
-  defp check_move_destination!(source_catalogue_uuid, target_catalogue_uuid) do
-    kinds =
-      from(c in Catalogue,
-        where: c.uuid in ^Enum.uniq([source_catalogue_uuid, target_catalogue_uuid]),
-        where: c.status != "deleted" or c.uuid == ^source_catalogue_uuid,
-        select: {c.uuid, c.kind}
-      )
-      |> repo().all()
-      |> Map.new()
-
-    case {Map.get(kinds, source_catalogue_uuid), Map.get(kinds, target_catalogue_uuid)} do
-      {_, nil} -> repo().rollback(:catalogue_not_found)
-      {kind, kind} -> :ok
-      _ -> repo().rollback(:kind_mismatch)
-    end
   end
 
   # A parent in the destination: live, in that catalogue, and not a
@@ -2963,7 +2707,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       when is_binary(new_parent_uuid) do
     cond do
       new_parent_uuid == category.uuid -> {:error, :would_create_cycle}
-      not valid_uuid?(new_parent_uuid) -> {:error, :parent_not_found}
+      not Shared.valid_uuid?(new_parent_uuid) -> {:error, :parent_not_found}
       true -> do_move_category_under(category, new_parent_uuid, opts)
     end
   end
@@ -2977,7 +2721,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # post-commit tree and gets `:would_create_cycle`.
   defp do_move_category_under(category, new_parent_uuid, opts) do
     result =
-      locked_transaction(fn ->
+      Trash.locked_transaction(fn ->
         catalogue_uuid =
           repo().one(
             from(c in Category, where: c.uuid == ^category.uuid, select: c.catalogue_uuid)
@@ -3012,7 +2756,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end)
 
     with {:ok, {moved, from_parent_uuid}} <- result do
-      log_activity(
+      Shared.log_activity(
         %{
           action: "category.moved",
           mode: "manual",
@@ -3025,7 +2769,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
             "catalogue_uuid" => moved.catalogue_uuid,
             "changes" =>
               ActivityLog.changes([
-                {:parent, category_ref(from_parent_uuid), category_ref(new_parent_uuid)}
+                {:parent, Shared.category_ref(from_parent_uuid),
+                 Shared.category_ref(new_parent_uuid)}
               ])
           }
         },
@@ -3206,7 +2951,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end)
 
     with {:ok, _} <- result do
-      log_activity(%{
+      Shared.log_activity(%{
         action: "category.positions_swapped",
         mode: "manual",
         actor_uuid: opts[:actor_uuid],
@@ -3636,8 +3381,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def create_folder(attrs, opts \\ []) do
     result =
       repo().transaction(fn ->
-        lock_catalogues_order!()
-        parent_uuid = normalize_folder_uuid(Helpers.fetch_attr(attrs, :parent_uuid))
+        Shared.lock_catalogues_order!()
+        parent_uuid = Shared.normalize_folder_uuid(Helpers.fetch_attr(attrs, :parent_uuid))
 
         attrs =
           attrs
@@ -3652,7 +3397,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, folder} = ok ->
-        log_activity(
+        Shared.log_activity(
           %{
             action: "folder.created",
             mode: "manual",
@@ -3683,7 +3428,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     case folder |> Folder.changeset(attrs) |> repo().update() do
       {:ok, updated} = ok ->
         if changed?(folder, updated, [:name, :status, :data]) do
-          log_activity(%{
+          Shared.log_activity(%{
             action: "folder.updated",
             mode: "manual",
             actor_uuid: opts[:actor_uuid],
@@ -3709,7 +3454,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec move_folder(Folder.t(), Ecto.UUID.t() | nil, keyword()) ::
           {:ok, Folder.t()} | {:error, :cycle | :folder_not_found | :folder_trashed | term()}
   def move_folder(%Folder{} = folder, new_parent_uuid, opts \\ []) do
-    new_parent = normalize_folder_uuid(new_parent_uuid)
+    new_parent = Shared.normalize_folder_uuid(new_parent_uuid)
 
     if new_parent == folder.parent_uuid do
       {:ok, folder}
@@ -3728,13 +3473,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp do_move_folder(folder, new_parent, opts) do
     result =
       repo().transaction(fn ->
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
         repo().one!(from(f in Folder, where: f.uuid == ^folder.uuid, lock: "FOR UPDATE"))
         run_locked_folder_move(folder, new_parent)
       end)
 
     with {:ok, updated} <- result do
-      log_activity(%{
+      Shared.log_activity(%{
         action: "folder.moved",
         mode: "manual",
         actor_uuid: opts[:actor_uuid],
@@ -3758,7 +3503,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # Any error rolls the transaction back with the reason so the outer
   # `{:ok, _} <- result` short-circuits without logging.
   defp run_locked_folder_move(folder, new_parent) do
-    attrs = %{parent_uuid: new_parent, position: next_level_position(new_parent)}
+    attrs = %{parent_uuid: new_parent, position: Shared.next_level_position(new_parent)}
 
     with :ok <- folder_cycle_guard(folder, new_parent),
          :ok <- validate_target_folder(new_parent),
@@ -3788,7 +3533,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       repo().transaction(fn ->
         # The lock `restore_catalogue/2` holds while it decides whether a
         # catalogue's folder is still a home to return to.
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
 
         # Decided from the row, not the argument: a folder already in the
         # trash is not trashed again.
@@ -3800,7 +3545,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, {:trashed, updated}} ->
-        log_activity(%{
+        Shared.log_activity(%{
           action: "folder.trashed",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -3825,7 +3570,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     update_folder_status!(folder, %{
       status: "active",
       parent_uuid: parent,
-      position: next_level_position(parent)
+      position: Shared.next_level_position(parent)
     })
   end
 
@@ -3847,7 +3592,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def restore_folder(%Folder{} = folder, opts \\ []) do
     result =
       repo().transaction(fn ->
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
 
         # Decided from the row, not the argument: a folder that is not in
         # the trash keeps its place and is not restored again.
@@ -3862,7 +3607,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, {:restored, updated}} ->
-        log_activity(%{
+        Shared.log_activity(%{
           action: "folder.restored",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -3906,7 +3651,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     # `ON DELETE SET NULL` and silently unfile the new occupant.
     {count, _} =
       repo().transaction(fn ->
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
 
         {n, _} =
           repo().delete_all(
@@ -3928,7 +3673,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end
 
     if count == 1 do
-      log_activity(%{
+      Shared.log_activity(%{
         action: "folder.deleted",
         mode: "manual",
         actor_uuid: opts[:actor_uuid],
@@ -3967,7 +3712,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def permanently_delete_folder(%Folder{} = folder, opts \\ []) do
     result =
       repo().transaction(fn ->
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
 
         from(f in Folder, where: f.parent_uuid == ^folder.uuid)
         |> repo().update_all(set: [parent_uuid: nil])
@@ -3979,7 +3724,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end)
 
     with {:ok, _} <- result do
-      log_activity(%{
+      Shared.log_activity(%{
         action: "folder.permanently_deleted",
         mode: "manual",
         actor_uuid: opts[:actor_uuid],
@@ -4006,7 +3751,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def reorder_folders(ordered_uuids, opts)
       when is_list(ordered_uuids) and length(ordered_uuids) > @reorder_max_uuids do
-    log_reorder_rejected(:folder, :too_many_uuids, length(ordered_uuids), nil, opts)
+    Shared.log_reorder_rejected(:folder, :too_many_uuids, length(ordered_uuids), nil, opts)
     {:error, :too_many_uuids}
   end
 
@@ -4015,7 +3760,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     result =
       repo().transaction(fn ->
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
 
         unique_uuids
         |> Enum.with_index(1)
@@ -4026,7 +3771,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, _} ->
-        log_activity(%{
+        Shared.log_activity(%{
           action: "folder.reordered",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -4038,7 +3783,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         :ok
 
       {:error, reason} ->
-        log_reorder_db_error(:folder, unique_uuids, nil, opts)
+        Shared.log_reorder_db_error(:folder, unique_uuids, nil, opts)
         {:error, reason}
     end
   end
@@ -4065,7 +3810,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def place_level_rows(entries, opts)
       when is_list(entries) and length(entries) > @reorder_max_uuids do
-    log_reorder_rejected(:level, :too_many_uuids, length(entries), nil, opts)
+    Shared.log_reorder_rejected(:level, :too_many_uuids, length(entries), nil, opts)
     {:error, :too_many_uuids}
   end
 
@@ -4113,7 +3858,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp write_level_positions(unique, opts) do
     result =
       repo().transaction(fn ->
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
 
         unique
         |> Enum.with_index(1)
@@ -4132,7 +3877,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {first_type, first_uuid} = List.first(unique)
         resource_type = if first_type == "folder", do: "folder", else: "catalogue"
 
-        log_activity(%{
+        Shared.log_activity(%{
           action: "catalogue.level_reordered",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -4144,7 +3889,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         :ok
 
       {:error, reason} ->
-        log_reorder_db_error(:level, Enum.map(unique, &elem(&1, 1)), nil, opts)
+        Shared.log_reorder_db_error(:level, Enum.map(unique, &elem(&1, 1)), nil, opts)
         {:error, reason}
     end
   end
@@ -4157,7 +3902,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec move_catalogue_to_folder(Catalogue.t(), Ecto.UUID.t() | nil | :unfiled, keyword()) ::
           {:ok, Catalogue.t()} | {:error, :folder_not_found | :folder_trashed | term()}
   def move_catalogue_to_folder(%Catalogue{} = catalogue, folder_uuid, opts \\ []) do
-    target = normalize_folder_uuid(folder_uuid)
+    target = Shared.normalize_folder_uuid(folder_uuid)
 
     if target == catalogue.folder_uuid do
       {:ok, catalogue}
@@ -4169,10 +3914,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp do_move_catalogue_to_folder(catalogue, target, opts) do
     result =
       repo().transaction(fn ->
-        lock_catalogues_order!()
+        Shared.lock_catalogues_order!()
 
         with :ok <- validate_target_folder(target),
-             attrs = %{folder_uuid: target, position: next_level_position(target)},
+             attrs = %{folder_uuid: target, position: Shared.next_level_position(target)},
              {:ok, updated} <- catalogue |> Catalogue.changeset(attrs) |> repo().update() do
           updated
         else
@@ -4181,7 +3926,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end)
 
     with {:ok, updated} <- result do
-      log_activity(%{
+      Shared.log_activity(%{
         action: "catalogue.moved_to_folder",
         mode: "manual",
         actor_uuid: opts[:actor_uuid],
@@ -4239,78 +3984,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  # Next free slot in the interleaved folder+catalogue sequence at this
-  # level (`nil` = root). Folders and catalogues share one `position`
-  # number line; a type-specific max would land a new row on top of the
-  # other type.
-  defp next_level_position(level_uuid) do
-    case level_position_bound(:max, level_uuid) do
-      nil -> 1
-      n -> n + 1
-    end
-  end
-
   # One below the smallest occupied slot so a freshly created folder
   # sorts first. (Manual reorder later normalizes to 1..N.)
   defp front_level_position(level_uuid) do
-    case level_position_bound(:min, level_uuid) do
+    case Shared.level_position_bound(:min, level_uuid) do
       nil -> 1
       n -> n - 1
     end
   end
-
-  defp level_position_bound(agg, level_uuid) do
-    combine_bound(
-      agg,
-      folder_position_bound(agg, level_uuid),
-      catalogue_position_bound(agg, level_uuid)
-    )
-  end
-
-  defp combine_bound(_agg, nil, nil), do: nil
-  defp combine_bound(_agg, a, nil), do: a
-  defp combine_bound(_agg, nil, b), do: b
-  defp combine_bound(:max, a, b), do: max(a, b)
-  defp combine_bound(:min, a, b), do: min(a, b)
-
-  defp folder_position_bound(agg, level_uuid) do
-    scoped =
-      case level_uuid do
-        nil -> from(f in Folder, where: f.status != "deleted" and is_nil(f.parent_uuid))
-        uuid -> from(f in Folder, where: f.status != "deleted" and f.parent_uuid == ^uuid)
-      end
-
-    query =
-      case agg do
-        :max -> from(f in scoped, select: max(f.position))
-        :min -> from(f in scoped, select: min(f.position))
-      end
-
-    repo().one(query)
-  end
-
-  defp catalogue_position_bound(agg, level_uuid) do
-    scoped =
-      case level_uuid do
-        nil -> from(c in Catalogue, where: c.status != "deleted" and is_nil(c.folder_uuid))
-        uuid -> from(c in Catalogue, where: c.status != "deleted" and c.folder_uuid == ^uuid)
-      end
-
-    query =
-      case agg do
-        :max -> from(c in scoped, select: max(c.position))
-        :min -> from(c in scoped, select: min(c.position))
-      end
-
-    repo().one(query)
-  end
-
-  # Folder uuid normalization: "", "unfiled", :unfiled, nil all mean root.
-  defp normalize_folder_uuid(nil), do: nil
-  defp normalize_folder_uuid(""), do: nil
-  defp normalize_folder_uuid(:unfiled), do: nil
-  defp normalize_folder_uuid("unfiled"), do: nil
-  defp normalize_folder_uuid(uuid) when is_binary(uuid), do: uuid
 
   defp changed?(before, after_, fields) do
     Enum.any?(fields, fn f -> Map.get(before, f) != Map.get(after_, f) end)
@@ -4398,7 +4079,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         :ok
 
       {:ok, count} ->
-        log_activity(%{
+        Shared.log_activity(%{
           action: "category.reordered",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -4414,7 +4095,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         :ok
 
       {:error, reason} when reason in [:too_many_uuids, :not_siblings] ->
-        log_reorder_rejected(
+        Shared.log_reorder_rejected(
           :category,
           reason,
           length(ordered_uuids),
@@ -4425,7 +4106,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {:error, reason}
 
       {:error, reason} ->
-        log_reorder_db_error(
+        Shared.log_reorder_db_error(
           :category,
           Helpers.dedupe_keep_last(ordered_uuids),
           catalogue_uuid,
@@ -4465,7 +4146,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     total_count = deduped_groups |> Enum.flat_map(fn {_p, u} -> u end) |> length()
 
     if total_count > @reorder_max_uuids do
-      log_reorder_rejected(:category, :too_many_uuids, total_count, catalogue_uuid, opts)
+      Shared.log_reorder_rejected(:category, :too_many_uuids, total_count, catalogue_uuid, opts)
       {:error, :too_many_uuids}
     else
       run_categories_groups_transaction(catalogue_uuid, deduped_groups, total_count, opts)
@@ -4484,7 +4165,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case txn_result do
       {:ok, :ok} ->
-        log_activity(
+        Shared.log_activity(
           %{
             action: "category.reordered",
             mode: "manual",
@@ -4502,11 +4183,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
         :ok
 
       {:error, reason} when reason in [:too_many_uuids, :not_siblings] ->
-        log_reorder_rejected(:category, reason, total_count, catalogue_uuid, opts)
+        Shared.log_reorder_rejected(:category, reason, total_count, catalogue_uuid, opts)
         {:error, reason}
 
       {:error, reason} ->
-        log_reorder_db_error(
+        Shared.log_reorder_db_error(
           :category,
           Enum.flat_map(deduped_groups, fn {_p, u} -> u end),
           catalogue_uuid,
@@ -4650,7 +4331,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def reorder_catalogues(ordered_uuids, opts)
       when is_list(ordered_uuids) and length(ordered_uuids) > @reorder_max_uuids do
-    log_reorder_rejected(:catalogue, :too_many_uuids, length(ordered_uuids), nil, opts)
+    Shared.log_reorder_rejected(:catalogue, :too_many_uuids, length(ordered_uuids), nil, opts)
     {:error, :too_many_uuids}
   end
 
@@ -4659,7 +4340,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case write_catalogue_positions(unique_uuids) do
       {:ok, _} ->
-        log_activity(%{
+        Shared.log_activity(%{
           action: "catalogue.reordered",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -4671,7 +4352,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         :ok
 
       {:error, reason} ->
-        log_reorder_db_error(:catalogue, unique_uuids, nil, opts)
+        Shared.log_reorder_db_error(:catalogue, unique_uuids, nil, opts)
         {:error, reason}
     end
   end
@@ -4685,7 +4366,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     pairs = Enum.with_index(unique_uuids, 1)
 
     repo().transaction(fn ->
-      lock_catalogues_order!()
+      Shared.lock_catalogues_order!()
 
       Enum.each(pairs, fn {uuid, idx} ->
         from(c in Catalogue, where: c.uuid == ^uuid)
@@ -4694,315 +4375,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end)
   end
 
-  # Shared advisory-lock key for the catalogues/folders position domain
-  # (issue #56): every writer of that order — flat catalogue reorder,
-  # folder reorder, and the interleaved level placement — takes the same
-  # transaction-scoped lock, so two simultaneous drags serialise instead
-  # of interleaving their per-row updates into a mixed order with
-  # duplicate positions. Released automatically at transaction end.
-  @catalogues_order_lock_key 727_401_119
-
-  defp lock_catalogues_order! do
-    repo().query!("SELECT pg_advisory_xact_lock($1)", [@catalogues_order_lock_key])
-  end
-
   # ═══════════════════════════════════════════════════════════════════
-  # Trash provenance and the per-catalogue lock
+  # Trash provenance and the per-catalogue lock — see PhoenixKitCatalogue.Catalogue.Trash
   # ═══════════════════════════════════════════════════════════════════
-  #
-  # Every trash path stamps each row it flips with WHAT flipped it, under
-  # the reserved top-level `data["_trash"]` key:
-  #
-  #     %{"via" => "self" | "catalogue" | "category",
-  #       "root" => uuid of the row the operator trashed,
-  #       "from_status" => the status the row had}
-  #
-  # Restoring a root revives only the rows whose stamp names that root,
-  # back to their (whitelisted) `from_status`, and clears the stamp — so a
-  # restore undoes exactly the trash that put a row in the bin, and a row
-  # trashed on its own before its parent stays there.
-  #
-  # The stamp is read ONLY on deleted rows, written by every trash path
-  # and cleared by every restore path, so a stale copy on a live row is
-  # inert. A deleted row with no stamp predates provenance:
-  # `restore_catalogue/2` revives it with its catalogue, as it always did;
-  # `restore_category/2` leaves it alone. Guide:
-  # `dev_docs/guides/trash-and-restore.md`.
-  #
-  # Every trash / restore / permanent-delete path takes `lock_catalogue!/1`
-  # first and decides from rows re-read under it. Without it a category
-  # trash racing an item restore left an ACTIVE item under a DELETED
-  # category of an active catalogue — in neither the tree nor any
-  # Deleted tab.
 
-  @catalogue_lock_class 727_401_120
-
-  # Public only for `Catalogue.Duplication`, which holds a source's lock
-  # while copying it.
   @doc false
-  @spec lock_catalogue!(Ecto.UUID.t() | nil) :: :ok
-  def lock_catalogue!(nil), do: :ok
-
-  def lock_catalogue!(catalogue_uuid) do
-    repo().query!("SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))", [
-      @catalogue_lock_class,
-      to_string(catalogue_uuid)
-    ])
-
-    :ok
-  end
-
-  # Several catalogues: always in the same (sorted) order, so two bulk
-  # operations over overlapping catalogues cannot deadlock.
-  defp lock_catalogues!(catalogue_uuids) do
-    catalogue_uuids
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(&to_string/1)
-    |> Enum.uniq()
-    |> Enum.sort()
-    |> Enum.each(&lock_catalogue!/1)
-  end
-
-  # A transaction whose locks are keyed on a catalogue read before locking.
-  # When a concurrent move changed that catalogue the attempt rolls back
-  # with `:catalogue_moved` and runs again from the top, which releases
-  # every lock first. Nested in an outer transaction there is nothing to
-  # release, so the error goes back to the caller.
-  defp locked_transaction(fun, attempts \\ 3) do
-    case repo().transaction(fun) do
-      {:error, :catalogue_moved} = error when attempts > 1 ->
-        if repo().in_transaction?(), do: error, else: locked_transaction(fun, attempts - 1)
-
-      result ->
-        result
-    end
-  end
-
-  # Bulk paths: locks every catalogue the rows live in, then checks none
-  # moved between that read and the locks. A category move takes the same
-  # locks, so the set is stable from here to commit.
-  defp lock_catalogues_of!(schema, uuids) do
-    catalogue_uuids = catalogue_uuids_of(schema, uuids)
-    lock_catalogues!(catalogue_uuids)
-
-    if catalogue_uuids_of(schema, uuids) != catalogue_uuids,
-      do: repo().rollback(:catalogue_moved)
-
-    catalogue_uuids
-  end
-
-  defp catalogue_uuids_of(schema, uuids) do
-    from(r in schema,
-      where: r.uuid in ^uuids and not is_nil(r.catalogue_uuid),
-      distinct: true,
-      order_by: r.catalogue_uuid,
-      select: r.catalogue_uuid
-    )
-    |> repo().all()
-  end
-
-  # A catalogue's category rows FOR UPDATE, in a stable order, before its
-  # items change: an item create or move into one of them (FOR SHARE on the
-  # category) either commits first and is swept, or waits and then sees the
-  # category trashed.
-  defp lock_catalogue_categories!(catalogue_uuid) do
-    repo().all(
-      from(c in Category,
-        where: c.catalogue_uuid == ^catalogue_uuid,
-        order_by: c.uuid,
-        lock: "FOR UPDATE",
-        select: c.uuid
-      )
-    )
-
-    :ok
-  end
-
-  # Locks the catalogue a category or item lives in, then re-reads the row
-  # FOR UPDATE: every decision is made from the locked row, never from the
-  # caller's (possibly stale) struct.
-  defp lock_row_in_catalogue!(schema, uuid) do
-    case repo().one(from(r in schema, where: r.uuid == ^uuid, select: {r.uuid, r.catalogue_uuid})) do
-      nil ->
-        repo().rollback(:not_found)
-
-      {_uuid, catalogue_uuid} ->
-        lock_catalogue!(catalogue_uuid)
-
-        fresh =
-          repo().one(from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE")) ||
-            repo().rollback(:not_found)
-
-        # Moved to another catalogue between the read and the lock. Taking
-        # the new key now could invert the sorted order another path holds
-        # both in, so this attempt gives up and `locked_transaction/1` runs
-        # it again from the top.
-        if fresh.catalogue_uuid != catalogue_uuid, do: repo().rollback(:catalogue_moved)
-
-        fresh
-    end
-  end
-
-  # Category rows FOR UPDATE, in a stable order. An item create or move
-  # takes its target category FOR SHARE, so it either commits before a
-  # subtree trash (and is swept by it) or waits and then sees the trash.
-  defp lock_categories!([]), do: :ok
-
-  defp lock_categories!(category_uuids) do
-    repo().all(
-      from(c in Category,
-        where: c.uuid in ^category_uuids,
-        order_by: c.uuid,
-        lock: "FOR UPDATE",
-        select: c.uuid
-      )
-    )
-
-    :ok
-  end
-
-  # Flips live rows to "deleted" and stamps who took them. One statement:
-  # `from_status` reads the row's status before the SET applies.
-  defp stamp_trashed(query, via, root_uuid, now) do
-    update(query, [r],
-      set: [
-        status: "deleted",
-        updated_at: ^now,
-        data:
-          fragment(
-            "jsonb_set(COALESCE(?, '{}'::jsonb), '{_trash}', jsonb_build_object('via', ?::text, 'root', ?::text, 'from_status', ?))",
-            r.data,
-            ^via,
-            ^to_string(root_uuid),
-            r.status
-          )
-      ]
-    )
-  end
-
-  # The same, for rows the operator trashed directly (each is its own root).
-  defp stamp_trashed_self(query, now) do
-    update(query, [r],
-      set: [
-        status: "deleted",
-        updated_at: ^now,
-        data:
-          fragment(
-            "jsonb_set(COALESCE(?, '{}'::jsonb), '{_trash}', jsonb_build_object('via', 'self', 'root', ?::text, 'from_status', ?))",
-            r.data,
-            r.uuid,
-            r.status
-          )
-      ]
-    )
-  end
-
-  # Brings rows back to the status the stamp recorded — whitelisted, since
-  # `data` is a free-form map — and clears the stamp.
-  defp restore_trashed(query, :item, now) do
-    update(query, [r],
-      set: [
-        status:
-          fragment(
-            "CASE ? #>> '{_trash,from_status}' WHEN 'inactive' THEN 'inactive' WHEN 'discontinued' THEN 'discontinued' ELSE 'active' END",
-            r.data
-          ),
-        data: fragment("COALESCE(?, '{}'::jsonb) - '_trash'", r.data),
-        updated_at: ^now
-      ]
-    )
-  end
-
-  defp restore_trashed(query, :catalogue, now) do
-    update(query, [r],
-      set: [
-        status:
-          fragment(
-            "CASE ? #>> '{_trash,from_status}' WHEN 'archived' THEN 'archived' ELSE 'active' END",
-            r.data
-          ),
-        data: fragment("COALESCE(?, '{}'::jsonb) - '_trash'", r.data),
-        updated_at: ^now
-      ]
-    )
-  end
-
-  defp restore_trashed(query, :category, now) do
-    update(query, [r],
-      set: [
-        status: "active",
-        data: fragment("COALESCE(?, '{}'::jsonb) - '_trash'", r.data),
-        updated_at: ^now
-      ]
-    )
-  end
-
-  defp trashed_by(query, root_uuid) do
-    where(query, [r], fragment("(? #>> '{_trash,root}') = ?", r.data, ^to_string(root_uuid)))
-  end
-
-  defp trashed_by_or_unstamped(query, root_uuid) do
-    where(
-      query,
-      [r],
-      fragment(
-        "((? -> '_trash') IS NULL OR (? #>> '{_trash,root}') = ?)",
-        r.data,
-        r.data,
-        ^to_string(root_uuid)
-      )
-    )
-  end
-
-  # For an item query bound `as: :item`: skips items whose category is in
-  # the trash, so a restore never leaves a live item in a trashed category.
-  # Items a restore had to leave in the trash because their category is
-  # still trashed under another root. Their stamp named the root being
-  # restored, so a later trash and restore of that root would have revived
-  # them from under the trashed category (randomized test, seed 423352).
-  # They join that category's unit instead: its stamp root (restoring the
-  # category, or what trashed it, brings them back with it), or their own
-  # when the category carries no stamp. `from_status` is kept. The same
-  # rule Delete Forever applies to rows it leaves behind.
-  defp restamp_left_behind!(stamped_items) do
-    from(i in stamped_items,
-      join: c in Category,
-      on: c.uuid == i.category_uuid,
-      where: c.status == "deleted",
-      update: [
-        set: [
-          data:
-            fragment(
-              """
-              COALESCE(?, '{}'::jsonb) || jsonb_build_object('_trash',
-                COALESCE(? -> '_trash', '{}'::jsonb) || jsonb_build_object(
-                  'root', COALESCE(? #>> '{_trash,root}', ?::text),
-                  'via', CASE WHEN ? #>> '{_trash,root}' IS NULL THEN 'self' ELSE 'category' END))
-              """,
-              i.data,
-              i.data,
-              c.data,
-              i.uuid,
-              c.data
-            )
-        ]
-      ]
-    )
-    |> repo().update_all([])
-  end
-
-  defp outside_trashed_categories(query) do
-    where(
-      query,
-      [item: i],
-      is_nil(i.category_uuid) or
-        not exists(
-          from(c in Category,
-            where: c.uuid == parent_as(:item).category_uuid and c.status == "deleted"
-          )
-        )
-    )
-  end
+  defdelegate lock_catalogue!(catalogue_uuid), to: Trash
 
   @doc """
   Returns the next available `position` for a new item within a scope.
@@ -5052,7 +4430,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:ok, count} ->
         unique_uuids = Helpers.dedupe_keep_last(ordered_uuids)
 
-        log_activity(%{
+        Shared.log_activity(%{
           action: "item.reordered",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -5068,7 +4446,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         :ok
 
       {:error, reason} when reason in [:too_many_uuids, :wrong_scope] ->
-        log_reorder_rejected(
+        Shared.log_reorder_rejected(
           :item,
           reason,
           length(ordered_uuids),
@@ -5079,7 +4457,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {:error, reason}
 
       {:error, reason} ->
-        log_reorder_db_error(
+        Shared.log_reorder_db_error(
           :item,
           Helpers.dedupe_keep_last(ordered_uuids),
           catalogue_uuid,
@@ -5295,7 +4673,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp finish_item_reorder_by({:ok, _}, catalogue_uuid, cat_uuid, strategy, mode, ordered, opts) do
-    log_activity(%{
+    Shared.log_activity(%{
       action: "item.reordered",
       mode: "manual",
       actor_uuid: opts[:actor_uuid],
@@ -5322,7 +4700,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
          ordered,
          opts
        ) do
-    log_reorder_db_error(:item, ordered, catalogue_uuid, opts, category_uuid: cat_uuid)
+    Shared.log_reorder_db_error(:item, ordered, catalogue_uuid, opts, category_uuid: cat_uuid)
     {:error, reason}
   end
 
@@ -5669,38 +5047,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec get_item_by_slug(String.t(), String.t(), keyword()) ::
           {:ok, Item.t()} | {:ok, Item.t(), String.t()} | {:error, :not_found}
   def get_item_by_slug(slug, lang, opts \\ []) do
-    find_by_slug(@item_slugs_table, "item_uuid", slug, lang, opts, &get_item/2)
-  end
-
-  # Shared by `get_item_by_slug/3` and `get_category_by_slug/3`. Looks up
-  # the projected uuid for `slug` in `lang`'s base language, optionally
-  # falling back to any language (`opts[:any_lang]`), then resolves it
-  # through `get_fun` (which also receives every other option, e.g.
-  # `:preload`). A resolved uuid whose row has since disappeared (a
-  # deleted item/category racing the projection's `ON DELETE CASCADE`)
-  # is treated the same as a lookup miss.
-  defp find_by_slug(table, uuid_column, slug, lang, opts, get_fun) do
-    any_lang? = Keyword.get(opts, :any_lang, false)
-    fetch_opts = Keyword.drop(opts, [:any_lang])
-    base = base_lang(lang)
-
-    found =
-      case query_slug(table, uuid_column, base, slug) do
-        nil when any_lang? -> query_slug(table, uuid_column, nil, slug)
-        result -> result
-      end
-
-    case found do
-      nil ->
-        {:error, :not_found}
-
-      {uuid, matched_lang} ->
-        case get_fun.(uuid, fetch_opts) do
-          nil -> {:error, :not_found}
-          struct when any_lang? -> {:ok, struct, matched_lang}
-          struct -> {:ok, struct}
-        end
-    end
+    Shared.find_by_slug(@item_slugs_table, "item_uuid", slug, lang, opts, &get_item/2)
   end
 
   @doc """
@@ -5713,47 +5060,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   @spec item_slug_taken?(String.t(), String.t(), keyword()) :: boolean()
   def item_slug_taken?(slug, lang, opts \\ []) do
-    slug_taken?(@item_slugs_table, "item_uuid", slug, lang, opts[:exclude_uuid])
+    Shared.slug_taken?(@item_slugs_table, "item_uuid", slug, lang, opts[:exclude_uuid])
   end
 
   @doc "Category counterpart of `item_slug_taken?/3`."
   @spec category_slug_taken?(String.t(), String.t(), keyword()) :: boolean()
   def category_slug_taken?(slug, lang, opts \\ []) do
-    slug_taken?(@category_slugs_table, "category_uuid", slug, lang, opts[:exclude_uuid])
+    Shared.slug_taken?(@category_slugs_table, "category_uuid", slug, lang, opts[:exclude_uuid])
   end
-
-  defp slug_taken?(table, uuid_column, slug, lang, exclude_uuid)
-       when is_binary(slug) and is_binary(lang) do
-    case query_slug(table, uuid_column, base_lang(lang), slug) do
-      nil -> false
-      {uuid, _lang} -> uuid != exclude_uuid
-    end
-  end
-
-  defp base_lang(lang), do: lang |> String.split("-") |> List.first() |> String.downcase()
-
-  defp query_slug(table, uuid_column, nil, slug) do
-    %{rows: rows} =
-      repo().query!(
-        "SELECT #{uuid_column}::text, lang FROM #{qualified(table)} WHERE value = $1 ORDER BY lang LIMIT 1",
-        [slug]
-      )
-
-    one_row(rows)
-  end
-
-  defp query_slug(table, uuid_column, lang, slug) do
-    %{rows: rows} =
-      repo().query!(
-        "SELECT #{uuid_column}::text, lang FROM #{qualified(table)} WHERE lang = $1 AND value = $2 LIMIT 1",
-        [lang, slug]
-      )
-
-    one_row(rows)
-  end
-
-  defp one_row([[uuid, lang]]), do: {uuid, lang}
-  defp one_row(_), do: nil
 
   @doc """
   Bulk-fetches items by a list of UUIDs. Excludes soft-deleted items.
@@ -5851,7 +5165,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         case %Item{}
              |> Item.changeset(attrs)
              |> check_item_category(category)
-             |> stamp_created_deleted()
+             |> Shared.stamp_created_deleted()
              |> repo().insert() do
           {:ok, item} -> item
           {:error, changeset} -> repo().rollback(changeset)
@@ -5860,7 +5174,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, item} ->
-        log_activity(
+        Shared.log_activity(
           %{
             action: "item.created",
             mode: opts[:mode] || "manual",
@@ -5925,44 +5239,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
     else
       attrs
     end
-  end
-
-  # A row created already "deleted" (an import, an API caller) is in the
-  # trash on its own: stamped as such, a catalogue restore does not take it
-  # for a row trashed before provenance and revive it.
-  defp stamp_created_deleted(%Ecto.Changeset{} = changeset) do
-    if Ecto.Changeset.get_field(changeset, :status) == "deleted" do
-      data = Ecto.Changeset.get_field(changeset, :data) || %{}
-      stamp = %{"via" => "self", "from_status" => "active"}
-      Ecto.Changeset.put_change(changeset, :data, Map.put(data, "_trash", stamp))
-    else
-      changeset
-    end
-  end
-
-  # Moves into or out of "deleted" belong to the trash and restore paths,
-  # which stamp, cascade and lock. A plain update never makes one: a form
-  # saving a trashed row cannot show "deleted" in its status select, so it
-  # posts the first option; and a form opened before a trash would revive
-  # the row on save, with none of the restore rules. Decided from the row
-  # as it is now, not from the caller's snapshot.
-  defp keep_trash_status(%Ecto.Changeset{} = changeset, schema, uuid) do
-    case Ecto.Changeset.get_change(changeset, :status) do
-      nil ->
-        changeset
-
-      "deleted" ->
-        Ecto.Changeset.delete_change(changeset, :status)
-
-      _live ->
-        if current_status(schema, uuid) == "deleted",
-          do: Ecto.Changeset.delete_change(changeset, :status),
-          else: changeset
-    end
-  end
-
-  defp current_status(schema, uuid) do
-    repo().one(from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE", select: r.status))
   end
 
   # The category an item is written into must be live while the item is,
@@ -6089,11 +5365,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {attrs, category} =
           if skip_derive?, do: {attrs, nil}, else: derive_catalogue_uuid(item, attrs)
 
-        attrs = narrow_data_ownership(Item, item.uuid, attrs, opts)
+        attrs = Shared.narrow_data_ownership(Item, item.uuid, attrs, opts)
 
         case item
              |> Item.changeset(attrs)
-             |> keep_trash_status(Item, item.uuid)
+             |> Shared.keep_trash_status(Item, item.uuid)
              |> check_item_category(category)
              |> repo().update() do
           {:ok, updated} -> updated
@@ -6103,7 +5379,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, updated} ->
-        log_activity(
+        Shared.log_activity(
           %{
             action: "item.updated",
             mode: "manual",
@@ -6139,7 +5415,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:ok, _} = ok ->
         MediaFolders.release(release)
 
-        log_activity(%{
+        Shared.log_activity(%{
           action: "item.deleted",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -6169,12 +5445,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec trash_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, :not_found | term()}
   def trash_item(%Item{} = item, opts \\ []) do
     result =
-      locked_transaction(fn ->
-        _locked = lock_row_in_catalogue!(Item, item.uuid)
+      Trash.locked_transaction(fn ->
+        _locked = Trash.lock_row_in_catalogue!(Item, item.uuid)
 
         {trashed_now, _} =
           from(i in Item, where: i.uuid == ^item.uuid and i.status != "deleted")
-          |> stamp_trashed_self(DateTime.utc_now())
+          |> Trash.stamp_trashed_self(DateTime.utc_now())
           |> repo().update_all([])
 
         {repo().get!(Item, item.uuid), trashed_now}
@@ -6183,7 +5459,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     # An item already in the trash was not trashed by this call.
     with {:ok, {trashed, trashed_now}} <- result do
       if trashed_now > 0 do
-        log_activity(%{
+        Shared.log_activity(%{
           action: "item.trashed",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -6225,10 +5501,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
           {:ok, Item.t()} | {:error, :parent_catalogue_deleted | :not_found | term()}
   def restore_item(%Item{} = item, opts \\ []) do
     result =
-      locked_transaction(fn ->
-        fresh = lock_row_in_catalogue!(Item, item.uuid)
+      Trash.locked_transaction(fn ->
+        fresh = Trash.lock_row_in_catalogue!(Item, item.uuid)
 
-        if catalogue_deleted?(fresh.catalogue_uuid),
+        if Shared.catalogue_deleted?(fresh.catalogue_uuid),
           do: repo().rollback(:parent_catalogue_deleted)
 
         if fresh.status == "deleted",
@@ -6240,7 +5516,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:ok, {:restored, {restored, detached?}, fresh}} ->
         if detached?, do: MediaFolders.follow([{fresh, restored}], opts[:actor_uuid])
 
-        log_activity(%{
+        Shared.log_activity(%{
           action: "item.restored",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
@@ -6267,19 +5543,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item, where: i.uuid == ^item.uuid)
-      |> restore_trashed(:item, DateTime.utc_now())
+      |> Trash.restore_trashed(:item, DateTime.utc_now())
 
     query = if detached?, do: update(query, set: [category_uuid: nil]), else: query
     repo().update_all(query, [])
 
     {repo().get!(Item, item.uuid), detached?}
-  end
-
-  defp catalogue_deleted?(nil), do: false
-
-  defp catalogue_deleted?(catalogue_uuid) do
-    repo().one(from(c in Catalogue, where: c.uuid == ^catalogue_uuid, select: c.status)) ==
-      "deleted"
   end
 
   defp category_deleted?(nil), do: false
@@ -6300,8 +5569,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec permanently_delete_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def permanently_delete_item(%Item{} = item, opts \\ []) do
     result =
-      locked_transaction(fn ->
-        locked = lock_row_in_catalogue!(Item, item.uuid)
+      Trash.locked_transaction(fn ->
+        locked = Trash.lock_row_in_catalogue!(Item, item.uuid)
 
         # `only_trashed: true` (a Deleted-tab action) refuses an item that was
         # restored in another tab since the page showed it.
@@ -6316,7 +5585,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     with {:ok, release} <- result do
       MediaFolders.release(release)
 
-      log_activity(%{
+      Shared.log_activity(%{
         action: "item.permanently_deleted",
         mode: "manual",
         actor_uuid: opts[:actor_uuid],
@@ -6341,32 +5610,32 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   @spec trash_items_in_category(Ecto.UUID.t(), keyword()) :: {non_neg_integer(), nil}
   def trash_items_in_category(category_uuid, opts \\ []) do
-    parent_catalogue_uuid = lookup_parent(:category, category_uuid)
+    parent_catalogue_uuid = Shared.lookup_parent(:category, category_uuid)
 
     trash = fn ->
       lock_catalogue!(parent_catalogue_uuid)
 
-      if lookup_parent(:category, category_uuid) != parent_catalogue_uuid,
+      if Shared.lookup_parent(:category, category_uuid) != parent_catalogue_uuid,
         do: repo().rollback(:catalogue_moved)
 
       {count, _} =
         from(i in Item,
           where: i.category_uuid == ^category_uuid and i.status != "deleted"
         )
-        |> stamp_trashed_self(DateTime.utc_now())
+        |> Trash.stamp_trashed_self(DateTime.utc_now())
         |> repo().update_all([])
 
       count
     end
 
     count =
-      case locked_transaction(trash) do
+      case Trash.locked_transaction(trash) do
         {:ok, count} -> count
         {:error, _} -> 0
       end
 
     if count > 0 do
-      log_activity(
+      Shared.log_activity(
         %{
           action: "item.bulk_trashed",
           mode: "manual",
@@ -6427,12 +5696,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
     uuids = scope_item_uuids(uuids, opts[:catalogue_uuid])
 
     {count, catalogue_uuids} =
-      locked_transaction(fn ->
-        catalogue_uuids = lock_catalogues_of!(Item, uuids)
+      Trash.locked_transaction(fn ->
+        catalogue_uuids = Trash.lock_catalogues_of!(Item, uuids)
 
         {count, _} =
           from(i in Item, where: i.uuid in ^uuids and i.status != "deleted")
-          |> stamp_trashed_self(DateTime.utc_now())
+          |> Trash.stamp_trashed_self(DateTime.utc_now())
           |> repo().update_all([])
 
         {count, catalogue_uuids}
@@ -6440,7 +5709,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> bulk_result()
 
     if count > 0 do
-      log_activity(
+      Shared.log_activity(
         %{
           action: "item.bulk_trashed",
           mode: "manual",
@@ -6476,18 +5745,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
     uuids = scope_item_uuids(uuids, opts[:catalogue_uuid])
 
     restore = fn ->
-      lock_catalogues_of!(Item, uuids)
+      Trash.lock_catalogues_of!(Item, uuids)
       do_bulk_restore_items(uuids)
     end
 
-    case locked_transaction(restore) do
+    case Trash.locked_transaction(restore) do
       {:ok, {count, count_detached, restored_uuids, catalogue_uuids, detached}} ->
         detached
         |> Enum.map(&{&1, %{&1 | category_uuid: nil}})
         |> MediaFolders.follow(opts[:actor_uuid])
 
         if count > 0 do
-          log_activity(
+          Shared.log_activity(
             %{
               action: "item.bulk_restored",
               mode: "manual",
@@ -6512,7 +5781,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:error, reason} ->
         Logger.warning("bulk_restore_items rolled back: #{inspect(reason)}")
 
-        log_activity(
+        Shared.log_activity(
           %{
             action: "item.bulk_restored",
             mode: "manual",
@@ -6550,13 +5819,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
     # right even if a future caller forgets it.
     {count_attached, _} =
       from(i in Item, as: :item, where: i.uuid in ^attached_uuids and i.status == "deleted")
-      |> outside_trashed_categories()
-      |> restore_trashed(:item, now)
+      |> Trash.outside_trashed_categories()
+      |> Trash.restore_trashed(:item, now)
       |> repo().update_all([])
 
     {count_detached, _} =
       from(i in Item, where: i.uuid in ^detached_uuids and i.status == "deleted")
-      |> restore_trashed(:item, now)
+      |> Trash.restore_trashed(:item, now)
       |> update(set: [category_uuid: nil])
       |> repo().update_all([])
 
@@ -6586,8 +5855,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
       ])
 
     {count, catalogue_uuids} =
-      locked_transaction(fn ->
-        catalogue_uuids = lock_catalogues_of!(Item, uuids)
+      Trash.locked_transaction(fn ->
+        catalogue_uuids = Trash.lock_catalogues_of!(Item, uuids)
 
         {count, _} =
           from(i in Item, where: i.uuid in ^uuids)
@@ -6601,7 +5870,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     if count > 0 do
       MediaFolders.release(release)
 
-      log_activity(
+      Shared.log_activity(
         %{
           action: "item.bulk_permanently_deleted",
           mode: "manual",
@@ -6662,7 +5931,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       from(c in Category, where: c.uuid == ^target_uuid, select: {c.catalogue_uuid, c.status})
 
-    case valid_uuid?(target_uuid) && repo().one(query) do
+    case Shared.valid_uuid?(target_uuid) && repo().one(query) do
       {^scope, status} when status != "deleted" -> :ok
       {_other, status} when status != "deleted" -> {:error, :wrong_catalogue_scope}
       _ -> {:error, :category_not_found}
@@ -6711,14 +5980,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp cast_uuids(uuids) do
-    if Enum.all?(uuids, &valid_uuid?/1),
+    if Enum.all?(uuids, &Shared.valid_uuid?/1),
       do: {:ok, Enum.uniq(uuids)},
       else: {:error, :invalid_uuid}
   end
 
   defp valid_destination({kind, uuid}) when kind in [:category, :catalogue] do
     cond do
-      valid_uuid?(uuid) -> :ok
+      Shared.valid_uuid?(uuid) -> :ok
       kind == :category -> {:error, :category_not_found}
       true -> {:error, :catalogue_not_found}
     end
@@ -6728,15 +5997,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp run_bulk_move_items(uuids, destination, scope, opts) do
     result =
-      locked_transaction(fn ->
+      Trash.locked_transaction(fn ->
         target_catalogue = destination_catalogue(destination)
-        lock_catalogues!([scope, target_catalogue])
+        Trash.lock_catalogues!([scope, target_catalogue])
 
         if ensure_items_in_catalogue(uuids, scope) != :ok,
           do: repo().rollback(:wrong_catalogue_scope)
 
         target_category = lock_destination_category(destination, target_catalogue)
-        check_move_destination!(scope, target_catalogue)
+        Shared.check_move_destination!(scope, target_catalogue)
         moving = MediaFolders.moving_items(uuids)
 
         {count, _} =
@@ -6768,7 +6037,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp log_bulk_item_move(uuids, count, scope, target_catalogue, target_category, opts) do
-    log_activity(
+    Shared.log_activity(
       %{
         action: "item.bulk_moved",
         mode: "manual",
@@ -6783,8 +6052,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
             # put on the left of an arrow. Claiming one would be a lie the
             # reader cannot check.
             "moved_to" => %{
-              "catalogue" => catalogue_ref(target_catalogue),
-              "category" => category_ref(target_category)
+              "catalogue" => Shared.catalogue_ref(target_catalogue),
+              "category" => Shared.category_ref(target_category)
             }
           }
           |> Map.merge(ActivityLog.sample_uuids(uuids, count))
@@ -6863,7 +6132,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp run_bulk_category_move(uuids, target, parent_uuid, scope, opts) do
     muted = opts |> Keyword.put(:broadcast, false) |> Keyword.put(:parent_uuid, parent_uuid)
-    {valid, invalid} = Enum.split_with(uuids, &valid_uuid?/1)
+    {valid, invalid} = Enum.split_with(uuids, &Shared.valid_uuid?/1)
     rows = from(c in Category, where: c.uuid in ^valid) |> repo().all() |> Map.new(&{&1.uuid, &1})
 
     # The scope is checked for every entry before anything moves, so an
@@ -7005,8 +6274,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
     # transaction has committed.
     step_opts = Keyword.put(opts, :broadcast, false)
 
-    locked_transaction(fn ->
-      lock_catalogues_of!(Category, uuids)
+    Trash.locked_transaction(fn ->
+      Trash.lock_catalogues_of!(Category, uuids)
 
       uuids
       |> ancestors_first()
@@ -7133,7 +6402,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def move_item_to_category(%Item{} = item, category_uuid, opts)
       when is_nil(category_uuid) or is_binary(category_uuid) do
-    if is_nil(category_uuid) or valid_uuid?(category_uuid),
+    if is_nil(category_uuid) or Shared.valid_uuid?(category_uuid),
       do: do_move_item_to_category(item, category_uuid, opts),
       else: {:error, :category_not_found}
   end
@@ -7157,7 +6426,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end)
 
     with {:ok, {moved, before}} <- result do
-      log_activity(
+      Shared.log_activity(
         %{
           action: "item.moved",
           mode: "manual",
@@ -7169,9 +6438,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
             "name" => moved.name,
             "changes" =>
               ActivityLog.changes([
-                {:category, category_ref(before.category_uuid), category_ref(category_uuid)},
-                {:catalogue, catalogue_ref(before.catalogue_uuid),
-                 catalogue_ref(moved.catalogue_uuid)}
+                {:category, Shared.category_ref(before.category_uuid),
+                 Shared.category_ref(category_uuid)},
+                {:catalogue, Shared.catalogue_ref(before.catalogue_uuid),
+                 Shared.catalogue_ref(moved.catalogue_uuid)}
               ])
           }
         },
@@ -7192,7 +6462,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         repo().rollback(:not_found)
 
     if from_catalogue_uuid == catalogue_uuid, do: repo().rollback(:same_catalogue)
-    lock_catalogues!([from_catalogue_uuid, catalogue_uuid])
+    Trash.lock_catalogues!([from_catalogue_uuid, catalogue_uuid])
 
     current =
       case lock_live_item(item) do
@@ -7201,7 +6471,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {:error, reason} -> repo().rollback(reason)
       end
 
-    check_move_destination!(from_catalogue_uuid, catalogue_uuid)
+    Shared.check_move_destination!(from_catalogue_uuid, catalogue_uuid)
 
     case current
          |> Item.changeset(%{catalogue_uuid: catalogue_uuid, category_uuid: nil})
@@ -7282,16 +6552,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
       when is_binary(catalogue_uuid) do
     # Whether the item is already there is decided from the row under the
     # lock, not from the caller's struct, which may be stale.
-    if valid_uuid?(catalogue_uuid),
+    if Shared.valid_uuid?(catalogue_uuid),
       do: do_move_item_to_catalogue(item, catalogue_uuid, opts),
       else: {:error, :catalogue_not_found}
   end
 
   defp do_move_item_to_catalogue(item, catalogue_uuid, opts) do
-    result = locked_transaction(fn -> locked_move_item_to_catalogue(item, catalogue_uuid) end)
+    result =
+      Trash.locked_transaction(fn -> locked_move_item_to_catalogue(item, catalogue_uuid) end)
 
     with {:ok, {moved, before}} <- result do
-      log_activity(
+      Shared.log_activity(
         %{
           action: "item.moved",
           mode: "manual",
@@ -7303,8 +6574,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
             "name" => moved.name,
             "changes" =>
               ActivityLog.changes([
-                {:catalogue, catalogue_ref(before.catalogue_uuid), catalogue_ref(catalogue_uuid)},
-                {:category, category_ref(before.category_uuid), category_ref(nil)}
+                {:catalogue, Shared.catalogue_ref(before.catalogue_uuid),
+                 Shared.catalogue_ref(catalogue_uuid)},
+                {:category, Shared.category_ref(before.category_uuid), Shared.category_ref(nil)}
               ])
           }
         },
@@ -7497,15 +6769,25 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate list_catalogue_rules(item_or_uuid), to: Rules
+
   defdelegate catalogue_rule_map(item_or_uuid), to: Rules
+
   defdelegate get_catalogue_rule(item_uuid, referenced_catalogue_uuid), to: Rules
+
   defdelegate put_catalogue_rules(item, rules, opts \\ []), to: Rules
+
   defdelegate reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts \\ []), to: Rules
+
   defdelegate list_items_referencing_catalogue(catalogue_uuid), to: Rules
+
   defdelegate catalogue_reference_count(catalogue_uuid), to: Rules
+
   defdelegate change_catalogue_rule(rule, attrs \\ %{}), to: Rules
+
   defdelegate create_catalogue_rule(attrs, opts \\ []), to: Rules
+
   defdelegate update_catalogue_rule(rule, attrs, opts \\ []), to: Rules
+
   defdelegate delete_catalogue_rule(rule, opts \\ []), to: Rules
 
   # ═══════════════════════════════════════════════════════════════════
@@ -7519,13 +6801,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate search_items(query, opts \\ []), to: Search
+
   defdelegate count_search_items(query, opts \\ []), to: Search
+
   defdelegate search_items_in_catalogue(catalogue_uuid, query, opts \\ []), to: Search
 
   defdelegate search_categories(catalogue_uuid, query, opts \\ []), to: Search
+
   defdelegate match_search_text(query, term), to: Search, as: :match_text
+
   defdelegate count_search_items_in_catalogue(catalogue_uuid, query), to: Search
+
   defdelegate search_items_in_category(category_uuid, query, opts \\ []), to: Search
+
   defdelegate count_search_items_in_category(category_uuid, query), to: Search
 
   # ═══════════════════════════════════════════════════════════════════
@@ -7533,14 +6821,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate item_count_for_catalogue(catalogue_uuid), to: Counts
+
   defdelegate item_counts_by_catalogue(opts \\ []), to: Counts
+
   defdelegate trashed_item_counts_by_root(catalogue_uuid), to: Counts
+
   defdelegate attached_file_counts(resources), to: Counts
+
   defdelegate active_item_count_in_subtree(category_uuid), to: Counts
+
   defdelegate category_count_for_catalogue(catalogue_uuid), to: Counts
+
   defdelegate category_counts_by_catalogue(), to: Counts
+
   defdelegate deleted_item_count_for_catalogue(catalogue_uuid), to: Counts
+
   defdelegate deleted_category_count_for_catalogue(catalogue_uuid), to: Counts
+
   defdelegate deleted_count_for_catalogue(catalogue_uuid), to: Counts
 
   # ═══════════════════════════════════════════════════════════════════
@@ -7548,11 +6845,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate get_translation(record, lang_code), to: Translations
+
   defdelegate translated_name(record, locale), to: Translations
+
   defdelegate translated_description(record, locale), to: Translations
+
   defdelegate translated_seo_title(record, locale), to: Translations
+
   defdelegate translated_seo_description(record, locale), to: Translations
+
   defdelegate localize(records, locale), to: Translations
+
   defdelegate localize_one(record, locale), to: Translations
 
   defdelegate set_translation(record, lang_code, field_data, update_fn, opts \\ []),
@@ -7563,23 +6866,36 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate list_pdfs(opts \\ []), to: PdfLibrary
+
   defdelegate count_pdfs(opts \\ []), to: PdfLibrary
+
   defdelegate get_pdf(uuid), to: PdfLibrary
+
   defdelegate get_pdf!(uuid), to: PdfLibrary
+
   defdelegate get_pdf_extraction(pdf), to: PdfLibrary, as: :get_extraction
 
   defdelegate create_pdf_from_upload(tmp_path, original_filename, opts \\ []),
     to: PdfLibrary
 
   defdelegate trash_pdf(pdf, opts \\ []), to: PdfLibrary
+
   defdelegate restore_pdf(pdf, opts \\ []), to: PdfLibrary
+
   defdelegate permanently_delete_pdf(pdf, opts \\ []), to: PdfLibrary
+
   defdelegate search_pdfs_for_item(item, opts \\ []), to: PdfLibrary
+
   defdelegate search_pdf_contents(query, opts \\ []), to: PdfLibrary
+
   defdelegate more_pdf_content_matches(query, pdf_uuid, opts \\ []), to: PdfLibrary
+
   defdelegate more_pdf_matches_for_item(item, pdf_uuid, opts \\ []), to: PdfLibrary
+
   defdelegate prune_orphan_pdf_page_contents(), to: PdfLibrary, as: :prune_orphan_page_contents
+
   defdelegate retry_extraction(pdf, opts \\ []), to: PdfLibrary
+
   defdelegate requeue_stuck_extractions(opts \\ []), to: PdfLibrary
 
   # ═══════════════════════════════════════════════════════════════════
@@ -7587,32 +6903,58 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate list_attribute_groups(opts \\ []), to: Attributes
+
   defdelegate change_attribute_group(group, attrs \\ %{}), to: Attributes
+
   defdelegate get_attribute_group(uuid), to: Attributes
+
   defdelegate get_attribute_group_full(uuid), to: Attributes
+
   defdelegate attribute_counts(group_uuids), to: Attributes
+
   defdelegate assignment_counts(group_uuids), to: Attributes
+
   defdelegate create_attribute_group(attrs, opts \\ []), to: Attributes
+
   defdelegate update_attribute_group(group, attrs, opts \\ []), to: Attributes
+
   defdelegate delete_attribute_group(group, opts \\ []), to: Attributes
+
   defdelegate get_attribute(uuid), to: Attributes
+
   defdelegate create_attribute(group, attrs, opts \\ []), to: Attributes
+
   defdelegate update_attribute(attribute, attrs, opts \\ []), to: Attributes
+
   defdelegate delete_attribute(attribute, opts \\ []), to: Attributes
+
   defdelegate reorder_attributes(group, uuids, opts \\ []), to: Attributes
+
   defdelegate get_attribute_value(uuid), to: Attributes
+
   defdelegate create_attribute_value(attribute, attrs, opts \\ []), to: Attributes
+
   defdelegate update_attribute_value(value, attrs, opts \\ []), to: Attributes
+
   defdelegate delete_attribute_value(value, opts \\ []), to: Attributes
+
   defdelegate set_default_value(value, opts \\ []), to: Attributes
+
   defdelegate reorder_attribute_values(attribute, uuids, opts \\ []), to: Attributes
+
   # ── Attribute SETS (2026-08-18 rework; see AttributeSets moduledoc) ─
   defdelegate create_attribute_set(attrs, opts \\ []), to: AttributeSets, as: :create_set
+
   defdelegate list_attribute_sets(opts \\ []), to: AttributeSets, as: :list_sets
+
   defdelegate get_attribute_set(uuid, opts \\ []), to: AttributeSets, as: :get_set
+
   defdelegate update_attribute_set(set, attrs, opts \\ []), to: AttributeSets, as: :update_set
+
   defdelegate delete_attribute_set(set, opts \\ []), to: AttributeSets, as: :delete_set
+
   defdelegate archive_attribute_set(set, opts \\ []), to: AttributeSets, as: :archive_set
+
   defdelegate restore_attribute_set(set, opts \\ []), to: AttributeSets, as: :restore_set
 
   defdelegate attribute_value_match_counts(opts \\ []),
@@ -7688,6 +7030,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ── Supplier comments (one thread per item × supplier) ──────────────
   # See PhoenixKitCatalogue.Catalogue.SupplierComments.
   defdelegate supplier_comment_resource_type(), to: SupplierComments, as: :resource_type
+
   defdelegate supplier_comment_thread_uuid(info), to: SupplierComments, as: :thread_uuid
 
   defdelegate supplier_comment_thread_for_pair(item_uuid, supplier_uuid),
@@ -7699,17 +7042,29 @@ defmodule PhoenixKitCatalogue.Catalogue do
     as: :resolve_resources
 
   defdelegate supplier_builtin_fields(), to: SupplierFields, as: :builtin_fields
+
   defdelegate supplier_builtin_field(key), to: SupplierFields, as: :builtin_field
+
   defdelegate cast_supplier_builtin(key, raw), to: SupplierFields, as: :cast_builtin
+
   defdelegate supplier_fields(opts \\ []), to: SupplierFields, as: :fields
+
   defdelegate supplier_field(key, opts \\ []), to: SupplierFields, as: :field
+
   defdelegate supplier_field_types(), to: SupplierFields, as: :field_types
+
   defdelegate supplier_fields_enabled?(), to: SupplierFields, as: :enabled?
+
   defdelegate add_supplier_field(attrs, opts \\ []), to: SupplierFields, as: :add_field
+
   defdelegate update_supplier_field(key, attrs, opts \\ []), to: SupplierFields, as: :update_field
+
   defdelegate remove_supplier_field(key, opts \\ []), to: SupplierFields, as: :remove_field
+
   defdelegate supplier_field_values(info), to: SupplierFields, as: :values
+
   defdelegate cast_supplier_field_values(raw, opts \\ []), to: SupplierFields, as: :cast_values
+
   defdelegate put_supplier_field_values(metadata, values), to: SupplierFields, as: :put_values
 
   defdelegate attach_attribute_set(item_uuid, set_uuid, opts \\ []),
@@ -7741,10 +7096,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
     as: :resolve_for_item
 
   defdelegate resolve_attribute_set(set_uuid, opts \\ []), to: AttributeSets, as: :resolve_set
+
   defdelegate attribute_sets_enabled?(), to: AttributeSets, as: :enabled?
+
   defdelegate attribute_set_contract(set), to: AttributeSets, as: :contract
+
   defdelegate attribute_set_kind(set), to: AttributeSets, as: :kind
+
   defdelegate attribute_set_default_value_slug(set), to: AttributeSets, as: :default_value_slug
+
   defdelegate attribute_set_attached?(set_uuid), to: AttributeSets, as: :set_attached?
 
   defdelegate valid_attribute_set_selection(slugs, resolved_set),
@@ -7772,8 +7132,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate auto_migrate_attribute_groups(), to: AttributeSets, as: :auto_migrate_legacy
 
   defdelegate set_item_attribute_group(item, group_uuid, opts \\ []), to: Attributes
+
   defdelegate get_item_attribute_group_uuid(item_uuid), to: Attributes
+
   defdelegate item_attribute_group_map(item_uuids), to: Attributes
+
   defdelegate attribute_group_names(group_uuids), to: Attributes
+
   defdelegate resolved_group(group_uuid, lang), to: Attributes
 end
