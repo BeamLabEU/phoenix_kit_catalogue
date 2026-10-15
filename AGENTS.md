@@ -128,12 +128,19 @@ Repo-local aliases:
   In `admin_tabs/0`, declare static paths **before** wildcard `:uuid` paths, and
   use `match:` to control sidebar highlighting.
 - **Single public context** — all business logic goes through
-  `PhoenixKitCatalogue.Catalogue`. Internal submodules (`Catalogue.{Rules,
-  SmartPricing, Search, Tree, Slugs, Manufacturers, Suppliers, Links,
-  ItemSupplierInfos, Counts, Translations, Duplication, AttributeSets,
-  SupplierFields, SupplierComments, CrmLink, PdfLibrary, PdfEngines, PubSub,
-  ActivityLog, Helpers}`) are an implementation detail re-exported via
-  `defdelegate`; LiveViews and external consumers must not call them directly.
+  `PhoenixKitCatalogue.Catalogue`. `catalogue.ex` is the facade: its moduledoc
+  and `defdelegate`s, nothing else — implementation lives in `Catalogue.*`
+  (`Catalogues`, `Categories`, `Folders`, `Items`, `Rules`, `SmartPricing`,
+  `Search`, `Tree`, `Slugs`, `Manufacturers`, `Suppliers`, `Links`,
+  `ItemSupplierInfos`, `Counts`, `Translations`, `Duplication`,
+  `AttributeSets`, `SupplierFields`, `SupplierComments`, `CrmLink`,
+  `PdfLibrary`, `PdfEngines`, `PubSub`, `ActivityLog`, `Trash`, `Shared`,
+  `Helpers`). A new public function goes in its section module with its
+  `@doc` and `@spec`, plus a `defdelegate` in the facade. A section calls
+  another section's public function through the facade, and a private helper
+  a second section needs moves to `Catalogue.Shared` (`@doc false`) rather
+  than being copied. LiveViews and external consumers never call a submodule
+  directly.
 - **LiveViews `use Phoenix.LiveView` directly** — no `use PhoenixKitWeb,
   :live_view` in this standalone package. Four LVs layer
   `use PhoenixKitWeb.Live.UrlState` on top for URL-backed state; the export
@@ -178,7 +185,7 @@ Repo-local aliases:
 - **Soft-delete via `status`** for catalogues/categories/items (`"deleted"`);
   PDFs use `"active" | "trashed"`; manufacturers and suppliers are hard-delete
   only. A trash or restore path goes through the provenance helpers in
-  `Catalogue`: stamp only live rows with `stamp_trashed/4` /
+  `Catalogue.Trash`: stamp only live rows with `stamp_trashed/4` /
   `stamp_trashed_self/2`, restore with `restore_trashed/3` filtered by the
   stamp's root, and take `lock_catalogue!/1` before reading what it decides
   on. Skipping the stamp brings back resurrection of rows trashed on their
@@ -259,10 +266,15 @@ Repo-local aliases:
 ```
 lib/phoenix_kit_catalogue.ex          PhoenixKit.Module implementation (tabs, callbacks, children/0)
 lib/phoenix_kit_catalogue/
-  catalogue.ex                        the single public context (defdelegates)
-  catalogue/                          Rules, SmartPricing, Search, Tree, Slugs, AttributeSets,
+  catalogue.ex                        the single public context — moduledoc + defdelegates only
+  catalogue/                          its implementation, one module per section:
+    catalogues.ex  categories.ex      catalogue / category CRUD, moves, trash, positions
+    folders.ex  items.ex              folder tree; item CRUD, listing, bulk actions, pricing
+    trash.ex                          trash provenance stamps + the per-catalogue lock
+    shared.ex                         helpers several sections call (activity log, level positions, slugs)
+    …                                 Rules, SmartPricing, Search, Tree, Slugs, AttributeSets,
                                       SupplierFields, SupplierComments, CrmLink, PdfLibrary,
-                                      PdfEngines, PubSub, ActivityLog, Duplication, …
+                                      PdfEngines, PubSub, ActivityLog, Duplication, Helpers, …
   schemas/                            18 Ecto schemas, one per phoenix_kit_cat_* table
   migrations.ex                       module-owned versioned chain
   paths.ex  errors.ex  metadata.ex  attachments.ex
@@ -322,8 +334,8 @@ Key invariants to preserve:
   (`Catalogue.SmartPricing`) is the canonical evaluator consumers call rather
   than reimplementing the math.
 - Tree/position semantics (orphan promotion, cycle guards, sibling-scoped swap)
-  live in `Catalogue` and `Catalogue.Tree` — reuse them, never hand-write
-  recursive queries in LiveViews.
+  live in `Catalogue.Categories`, `Catalogue.Folders` and `Catalogue.Tree` —
+  reuse them, never hand-write recursive queries in LiveViews.
 
 Settings keys (`PhoenixKit.Settings`). Every key a person can change is on
 Settings → Catalogues (`Web.SettingsLive`), read and written through
