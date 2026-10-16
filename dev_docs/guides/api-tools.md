@@ -13,7 +13,7 @@ The catalogue's part of the shop API: eight admin tools that core's API layer (k
 | `catalogue.set_translations` | `catalogue.products:write` | Per language: name, description, slug, SEO title and description |
 | `catalogue.delete_products` | `catalogue.products:delete` | To the trash, never hard delete; **always** needs confirmation |
 | `catalogue.list_categories` | `catalogue.categories:read` | The category tree |
-| `catalogue.upsert_categories` | `catalogue.categories:write` | Create or update by id or external_id, in order |
+| `catalogue.upsert_categories` | `catalogue.categories:write` | Create or update by id or external_id, in order; an id with `external_id: null` clears the link |
 
 All need the role permission `catalogue` as well; core checks both on every request.
 

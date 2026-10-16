@@ -215,7 +215,7 @@ defmodule PhoenixKitCatalogue.API.Schemas do
             "type" => "object",
             "properties" => %{
               "id" => @row_id,
-              "external_id" => row_text(200),
+              "external_id" => nullable_text(200),
               "name" => row_text(255),
               "parent" => %{
                 "type" => ["object", "null"],

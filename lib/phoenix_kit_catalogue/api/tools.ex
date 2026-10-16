@@ -84,7 +84,9 @@ defmodule PhoenixKitCatalogue.API.Tools do
           "external_id (so a retried request cannot create the item twice). A row whose sku or external_id " <>
           "already exists is skipped with already_exists and the existing id: nothing is ever overwritten. " <>
           "New items have no price and are not visible in the shop until ecommerce.set_prices and " <>
-          "ecommerce.set_availability are called. Rows are independent; each answers created, skipped or error.",
+          "ecommerce.set_availability are called. Rows are independent; each answers created, skipped or error. " <>
+          "A request over the confirmation threshold (50 rows by default) answers confirmation_required and " <>
+          "runs when repeated with the confirm_token.",
       input_schema: Schemas.create_products(),
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.CreateProducts, :call},
@@ -106,7 +108,8 @@ defmodule PhoenixKitCatalogue.API.Tools do
           "discontinued), unit and attributes. null clears description, sku, external_id and category_id. " <>
           "Fields not listed stay as they are, and so does everything the tool does not own (prices, shop " <>
           "data, translations). A rename does not change the item's URL slug. Rows are independent; each " <>
-          "answers updated, unchanged or error.",
+          "answers updated, unchanged or error. A request over the confirmation threshold (50 rows by " <>
+          "default) answers confirmation_required and runs when repeated with the confirm_token.",
       input_schema: Schemas.update_products(),
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.UpdateProducts, :call},
@@ -129,7 +132,9 @@ defmodule PhoenixKitCatalogue.API.Tools do
           "The item's primary language is changed with catalogue.update_products instead. null clears a field. " <>
           "A slug is cut to 60 characters at a word boundary; one that another item already uses is refused, " <>
           "and a missing slug is generated from the name (made unique with -2, -3). An existing slug is never " <>
-          "rewritten by a name. Rows are independent; each answers updated, unchanged or error.",
+          "rewritten by a name. Rows are independent; each answers updated, unchanged or error. A request over " <>
+          "the confirmation threshold (50 rows by default) answers confirmation_required and runs when " <>
+          "repeated with the confirm_token.",
       input_schema: Schemas.set_translations(),
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.SetTranslations, :call},
@@ -191,7 +196,10 @@ defmodule PhoenixKitCatalogue.API.Tools do
           "differ (parent is {id} or {external_id} of a category of the same catalogue, or null for the top " <>
           "level; leave it out to keep the parent). Not found with only an external_id: created, which needs a " <>
           "name, and later rows may name it as their parent. An id that does not exist is an error: an id " <>
-          "cannot be chosen. Rows are independent; each answers created, updated, unchanged or error.",
+          "cannot be chosen. An id together with an external_id sets or changes that category's external_id; " <>
+          "an id with external_id null clears it. Rows are independent; each answers created, updated, " <>
+          "unchanged or error. A request over the confirmation threshold (50 rows by default) answers " <>
+          "confirmation_required and runs when repeated with the confirm_token.",
       input_schema: Schemas.upsert_categories(),
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.UpsertCategories, :call},
