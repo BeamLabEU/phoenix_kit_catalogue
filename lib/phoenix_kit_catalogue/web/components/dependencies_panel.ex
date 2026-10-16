@@ -168,6 +168,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
               <.item_picker
                 id="dependency-item-picker"
                 include_internal
+                clear_on_select
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add an item: search by name or SKU…")}
                 excluded_uuids={List.wrap(@item_uuid)}
                 show_sku
