@@ -409,8 +409,10 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
   `phoenix_kit_cat_categories_external_id_uniq`) on `(catalogue_uuid,
   data -> 'api' ->> 'external_id')` for live rows that have an id. A trashed row
   frees its id; the changesets map the index to an error on `:data`; a restore
-  that would collide answers `{:error, :external_id_taken}` (`Catalogue`'s
-  `guard_external_id/1`), and a copy drops the id (`Duplication.copy_data/3`).
+  that would collide answers `{:error, :external_id_taken}`
+  (`Catalogue.Trash.guard_external_id/1`; inside a caller's own transaction the
+  Postgrex error is re-raised instead, the transaction being aborted by then),
+  and a copy drops the id (`Duplication.copy_data/3`).
 - UUIDv7 PKs and `use PhoenixKit.SchemaPrefix` on every table-backed schema.
 
 ## Testing

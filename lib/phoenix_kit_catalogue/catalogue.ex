@@ -414,6 +414,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate lookup_by_ids(kind, ids, opts \\ []), to: RefLookup, as: :by_ids
   defdelegate lookup_by_skus(kind, skus, opts \\ []), to: RefLookup, as: :by_skus
   defdelegate lookup_by_external_ids(kind, eids, opts \\ []), to: RefLookup, as: :by_external_ids
+  defdelegate external_id_conflict?(changeset), to: Trash
 
   # ═══════════════════════════════════════════════════════════════════
   # Smart-catalogue rules — see PhoenixKitCatalogue.Catalogue.Rules

@@ -45,7 +45,7 @@ All are options of the ordinary context functions and are useful without the API
 - `Catalogue.trash_item_outcome/2` tells whether this call trashed the item (`:trashed`) or found it in the trash already (`:already_trashed`); `delete_products` answers `unchanged` for the latter. A trash (`delete_products`) leaves an item's folder where it is, as in the admin; creating a record makes no folder.
 - `Catalogue.preview_item_update/3`: the diff `update_item/3` would log, without writing.
 - `Catalogue.list_items_keyset/1`, `count_items_matching/1`, `decode_items_cursor/1`: keyset paging for exports.
-- `{:error, :external_id_taken}` from `restore_item/2`, `restore_category/2`, `restore_catalogue/2` when a live row took the id of a trashed one; `bulk_restore_items/2` restores none of such a batch. Copies (`duplicate_*`) never carry `data["api"]["external_id"]`.
+- `{:error, :external_id_taken}` from `restore_item/2`, `restore_category/2`, `restore_catalogue/2` when a live row took the id of a trashed one; `bulk_restore_items/2` restores none of such a batch and answers `{:error, :external_id_taken}`; so do `move_item_to_catalogue/3` and the bulk moves. Copies (`duplicate_*`) never carry `data["api"]["external_id"]`.
 
 ## The log
 
