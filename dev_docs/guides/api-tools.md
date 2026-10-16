@@ -17,6 +17,8 @@ The catalogue's part of the shop API: eight admin tools that core's API layer (k
 
 All need the role permission `catalogue` as well; core checks both on every request.
 
+`update_products` can set `status` to `inactive` or `discontinued`, which e-commerce reads as archived (hidden from the shop), under the plain write scope and without a confirmation; moving an item to the trash needs the delete scope and a confirmation code.
+
 ## References, catalogues, batches
 
 - A **reference** is `{"id"}`, `{"sku"}` (items) or `{"external_id"}`; exactly one key. `sku` is not unique: several matches answer `ambiguous_ref` with the candidate ids. `external_id` lives at `data["api"]["external_id"]` and is unique per catalogue among live rows (the V5 indexes). Resolution is `PhoenixKitCatalogue.API.resolve_refs/2` (sibling modules use it too). Nothing else belongs under `data["api"]`: `Duplication` reads any short key there as a language bucket.

@@ -326,7 +326,8 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
           follow_moves(opts[:actor_uuid])
         end
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.warning("#{@tool} batch could not be written: #{Common.reason_code(reason)}")
         {:error, :internal_error, "The batch could not be written.", %{}}
     end
   end

@@ -13,6 +13,7 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Catalogue.Shared
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Test.MediaFixtures
 
@@ -26,6 +27,27 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
 
   defp opts(extra \\ []),
     do: Keyword.merge([actor_uuid: @actor, mode: "auto", log_metadata: @meta], extra)
+
+  describe "Shared.log_activity/2 with :log_metadata" do
+    test "an entry without metadata of its own gets only the allowed extra keys" do
+      resource = Ecto.UUID.generate()
+
+      :ok =
+        Shared.log_activity(
+          %{
+            action: "item.updated",
+            mode: "manual",
+            resource_type: "item",
+            resource_uuid: resource
+          },
+          log_metadata: %{"via" => "api", "changes" => "forged", "name" => "forged", atom: 1},
+          broadcast: false
+        )
+
+      row = assert_activity_logged("item.updated", resource_uuid: resource)
+      assert row.metadata == %{"via" => "api"}
+    end
+  end
 
   describe "ActivityLog.with_changes/5" do
     test "reports a data path that moved, as data.<path>" do
