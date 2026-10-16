@@ -693,15 +693,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   def handle_event("dependency_change", _params, socket), do: {:noreply, socket}
 
-  def handle_event("dependency_remove", %{"key" => key}, socket) do
+  def handle_event("dependency_remove", %{"key" => key}, socket) when is_binary(key) do
     {:noreply, update(socket, :dependency_draft, &DependencyDraft.remove(&1, key))}
   end
 
   def handle_event("dependency_move", %{"key" => key, "direction" => direction}, socket)
-      when direction in ["up", "down"] do
+      when is_binary(key) and direction in ["up", "down"] do
     direction = String.to_existing_atom(direction)
     {:noreply, update(socket, :dependency_draft, &DependencyDraft.move(&1, key, direction))}
   end
+
+  # A malformed push (no key, an unknown direction) changes nothing.
+  def handle_event(event, _params, socket)
+      when event in ["dependency_remove", "dependency_move"],
+      do: {:noreply, socket}
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     tab = parse_tab(tab, socket.assigns.action)
@@ -1416,7 +1421,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # Checked before anything is written, like the supplier values: a row
   # that would not save blocks the whole save and opens its tab.
   defp validate_dependencies(socket) do
-    case DependencyDraft.validate(socket.assigns.dependency_draft) do
+    validated =
+      with {:ok, draft} <- DependencyDraft.validate(socket.assigns.dependency_draft) do
+        DependencyDraft.mark_gone(draft, &dependency_target_exists?/2)
+      end
+
+    case validated do
       {:ok, draft} ->
         {:ok, assign(socket, :dependency_draft, draft)}
 
@@ -1424,6 +1434,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         {:error, assign(socket, dependency_draft: draft, current_tab: :dependencies)}
     end
   end
+
+  # Checked before the item is written, so a target removed for good in
+  # another session (the tree or the search it came from may be minutes
+  # old) blocks the save with its row marked, instead of failing the
+  # dependency write after a new item already exists.
+  defp dependency_target_exists?(:catalogue, uuid), do: Catalogue.get_catalogue(uuid) != nil
+  defp dependency_target_exists?(:category, uuid), do: Catalogue.get_category(uuid) != nil
+  defp dependency_target_exists?(:item, uuid), do: Catalogue.get_item(uuid) != nil
 
   defp put_dependencies(socket, item) do
     Catalogue.put_item_dependencies(
@@ -2042,11 +2060,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp format_field_value(value), do: to_string(value)
 
-  # ── Location picker ──────────────────────────────────────────────
+  # ── Dependencies tab pickers ─────────────────────────────────────
 
-  # A row picked in the Location picker stages the move; picking the item's
-  # own place takes a staged move back. The picker only sends rows its tree
-  # offers, and the tree is checked again here.
+  # A place or item picked on the Dependencies tab is staged as a row; Save
+  # writes the list. The place is read again first — its tree may be old.
   @impl true
   def handle_info({TreePicker, "dependency-place-picker", id}, socket) do
     socket =
@@ -2104,6 +2121,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def handle_info({:item_picker_clear, "dependency-item-picker"}, socket),
     do: {:noreply, socket}
 
+  # ── Location picker ──────────────────────────────────────────────
+
+  # A row picked in the Location picker stages the move; picking the item's
+  # own place takes a staged move back. The picker only sends rows its tree
+  # offers, and the tree is checked again here.
   def handle_info({TreePicker, "location-tree-picker", target}, socket) do
     tree = socket.assigns.location_picker && socket.assigns.location_picker.tree
 
@@ -2408,9 +2430,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     else
       # Before the item clause: a dependency row's changeset is not the
       # item form's.
+      # The item's own fields saved before the dependency write failed: the
+      # form takes the saved item, so the next Save diffs against it.
       {:error, %Ecto.Changeset{data: %ItemDependency{}}} ->
         {:noreply,
          socket
+         |> refresh_after_edit(
+           Catalogue.get_item(socket.assigns.item.uuid) || socket.assigns.item
+         )
          |> assign(:current_tab, :dependencies)
          |> put_flash(:error, dependency_error_message())}
 

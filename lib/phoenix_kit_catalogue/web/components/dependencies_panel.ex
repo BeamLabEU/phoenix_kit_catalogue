@@ -19,8 +19,10 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
 
   use Phoenix.Component
 
+  import PhoenixKitWeb.Components.Core.DecimalInput, only: [decimal_input: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
-  import PhoenixKitCatalogue.Web.Components, only: [item_picker: 1]
+  import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
+  import PhoenixKitCatalogue.Web.Components, only: [internal_badge: 1, item_picker: 1]
 
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.ItemDependency
@@ -71,9 +73,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
                   {row.name || "—"}
                 </.link>
                 <span class="badge badge-ghost badge-xs shrink-0">{kind_label(row.kind)}</span>
-                <span :if={row.internal?} class="badge badge-ghost badge-xs shrink-0">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Internal")}
-                </span>
+                <.internal_badge catalogue={%{internal: row.internal?, uuid: row.uuid}} />
                 <span :if={row.trashed?} class="badge badge-warning badge-xs shrink-0">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "In trash")}
                 </span>
@@ -81,36 +81,32 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
               <span :if={row.place} class="text-xs text-base-content/50 truncate">{row.place}</span>
             </div>
 
-            <label class="flex flex-col gap-1 w-28">
-              <span class="text-xs text-base-content/60">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Quantity")}
-              </span>
-              <input
-                type="text"
-                inputmode="decimal"
-                name={"dependencies[#{row.key}][quantity]"}
-                value={row.quantity}
-                phx-debounce="300"
-                class={["input input-sm w-full", row.error == "quantity" && "input-error"]}
-              />
-            </label>
+            <.decimal_input
+              id={"dependency-#{row.key}-quantity"}
+              name={"dependencies[#{row.key}][quantity]"}
+              value={row.quantity}
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Quantity")}
+              errors={field_errors(row, "quantity")}
+              wrapper_class="w-32"
+              class="input-sm"
+              phx-debounce="300"
+            />
 
-            <label class="flex flex-col gap-1 flex-1 min-w-48">
-              <span class="text-xs text-base-content/60">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Note")}
-              </span>
-              <input
-                type="text"
-                name={"dependencies[#{row.key}][note]"}
-                value={row.note}
-                maxlength={ItemDependency.max_note_length()}
-                phx-debounce="300"
-                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., pick by wood type")}
-                class={["input input-sm w-full", row.error == "note" && "input-error"]}
-              />
-            </label>
+            <.input
+              type="text"
+              id={"dependency-#{row.key}-note"}
+              name={"dependencies[#{row.key}][note]"}
+              value={row.note}
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Note")}
+              errors={field_errors(row, "note")}
+              wrapper_class="flex-1 min-w-48"
+              class="input-sm"
+              maxlength={ItemDependency.max_note_length()}
+              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., pick by wood type")}
+              phx-debounce="300"
+            />
 
-            <div class="flex items-center gap-1 pt-6">
+            <div class="flex items-center gap-1 pt-9">
               <button
                 type="button"
                 phx-click="dependency_move"
@@ -144,7 +140,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
               </button>
             </div>
 
-            <p :if={row.error} class="basis-full text-xs text-error pl-8">
+            <p :if={row.error == "gone"} class="basis-full text-xs text-error pl-8">
               {row_error_message(row.error)}
             </p>
           </div>
@@ -208,6 +204,17 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
 
   defp target_path(%{kind: :item, uuid: uuid}), do: Paths.item_edit(uuid)
   defp target_path(_row), do: nil
+
+  # A field's own error shows under the field; "gone" is the row's.
+  defp field_errors(%{error: field} = row, field), do: [row_error_message(row.error)]
+  defp field_errors(_row, _field), do: []
+
+  defp row_error_message("gone"),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This no longer exists. Remove the line to save."
+      )
 
   defp row_error_message("note"),
     do:

@@ -3879,8 +3879,16 @@ msgstr "Certaines valeurs de dépendances ne sont pas valides."
 msgid "A dependency could not be saved. Check the Dependencies tab."
 msgstr "Une dépendance n'a pas pu être enregistrée. Vérifiez l'onglet Dépendances."
 
-msgid "%{count} other items list something this removes as a dependency. Those lines are removed with it."
-msgstr "%{count} autres articles listent quelque chose de supprimé ici comme dépendance. Ces lignes sont supprimées avec."
-
 msgid "Needs"
 msgstr "Nécessite"
+
+msgid "This no longer exists. Remove the line to save."
+msgstr "Cet élément n'existe plus. Supprimez la ligne pour enregistrer."
+
+msgid "%{count} other item lists something this removes as a dependency. That line is removed with it."
+msgid_plural "%{count} other items list something this removes as a dependency. Those lines are removed with it."
+msgstr[0] "%{count} autre article liste quelque chose de supprimé ici comme dépendance. Cette ligne est supprimée avec."
+msgstr[1] "%{count} autres articles listent quelque chose de supprimé ici comme dépendance. Ces lignes sont supprimées avec."
+
+msgid "%{quantity} × %{name}"
+msgstr "%{quantity} × %{name}"

@@ -3885,8 +3885,16 @@ msgstr ""
 msgid "A dependency could not be saved. Check the Dependencies tab."
 msgstr ""
 
-msgid "%{count} other items list something this removes as a dependency. Those lines are removed with it."
+msgid "Needs"
 msgstr ""
 
-msgid "Needs"
+msgid "This no longer exists. Remove the line to save."
+msgstr ""
+
+msgid "%{count} other item lists something this removes as a dependency. That line is removed with it."
+msgid_plural "%{count} other items list something this removes as a dependency. Those lines are removed with it."
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{quantity} × %{name}"
 msgstr ""

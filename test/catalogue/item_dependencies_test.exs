@@ -72,6 +72,29 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemDependenciesTest do
       assert Catalogue.list_item_dependencies(ctx.susan) |> length() == 3
     end
 
+    test "takes the target as raw target_*_uuid keys too, and trims a blank note to nil", ctx do
+      [row] =
+        put!(ctx.susan, [
+          %{"target_category_uuid" => ctx.wood_screws.uuid, "quantity" => "3", "note" => "   "}
+        ])
+
+      assert row.target_category_uuid == ctx.wood_screws.uuid
+      assert row.note == nil
+    end
+
+    test "the readers answer [] or 0 for an unsaved record or a string that is not a uuid",
+         ctx do
+      # Rows aimed at a catalogue would match a nil compiled to IS NULL.
+      put!(ctx.susan, [%{target: {:catalogue, ctx.screws.uuid}, quantity: 1}])
+
+      assert Catalogue.list_item_dependencies("not-a-uuid") == []
+      assert Catalogue.list_item_dependencies(%Item{uuid: nil}) == []
+      assert Catalogue.list_item_dependents({:catalogue, "not-a-uuid"}) == []
+      assert Catalogue.count_outside_dependents(%Item{uuid: nil}) == 0
+      assert Catalogue.count_outside_dependents(%Item{uuid: "nope"}) == 0
+      assert Catalogue.count_outside_dependents({:categories, ["nope"]}) == 0
+    end
+
     test "the same target twice is allowed — the note tells them apart", ctx do
       rows =
         put!(ctx.susan, [

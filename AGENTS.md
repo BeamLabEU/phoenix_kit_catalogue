@@ -135,8 +135,9 @@ Repo-local aliases:
   `ItemSupplierInfos`, `Counts`, `Translations`, `Duplication`,
   `AttributeSets`, `SupplierFields`, `SupplierComments`, `CrmLink`,
   `Dependencies`, `AiNotes`, `PdfLibrary`, `PdfEngines`, `PubSub`,
-  `ActivityLog`, `Trash`, `Shared`, `Helpers`). A new public function goes in its section module with its
-  `@doc` and `@spec`, plus a `defdelegate` in the facade. A section calls
+  `ActivityLog`, `Trash`, `Shared`, `Helpers`). A new public function goes
+  in its section module with its `@doc` and `@spec`, plus a `defdelegate` in
+  the facade. A section calls
   another section's public function through the facade, and a private helper
   a second section needs moves to `Catalogue.Shared` (`@doc false`) rather
   than being copied. LiveViews and external consumers never call a submodule

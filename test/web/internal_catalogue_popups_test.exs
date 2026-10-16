@@ -55,6 +55,15 @@ defmodule PhoenixKitCatalogue.Web.InternalCataloguePopupsTest do
       assert html =~ "There is nothing to choose from here."
     end
 
+    test "a category scope inside an internal catalogue gets no header naming it", ctx do
+      box = fixture_category(ctx.nails, %{name: "Nail box", description: "Boxed nails"})
+      {:ok, _view, html} = open(conn_of(ctx), "cat_scope=#{box.uuid}")
+      refute html =~ "Boxed nails"
+
+      {:ok, _view, html} = open(conn_of(ctx), "cat_scope=#{box.uuid}&ii=true")
+      assert html =~ "Boxed nails"
+    end
+
     test "include_internal shows it again", ctx do
       {:ok, _view, html} = open(conn_of(ctx), "c=#{ctx.nails.uuid}&ii=true")
 
@@ -68,6 +77,39 @@ defmodule PhoenixKitCatalogue.Web.InternalCataloguePopupsTest do
 
       view |> picker() |> render_click("confirm", %{})
       assert has_element?(view, "#pick-#{ctx.nail.uuid}", "qty=3")
+    end
+
+    test "a preselected internal item's details stay closed (review finding)", ctx do
+      {:ok, view, _html} =
+        open(conn_of(ctx), "c=#{ctx.showroom.uuid}&c2=#{ctx.nails.uuid}&pre=#{ctx.nail.uuid}:1")
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => ctx.nail.uuid})
+      refute has_element?(view, "#picker-detail-card")
+
+      {:ok, view, _html} =
+        open(
+          conn_of(ctx),
+          "c=#{ctx.showroom.uuid}&c2=#{ctx.nails.uuid}&pre=#{ctx.nail.uuid}:1&ii=true"
+        )
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => ctx.nail.uuid})
+      assert has_element?(view, "#picker-detail-card")
+    end
+
+    test "an open details page and the header close when their catalogue becomes internal",
+         ctx do
+      {:ok, view, html} = open(conn_of(ctx), "c=#{ctx.showroom.uuid}")
+      assert html =~ "Showroom"
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => ctx.chair.uuid})
+      assert has_element?(view, "#picker-detail-card")
+
+      {:ok, _} = Catalogue.update_catalogue(ctx.showroom, %{internal: true})
+
+      eventually(fn ->
+        html = render(view)
+        not has_element?(view, "#picker-detail-card") and not (html =~ "Showroom")
+      end)
     end
 
     test "becoming internal while open takes the catalogue out on the next refresh", ctx do
@@ -119,6 +161,16 @@ defmodule PhoenixKitCatalogue.Web.InternalCataloguePopupsTest do
   end
 
   describe "CatalogueBrowse" do
+    test "a single internal catalogue gets no category chips either", ctx do
+      fixture_category(ctx.nails, %{name: "Roofing nails"})
+
+      {:ok, _view, html} = open(conn_of(ctx), "browse=true&c=#{ctx.nails.uuid}")
+      refute html =~ "Roofing nails"
+
+      {:ok, _view, html} = open(conn_of(ctx), "browse=true&c=#{ctx.nails.uuid}&ii=true")
+      assert html =~ "Roofing nails"
+    end
+
     test "leaves the internal catalogue's items out unless asked", ctx do
       {:ok, _view, html} =
         open(conn_of(ctx), "browse=true&c=#{ctx.showroom.uuid}&c2=#{ctx.nails.uuid}")

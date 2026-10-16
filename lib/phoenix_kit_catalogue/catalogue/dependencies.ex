@@ -42,6 +42,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
   """
   @spec list_item_dependencies(Item.t() | Ecto.UUID.t()) :: [ItemDependency.t()]
   def list_item_dependencies(%Item{uuid: uuid}), do: list_item_dependencies(uuid)
+  def list_item_dependencies(nil), do: []
 
   def list_item_dependencies(item_uuid) when is_binary(item_uuid) do
     if Helpers.uuid?(item_uuid) do
@@ -215,7 +216,22 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
   """
   @spec count_outside_dependents(Catalogue.t() | Item.t() | {:categories, [Ecto.UUID.t()]}) ::
           non_neg_integer()
-  def count_outside_dependents(%Item{uuid: uuid}) do
+  # A uuid that is nil (an unsaved record) or not a uuid counts nothing —
+  # a nil would otherwise compile to `IS NULL` and count unrelated rows.
+  def count_outside_dependents(%{uuid: uuid} = record)
+      when is_struct(record, Item) or is_struct(record, Catalogue) do
+    if Helpers.uuid?(uuid), do: count_valid(record), else: 0
+  end
+
+  def count_outside_dependents({:categories, category_uuids}) when is_list(category_uuids) do
+    count_categories(Enum.filter(category_uuids, &valid_category_uuid?/1))
+  end
+
+  # Raw 16-byte uuids (what the tree helpers return) are valid too.
+  defp valid_category_uuid?(uuid) when is_binary(uuid) and byte_size(uuid) == 16, do: true
+  defp valid_category_uuid?(uuid), do: Helpers.uuid?(uuid)
+
+  defp count_valid(%Item{uuid: uuid}) do
     from(d in ItemDependency,
       where: d.target_item_uuid == ^uuid and d.item_uuid != ^uuid,
       select: count(d.item_uuid, :distinct)
@@ -223,7 +239,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
     |> repo().one()
   end
 
-  def count_outside_dependents(%Catalogue{uuid: uuid}) do
+  defp count_valid(%Catalogue{uuid: uuid}) do
     removed_items = from(i in Item, where: i.catalogue_uuid == ^uuid, select: i.uuid)
     removed_categories = from(c in Category, where: c.catalogue_uuid == ^uuid, select: c.uuid)
 
@@ -241,7 +257,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
   # A category's permanent delete does not always take its whole subtree
   # (a trashed root stops at live children), so the caller names the
   # categories it removes — `Categories.permanent_delete_scope/1` does.
-  def count_outside_dependents({:categories, category_uuids}) when is_list(category_uuids) do
+  defp count_categories(category_uuids) do
     removed_items = from(i in Item, where: i.category_uuid in ^category_uuids, select: i.uuid)
 
     count_outside(

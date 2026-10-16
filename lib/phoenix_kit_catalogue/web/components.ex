@@ -2722,10 +2722,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def dependents_delete_messages(count) when is_integer(count) and count > 0 do
     [
       {:warning,
-       Gettext.gettext(
+       Gettext.ngettext(
          PhoenixKitCatalogue.Gettext,
+         "%{count} other item lists something this removes as a dependency. That line is removed with it.",
          "%{count} other items list something this removes as a dependency. Those lines are removed with it.",
-         count: count
+         count
        )}
     ]
   end
