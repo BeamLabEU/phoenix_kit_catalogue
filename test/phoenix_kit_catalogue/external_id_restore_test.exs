@@ -95,6 +95,50 @@ defmodule PhoenixKitCatalogue.ExternalIdRestoreTest do
     assert Catalogue.get_catalogue(catalogue.uuid).status == "deleted"
   end
 
+  test "bulk_restore_items/2 writes no audit entry for a refused batch", %{catalogue: catalogue} do
+    {:ok, old} = Catalogue.create_item(attrs(catalogue, "X-7"))
+    {:ok, _} = Catalogue.trash_item(old)
+    {:ok, _live} = Catalogue.create_item(attrs(catalogue, "X-7"))
+
+    assert {:error, :external_id_taken} = Catalogue.bulk_restore_items([old.uuid], [])
+    refute_activity_logged("item.bulk_restored")
+  end
+
+  test "inside a caller's own transaction a bulk restore collision raises", %{
+    catalogue: catalogue
+  } do
+    {:ok, old} = Catalogue.create_item(attrs(catalogue, "X-8"))
+    {:ok, _} = Catalogue.trash_item(old)
+    {:ok, _live} = Catalogue.create_item(attrs(catalogue, "X-8"))
+
+    assert_raise Postgrex.Error, fn ->
+      Repo.transaction(fn -> Catalogue.bulk_restore_items([old.uuid], []) end)
+    end
+
+    assert Catalogue.get_item(old.uuid).status == "deleted"
+  end
+
+  test "inside a caller's own transaction a catalogue restore collision raises", %{
+    catalogue: catalogue
+  } do
+    {:ok, old} = Catalogue.create_item(attrs(catalogue, "X-9"))
+
+    {1, _} =
+      Repo.update_all(
+        from(i in PhoenixKitCatalogue.Schemas.Item, where: i.uuid == ^old.uuid),
+        set: [status: "deleted"]
+      )
+
+    {:ok, _live} = Catalogue.create_item(attrs(catalogue, "X-9"))
+    {:ok, trashed} = Catalogue.trash_catalogue(catalogue)
+
+    assert_raise Postgrex.Error, fn ->
+      Repo.transaction(fn -> Catalogue.restore_catalogue(trashed) end)
+    end
+
+    assert Catalogue.get_catalogue(catalogue.uuid).status == "deleted"
+  end
+
   test "bulk_restore_items/2 restores none of a conflicting batch", %{catalogue: catalogue} do
     {:ok, old} = Catalogue.create_item(attrs(catalogue, "X-4"))
     {:ok, other} = Catalogue.create_item(attrs(catalogue, "X-5"))

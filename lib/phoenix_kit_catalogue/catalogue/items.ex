@@ -1698,7 +1698,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   applied under a savepoint, so a row whose UPDATE fails (a constraint, a
   value the database refuses) leaves the others written. Any other database
   error (the reads around the UPDATE, which touch rows the batch already
-  holds) aborts the whole batch as `{:error, term}` and nothing is written.
+  holds) is raised, and nothing is written; `{:error, term}` is left for the
+  `rollback/1` paths.
 
   Rows are locked in a fixed order (the categories involved `FOR SHARE`, then
   the item rows `FOR UPDATE`, each sorted by uuid), and every row goes through
@@ -2054,6 +2055,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
   An item that is not deleted is returned unchanged.
 
+  Refuses with `{:error, :external_id_taken}` when a live item has taken the
+  `external_id` of this one; nothing is restored.
+
+  Inside a caller's own transaction the collision is raised as the
+  `Postgrex.Error` instead, because the database has already aborted that
+  transaction.
+
   Options: `:actor_uuid`, `:mode`, `:broadcast` (`false` sends no PubSub
   event) and `:log_metadata` (extra keys for the activity entry).
 
@@ -2308,7 +2316,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   COMMITTED, and it used to leave live items in a trashed category.
 
   When a live item already holds the `external_id` of one of the trashed ones
-  the whole batch is rolled back and the answer is `{:error, :external_id_taken}`.
+  the whole batch is rolled back and the answer is `{:error, :external_id_taken}`
+  (no audit entry is written for it). Inside a caller's own transaction the
+  collision is raised as the `Postgrex.Error` instead, because the database
+  has already aborted that transaction.
   """
   @spec bulk_restore_items([Ecto.UUID.t()], keyword()) ::
           {non_neg_integer(), nil} | {:error, :external_id_taken}
@@ -2349,6 +2360,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
         {count, nil}
 
+      # A refused restore changed nothing the operator asked for, so it
+      # leaves no audit row (each retry of the click would add one).
+      {:error, :external_id_taken} = refused ->
+        Logger.warning("bulk_restore_items rolled back: :external_id_taken")
+        refused
+
       # A rollback inside the batch is a result, not a MatchError — and
       # its audit row says "restore", not "reorder".
       {:error, reason} ->
@@ -2365,7 +2382,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
           broadcast: false
         )
 
-        if reason == :external_id_taken, do: {:error, :external_id_taken}, else: {0, nil}
+        {0, nil}
     end
   end
 
@@ -2906,7 +2923,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   there, `{:error, :kind_mismatch}` for a catalogue of the other kind,
   `{:error, :not_found}` for a trashed item, `{:error, :external_id_taken}`
   when the target already holds a live item with the same `external_id`, or
-  `{:error, changeset}` on validation failure. Both catalogues' locks are held, so a concurrent
+  `{:error, changeset}` on validation failure. Inside a caller's own
+  transaction that collision is raised as the `Postgrex.Error` instead,
+  because the database has already aborted that transaction. Both
+  catalogues' locks are held, so a concurrent
   trash of either cannot interleave. Logs an `item.moved` activity with
   from/to catalogue metadata and tells both catalogues.
 
