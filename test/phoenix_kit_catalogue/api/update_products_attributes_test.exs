@@ -10,7 +10,7 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsAttributesTest do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
   alias PhoenixKitCatalogue.Catalogue.PubSub
-  alias PhoenixKitCatalogue.Test.{ApiCase, QueryHook}
+  alias PhoenixKitCatalogue.Test.{ApiCase, MediaFixtures, QueryHook}
 
   @tool "catalogue.update_products"
 
@@ -19,6 +19,9 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsAttributesTest do
       AttributeSets.register_deletion_guard()
       PhoenixKit.Settings.update_setting("entities_enabled", "true")
       on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
+
+      # entities fills a new set's creator from an existing user
+      MediaFixtures.insert_user!()
 
       {:ok, set} = Catalogue.create_attribute_set(%{name: "Update colors"})
       {:ok, red} = Catalogue.create_attribute_set_value(set, %{label: "Red"})
