@@ -130,8 +130,17 @@ defmodule PhoenixKitCatalogue.Migrations do
   the trashed one afterwards fails on the index (the context turns that into
   `{:error, :external_id_taken}`). Like V2's GIN index, an extra index on a
   core-known table is outside what core's `ExpectedSchema` resolver looks
-  at, so no core release is needed. No existing install holds a
-  `data["api"]` key, so building the unique index cannot fail on old data.
+  at, so no core release is needed. No existing install of this module holds a
+  `data["api"]` key, so building the unique index cannot fail on its own data.
+  A host that stored its own duplicates under `data["api"]["external_id"]`
+  would fail the whole `mix phoenix_kit.update` at this step, naming the index.
+
+  Both indexes are built with a plain `CREATE UNIQUE INDEX` inside the
+  migration's transaction (`CONCURRENTLY` cannot run there), which holds a
+  SHARE lock on the table, so writes to `phoenix_kit_cat_items` and
+  `phoenix_kit_cat_categories` wait for the build. That is milliseconds at a
+  few thousand rows; on a catalogue of hundreds of thousands, run the update
+  in a quiet window.
 
   ## What `down/1` is NOT
 
