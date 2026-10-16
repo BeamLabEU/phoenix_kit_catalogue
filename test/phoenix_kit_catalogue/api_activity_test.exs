@@ -14,6 +14,7 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Test.MediaFixtures
 
   @actor "00000000-0000-7000-8000-000000000001"
   @meta %{
@@ -277,6 +278,9 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
       end
 
       test "attach_attribute_set/3 carries the log metadata and keeps the entry's own keys" do
+        # entities fills a new set's creator from an existing user
+        MediaFixtures.insert_user!()
+
         {:ok, set} = Catalogue.create_attribute_set(%{name: "Meta colors"})
         item = fixture_item(%{name: "Attach me"})
 
