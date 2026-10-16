@@ -428,7 +428,7 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
            ref,
            updated,
            "The attributes were not saved",
-           attribute_sentence(reason),
+           Common.attribute_sentence(reason),
            reason,
            saved?
          ), true}
@@ -439,14 +439,10 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
     ref
     |> Common.row_error(:validation_failed, "#{lead}: #{sentence}.", %{
       "saved" => saved?,
-      "reason" => reason_code(reason)
+      "reason" => Common.reason_code(reason)
     })
     |> Map.put("id", updated.uuid)
   end
-
-  defp reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp reason_code(%Ecto.Changeset{}), do: "invalid"
-  defp reason_code(_reason), do: "unknown"
 
   defp move_sentence(:category_not_found), do: "the category no longer exists or is in the trash"
   defp move_sentence(:not_found), do: "the item no longer exists or is in the trash"
@@ -456,11 +452,6 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
     do: "the category was moved to another catalogue meanwhile and the item went with it"
 
   defp move_sentence(_other), do: "the move was refused"
-
-  defp attribute_sentence(:set_not_found), do: "an attribute set no longer exists"
-  defp attribute_sentence(:not_attached), do: "an attribute set is no longer attached to the item"
-  defp attribute_sentence(:entities_disabled), do: "attribute sets are not available"
-  defp attribute_sentence(_other), do: "the write was refused"
 
   # `{:ok, moved?}` or `{:error, reason, moved?}`; `moved?` is true when the item did
   # change category although the row failed (the category was re-homed meanwhile).

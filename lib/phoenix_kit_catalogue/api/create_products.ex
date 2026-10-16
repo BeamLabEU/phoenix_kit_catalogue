@@ -308,8 +308,8 @@ defmodule PhoenixKitCatalogue.API.CreateProducts do
         ref
         |> Common.row_error(
           :validation_failed,
-          "The item was created, but its attributes were not saved: #{inspect(reason)}.",
-          %{"created" => true}
+          "The item was created, but its attributes were not saved: #{Common.attribute_sentence(reason)}.",
+          %{"created" => true, "reason" => Common.reason_code(reason)}
         )
         |> Map.put("id", item.uuid)
     end
