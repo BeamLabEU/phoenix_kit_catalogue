@@ -2743,10 +2743,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
     ~H"""
     <span
       :if={Map.get(@catalogue, :internal) == true}
-      class="badge badge-ghost badge-xs shrink-0"
+      class="badge badge-outline badge-xs gap-1 shrink-0 text-base-content/70"
       title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Not shown in the item pickers and browse pop-ups")}
       data-internal-badge={@catalogue.uuid}
     >
+      <.icon name="hero-eye-slash" class="w-3 h-3" />
       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Internal")}
     </span>
     """
@@ -3918,6 +3919,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
     doc: "Also offer the items of `internal` catalogues (left out by default)."
   )
 
+  attr(:clear_on_select, :boolean,
+    default: false,
+    doc: "Empty the input after a pick — for a picker that adds to a list."
+  )
+
   attr(:selected_item, :any, default: nil)
   attr(:excluded_uuids, :list, default: [])
   # Optional, like the LiveComponent it wraps: omitted, the process gettext
@@ -3951,6 +3957,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       statuses={@statuses}
       item_types={@item_types}
       include_internal={@include_internal}
+      clear_on_select={@clear_on_select}
       selected_item={@selected_item}
       excluded_uuids={@excluded_uuids}
       locale={@locale}

@@ -4330,9 +4330,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             id="detail-level-caption"
             class="flex items-center gap-3 min-w-0"
           >
-            <%!-- Every level of an internal catalogue says so: it is the
-                 one place an admin sees why the pop-ups do not offer it. --%>
-            <.internal_badge :if={internal_catalogue?(@catalogue)} catalogue={@catalogue} />
             <div :if={length(@status_tabs) > 1} class="flex items-center gap-0.5 shrink-0">
               <.status_tab
                 :for={{status, label, count} <- @status_tabs}
@@ -4344,6 +4341,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 phx-value-mode={status}
               />
             </div>
+            <%!-- Every level of an internal catalogue says so: it is the
+                 one place an admin sees why the pop-ups do not offer it. --%>
+            <.internal_badge :if={internal_catalogue?(@catalogue)} catalogue={@catalogue} />
             <%!-- The place's own picture beside its description. Inside a
                  category there was no way to see the image attached to it
                  (boss via Max, 2026-09-21); the catalogue's top level shows

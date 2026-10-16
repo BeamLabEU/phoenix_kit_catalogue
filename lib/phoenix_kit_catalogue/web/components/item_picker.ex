@@ -57,6 +57,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     * `:item_types` — item types to include (`"goods"`, `"service"`),
       matched on the EFFECTIVE type; `nil` or `[]` = all. Forwards to
       `Catalogue.search_items/2`'s `:item_types` opt.
+    * `:clear_on_select` — `true` empties the input after a pick, for a
+      picker that ADDS items to a list rather than choosing one (the item
+      form's Dependencies tab). Default `false`: the input shows the pick.
     * `:include_internal` — `false` (default) leaves out the items of
       `internal` catalogues, even ones `:catalogue_uuids` names; pass
       `true` where the picker serves people who may see them (the item
@@ -212,6 +215,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        statuses: nil,
        item_types: nil,
        include_internal: false,
+       clear_on_select: false,
        placeholder: nil,
        empty_query_limit: @default_empty_query_limit,
        page_size: @default_page_size,
@@ -423,9 +427,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       %Item{} = item when not blocked? ->
         send(self(), {:item_picker_select, socket.assigns.id, item})
 
+        # An "add" picker (`clear_on_select`) empties itself for the next
+        # pick; a "choose" picker shows what was chosen.
+        query =
+          if socket.assigns.clear_on_select,
+            do: "",
+            else: item_display_name(item, socket.assigns.locale) || ""
+
         {:noreply,
          socket
-         |> assign(:query, item_display_name(item, socket.assigns.locale) || "")
+         |> assign(:query, query)
          |> assign(:open, false)}
 
       _ ->

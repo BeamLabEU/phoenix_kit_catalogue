@@ -146,6 +146,17 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       assert Catalogue.list_item_dependencies(ctx.susan) == []
     end
 
+    test "the item picker empties itself after a pick, ready for the next", %{conn: conn} = ctx do
+      view = open_tab(conn, ctx.susan)
+      picker = with_target(view, "#dependency-item-picker")
+
+      render_hook(picker, "query_change", %{"value" => "Screw"})
+      render_click(picker, "select", %{"uuid" => ctx.screw.uuid})
+
+      assert [_row] = row_keys(view)
+      assert has_element?(view, ~s(#dependency-item-picker-input[value=""]))
+    end
+
     test "the item itself cannot be added", %{conn: conn} = ctx do
       view = open_tab(conn, ctx.susan)
       html = pick_item(view, ctx.susan)
