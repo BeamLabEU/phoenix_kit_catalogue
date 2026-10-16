@@ -18,7 +18,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
-  @category_logged_fields [:name, :status, :description, :parent_uuid, :position]
+  @category_logged_fields [:name, :status, :description, :parent_uuid, :position, :slug]
 
   @category_slugs_table "phoenix_kit_cat_category_slugs"
 
