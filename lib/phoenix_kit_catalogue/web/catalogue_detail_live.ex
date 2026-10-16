@@ -1903,6 +1903,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
+  defp delete_scope("item", _socket, uuid) do
+    case Catalogue.get_item(uuid) do
+      %Item{} = item -> %{dependents: Catalogue.count_outside_dependents(item)}
+      _ -> nil
+    end
+  end
+
   defp delete_scope(_type, _socket, _uuid), do: nil
 
   # A Delete Forever that found its row restored in the meantime.
@@ -4319,10 +4326,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <% level_desc = level_description(@current_category, @catalogue) %>
           <% level_img = level_image(@current_category, @catalogue) %>
           <div
-            :if={length(@status_tabs) > 1 or level_desc || level_img}
+            :if={length(@status_tabs) > 1 or level_desc || level_img || internal_catalogue?(@catalogue)}
             id="detail-level-caption"
             class="flex items-center gap-3 min-w-0"
           >
+            <%!-- Every level of an internal catalogue says so: it is the
+                 one place an admin sees why the pop-ups do not offer it. --%>
+            <.internal_badge :if={internal_catalogue?(@catalogue)} catalogue={@catalogue} />
             <div :if={length(@status_tabs) > 1} class="flex items-center gap-0.5 shrink-0">
               <.status_tab
                 :for={{status, label, count} <- @status_tabs}
@@ -4650,7 +4660,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         on_cancel="cancel_delete"
         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete item")}
         title_icon="hero-trash"
-        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This item will be permanently deleted. This cannot be undone.")}]}
+        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This item will be permanently deleted. This cannot be undone.")} | dependents_delete_messages(@confirm_delete_scope[:dependents])]}
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         danger={true}
       />
@@ -4661,7 +4671,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         on_cancel="cancel_delete"
         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete category")}
         title_icon="hero-trash"
-        messages={[{:warning, category_delete_warning(@confirm_delete_scope)}]}
+        messages={[{:warning, category_delete_warning(@confirm_delete_scope)} | dependents_delete_messages(@confirm_delete_scope[:dependents])]}
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         danger={true}
       />
@@ -6920,6 +6930,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp level_image(nil, catalogue), do: if(featured_image_uuid(catalogue), do: catalogue)
   defp level_image(_uncategorized, _catalogue), do: nil
+
+  defp internal_catalogue?(%{internal: true}), do: true
+  defp internal_catalogue?(_catalogue), do: false
 
   defp level_description(%Category{description: desc}, _catalogue), do: presence(desc)
   defp level_description(nil, catalogue), do: presence(catalogue.description)

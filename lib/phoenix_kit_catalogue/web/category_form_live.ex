@@ -12,7 +12,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.FormFieldLabel, only: [label: 1]
-  import PhoenixKitCatalogue.Web.Components, only: [attachments_files_panel: 1]
+  import PhoenixKitCatalogue.Web.Components, only: [ai_notes_field: 1, attachments_files_panel: 1]
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
@@ -51,7 +51,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # secondary language tab (same shape as the attribute-group fix —
   # without this, filling all languages before the first save loses the
   # primary text on :new).
-  @preserve_fields %{"name" => :name, "description" => :description}
+  @preserve_fields %{"name" => :name, "description" => :description, "ai_notes" => :ai_notes}
 
   # Top-level `data` keys this form writes OUTSIDE the shared multilang/
   # extension pipeline `data_owned_keys/2` already covers — see
@@ -965,6 +965,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                  level (the position is computed at insert) and ordering is
                  drag-managed on the catalogue detail page — same as
                  catalogues and items. --%>
+
+            <.ai_notes_field field={@form[:ai_notes]} />
 
             <%!-- Extension slot (spec §2 principle 8, §4 row C4) — other
                  registered modules (e.g. phoenix_kit_ecommerce) add a
