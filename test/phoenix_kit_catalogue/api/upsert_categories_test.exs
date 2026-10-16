@@ -115,6 +115,37 @@ defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
     assert log.metadata["changes"]["data.api.external_id"] == %{"from" => "", "to" => "C-9"}
   end
 
+  test "id plus external_id: null clears the external id and keeps the other data",
+       %{catalogue: catalogue} do
+    {:ok, c} =
+      Catalogue.create_category(%{
+        name: "Linked",
+        catalogue_uuid: catalogue.uuid,
+        data: %{"api" => %{"external_id" => "C-1"}, "meta" => %{"k" => "v"}}
+      })
+
+    assert {:ok, %{"summary" => %{"updated" => 1}}} =
+             upsert(catalogue, [%{"id" => c.uuid, "external_id" => nil}])
+
+    reread = category(c.uuid)
+    assert Refs.external_id(reread) == nil
+    assert reread.data == %{"meta" => %{"k" => "v"}}
+
+    log = assert_activity_logged("category.updated", resource_uuid: c.uuid)
+    assert log.metadata["changes"]["data.api.external_id"] == %{"from" => "C-1", "to" => ""}
+
+    # a retry finds nothing to clear
+    assert [%{"action" => "unchanged"}] =
+             rows(upsert(catalogue, [%{"id" => c.uuid, "external_id" => nil}]))
+  end
+
+  test "external_id: null without an id has nothing to find the category by", %{
+    catalogue: catalogue
+  } do
+    assert [%{"action" => "error", "error" => %{"code" => "validation_failed"}}] =
+             rows(upsert(catalogue, [%{"external_id" => nil, "name" => "Nameless link"}]))
+  end
+
   test "parent: null moves to the top level; a cycle and a foreign parent are row errors",
        %{catalogue: catalogue} do
     top = fixture_category(catalogue, %{name: "Top"})
@@ -521,6 +552,31 @@ defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
 
       assert Enum.map(executed, &{&1["action"], get_in(&1, ["error", "code"])}) ==
                Enum.map(preview_rows, &{&1["action"], get_in(&1, ["error", "code"])})
+    end
+
+    test "a clear and the reuse of the freed external_id in one request answer like the write", %{
+      catalogue: catalogue
+    } do
+      {:ok, linked} =
+        Catalogue.create_category(%{
+          name: "Linked",
+          catalogue_uuid: catalogue.uuid,
+          data: %{"api" => %{"external_id" => "C-1"}}
+        })
+
+      other = fixture_category(catalogue, %{name: "Other"})
+
+      items = [
+        %{"id" => linked.uuid, "external_id" => nil},
+        %{"id" => other.uuid, "external_id" => "C-1"}
+      ]
+
+      {preview_rows, executed} = preview_then_execute(catalogue, items)
+
+      assert shapes(preview_rows) == shapes(executed)
+      assert shapes(executed) == [{"updated", nil}, {"updated", nil}]
+      assert Refs.external_id(category(linked.uuid)) == nil
+      assert Refs.external_id(category(other.uuid)) == "C-1"
     end
 
     test "a parent that nothing creates is still an error in the preview", %{catalogue: catalogue} do

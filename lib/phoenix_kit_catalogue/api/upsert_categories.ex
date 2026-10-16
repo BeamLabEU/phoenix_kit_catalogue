@@ -54,12 +54,18 @@ defmodule PhoenixKitCatalogue.API.UpsertCategories do
 
   # Row-level strings have no length floor in the schema (see `Schemas`): a
   # blank external_id is this row's error. A malformed `id` falls through to
-  # `find_existing/3`, where `Refs` answers `not_found`.
+  # `find_existing/3`, where `Refs` answers `not_found`. `external_id: null`
+  # next to an `id` clears the link; alone it names no category.
+  defp check_reference(%{"id" => _, "external_id" => nil}), do: :ok
+
   defp check_reference(%{"id" => _, "external_id" => eid}) do
     if Common.blank?(eid), do: invalid("external_id", "must not be blank"), else: :ok
   end
 
   defp check_reference(%{"id" => _}), do: :ok
+
+  defp check_reference(%{"external_id" => nil}),
+    do: invalid("id", "give the id of the category whose external_id to clear")
 
   defp check_reference(%{"external_id" => eid}) do
     if Common.blank?(eid), do: invalid("external_id", "must not be blank"), else: :ok
@@ -300,7 +306,7 @@ defmodule PhoenixKitCatalogue.API.UpsertCategories do
       if eid_change? do
         state.eids
         |> release_external_id(Refs.external_id(category))
-        |> Map.put(row["external_id"], category.uuid)
+        |> claim_external_id(row["external_id"], category.uuid)
       else
         state.eids
       end
@@ -310,6 +316,9 @@ defmodule PhoenixKitCatalogue.API.UpsertCategories do
 
   defp release_external_id(eids, nil), do: eids
   defp release_external_id(eids, eid), do: Map.put(eids, eid, nil)
+
+  defp claim_external_id(eids, nil, _uuid), do: eids
+  defp claim_external_id(eids, eid, uuid), do: Map.put(eids, eid, uuid)
 
   # The parent of every live category, read once per preview. Parents the
   # earlier rows of the request would change are in `state.sim`, which
@@ -377,7 +386,8 @@ defmodule PhoenixKitCatalogue.API.UpsertCategories do
   defp show(value) when is_binary(value), do: value
   defp show(value), do: to_string(value)
 
-  # id AND external_id given, and the stored external id differs: set it.
+  # id AND external_id given, and the stored external id differs: set it, or
+  # clear it when the given one is null (a nil in `data_owned_paths` deletes the key).
   defp with_external_id(attrs, changes, %{"id" => _, "external_id" => eid}, category) do
     if Refs.external_id(category) == eid do
       {attrs, changes, false}
@@ -385,7 +395,7 @@ defmodule PhoenixKitCatalogue.API.UpsertCategories do
       {Map.put(attrs, :data, %{"api" => %{"external_id" => eid}}),
        Map.put(changes, "data.api.external_id", %{
          "from" => show(Refs.external_id(category)),
-         "to" => eid
+         "to" => show(eid)
        }), true}
     end
   end
