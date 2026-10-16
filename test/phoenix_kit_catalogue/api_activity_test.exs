@@ -222,6 +222,16 @@ defmodule PhoenixKitCatalogue.ApiActivityTest do
       assert row.metadata["changes"]["position"]["to"] == "7"
     end
 
+    test "update_category/3 reports a changed slug per language, old one included" do
+      catalogue = fixture_catalogue(%{name: "Slug Cat"})
+      category = fixture_category(catalogue, %{name: "Slugged", slug: %{"en-US" => "old"}})
+
+      {:ok, _} = Catalogue.update_category(category, %{slug: %{"en-US" => "new"}}, opts())
+
+      row = assert_activity_logged("category.updated", resource_uuid: category.uuid)
+      assert row.metadata["changes"] == %{"slug.en-US" => %{"from" => "old", "to" => "new"}}
+    end
+
     test "update_category/3 without a move adds neither parent_uuid nor position" do
       catalogue = fixture_catalogue(%{name: "Still Cat"})
       category = fixture_category(catalogue, %{name: "Still"})
