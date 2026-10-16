@@ -1581,11 +1581,30 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
         |> Shared.keep_trash_status(Item, base.uuid)
         |> check_item_category(category)
 
-      case repo().update(changeset, repo_opts) do
+      case write_item(changeset, repo_opts) do
         {:ok, updated} -> {:ok, {base, updated, map_size(changeset.changes) > 0}}
-        {:error, changeset} -> {:error, changeset}
+        {:error, reason} -> {:error, reason}
       end
     end
+  end
+
+  # The batch's write runs under a savepoint, so a database error there has
+  # already been rolled back to it and is this row's alone. Only this write is
+  # answered that way: an error in any read around it leaves the transaction
+  # aborted and is not the row's to swallow.
+  defp write_item(changeset, repo_opts) do
+    repo().update(changeset, repo_opts)
+  rescue
+    error in Postgrex.Error ->
+      if repo_opts[:mode] == :savepoint do
+        Logger.warning(
+          "update_items row #{changeset.data.uuid} failed: #{pg_error_summary(error)}"
+        )
+
+        {:error, :database_error}
+      else
+        reraise(error, __STACKTRACE__)
+      end
   end
 
   defp narrow_item_data(%Item{} = item, attrs, opts) do
@@ -1848,10 +1867,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
       {:error, reason} ->
         {{:error, reason}, nil, nil}
     end
-  rescue
-    error in Postgrex.Error ->
-      Logger.warning("update_items row #{item.uuid} failed: #{pg_error_summary(error)}")
-      {{:error, :database_error}, nil, nil}
   end
 
   # Only the structured, value-free fields of a database error: its message and

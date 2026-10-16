@@ -13,6 +13,7 @@ defmodule PhoenixKitCatalogue.UpdateItemsTest do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Test.QueryHook
 
   @actor "00000000-0000-7000-8000-000000000001"
   @meta %{"via" => "api", "key_prefix" => "abcd1234", "tool" => "catalogue.update_products"}
@@ -236,6 +237,33 @@ defmodule PhoenixKitCatalogue.UpdateItemsTest do
     assert log =~ middle.uuid
     assert log =~ "pg_code=22021"
     refute log =~ "invalid byte sequence"
+  end
+
+  test "a database error in a read around the UPDATE is not swallowed as a row's :database_error",
+       %{catalogue: catalogue} do
+    first = fixture_item(%{name: "First", catalogue_uuid: catalogue.uuid})
+    second = fixture_item(%{name: "Second", catalogue_uuid: catalogue.uuid})
+
+    rows = [{first.uuid, %{name: "First 2"}}, {second.uuid, %{name: "Second 2"}}]
+    opts = batch_opts(data_owned_paths: [["api", "external_id"]])
+
+    # Right after the batch has locked its items, the transaction is aborted
+    # (a failed statement); the next read, the row's own locked re-read, is
+    # then refused by the database. That is the whole batch's failure.
+    log =
+      capture_log(fn ->
+        assert_raise Postgrex.Error, fn ->
+          QueryHook.after_query(
+            "FOR UPDATE",
+            fn -> {:error, _} = Repo.query("SELECT 1 / 0") end,
+            fn -> Catalogue.update_items(rows, opts) end
+          )
+        end
+      end)
+
+    refute log =~ "update_items row"
+    assert Catalogue.get_item(first.uuid).name == "First"
+    assert Catalogue.get_item(second.uuid).name == "Second"
   end
 
   test "the categories are locked FOR SHARE before the items FOR UPDATE, each in uuid order", %{
