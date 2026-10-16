@@ -15,7 +15,7 @@ defmodule PhoenixKitCatalogue.Test.ApiCase do
   This is NOT core's `Executor.call/4`: it never authenticates, rate-limits,
   confirms or claims an idempotency key. What only the real executor can show
   (the batch threshold, the dry-run re-run and fingerprint, the scope check, the
-  error envelope) is checked live.
+  idempotency replay) is covered by `test/phoenix_kit_catalogue/api/executor_test.exs`.
   """
 
   alias PhoenixKit.API.{Actor, Executor}
