@@ -21,10 +21,10 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
 
   # --- planning (reads only) ---------------------------------------------------------
 
-  # `{:remove, ref, item}`, `{:already, ref, item}` (an id already in the trash),
+  # `{:remove, ref, item}`, `{:already, ref, item}` (a reference to an item already in the trash),
   # `{:rejected, ref, message}` or `{:resolution_error, ref, reason}`.
   defp plan(resolutions, catalogue) do
-    trashed = trashed_by_id(resolutions, catalogue)
+    trashed = trashed_by_ref(resolutions, catalogue)
 
     {planned, _seen} =
       Enum.map_reduce(resolutions, MapSet.new(), fn
@@ -34,9 +34,9 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
             else: {{:remove, ref, item}, MapSet.put(seen, item.uuid)}
 
         {ref, {:error, :not_found}}, seen ->
-          case trashed_item(trashed, ref) do
-            nil -> {{:resolution_error, ref, :not_found}, seen}
-            item -> {{:already, ref, item}, seen}
+          case Map.fetch(trashed, ref) do
+            :error -> {{:resolution_error, ref, :not_found}, seen}
+            {:ok, item} -> {{:already, ref, item}, seen}
           end
 
         {ref, {:error, reason}}, seen ->
@@ -46,14 +46,12 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
     planned
   end
 
-  # An `id` that matched no LIVE item may name one that is already in the trash.
-  defp trashed_by_id(resolutions, catalogue) do
-    refs =
-      for {%{"id" => id} = ref, {:error, :not_found}} <- resolutions,
-          match?({:ok, _}, Ecto.UUID.cast(id)),
-          do: ref
-
-    case refs do
+  # A reference that matched no LIVE item may name one that is already in the
+  # trash, by any of the three keys. A sku or external_id that several trashed
+  # items share names none of them (the lookup answers `ambiguous_ref`, which
+  # stays `not_found` here).
+  defp trashed_by_ref(resolutions, catalogue) do
+    case for({ref, {:error, :not_found}} <- resolutions, do: ref) do
       [] ->
         %{}
 
@@ -61,21 +59,12 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
         refs
         |> API.resolve_refs(kind: :item, catalogue_uuid: catalogue.uuid, include_deleted: true)
         |> Enum.flat_map(fn
-          {_ref, {:ok, %{status: "deleted"} = item}} -> [{item.uuid, item}]
+          {ref, {:ok, %{status: "deleted"} = item}} -> [{ref, item}]
           _other -> []
         end)
         |> Map.new()
     end
   end
-
-  defp trashed_item(trashed, %{"id" => id}) do
-    case Ecto.UUID.cast(id) do
-      {:ok, uuid} -> Map.get(trashed, uuid)
-      :error -> nil
-    end
-  end
-
-  defp trashed_item(_trashed, _ref), do: nil
 
   # --- dry run -------------------------------------------------------------------------
 

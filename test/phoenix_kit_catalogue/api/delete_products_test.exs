@@ -22,6 +22,8 @@ defmodule PhoenixKitCatalogue.API.DeleteProductsTest do
     do: ApiCase.call(@tool, %{"catalogue_id" => catalogue.uuid, "refs" => refs}, overrides)
 
   defp rows({:ok, %{"results" => rows}}), do: rows
+  defp rows_of({:preview, %{"rows" => rows}, _fingerprint}), do: rows
+  defp rows_of(result), do: rows(result)
 
   test "the tool is declared dangerous, destructive and under its own scope" do
     tool = ApiCase.tool!(@tool)
@@ -75,17 +77,53 @@ defmodule PhoenixKitCatalogue.API.DeleteProductsTest do
     refute_activity_logged("item.permanently_deleted", resource_uuid: a.uuid)
   end
 
-  test "an id already in the trash is unchanged; a sku of a trashed item is not found", %{
+  test "a retry is unchanged for an item already in the trash, whichever reference it uses", %{
     catalogue: catalogue
   } do
-    a = item(catalogue, "Alpha", %{sku: "SKU-A"})
+    a = item(catalogue, "Alpha", %{sku: "SKU-A", data: %{"api" => %{"external_id" => "E-A"}}})
     {:ok, _} = Catalogue.trash_item(a)
 
-    assert [by_id, by_sku] = rows(delete(catalogue, [%{"id" => a.uuid}, %{"sku" => "SKU-A"}]))
-    assert by_id["action"] == "unchanged"
-    assert by_id["id"] == a.uuid
-    assert by_sku["action"] == "error"
-    assert by_sku["error"]["code"] == "not_found"
+    refs = [%{"id" => a.uuid}, %{"sku" => "SKU-A"}, %{"external_id" => "E-A"}]
+
+    for mode <- [%{}, %{dry_run?: true}] do
+      result = delete(catalogue, refs, mode)
+      rows = rows_of(result)
+
+      assert Enum.map(rows, & &1["action"]) == ["unchanged", "unchanged", "unchanged"]
+      assert Enum.map(rows, & &1["id"]) == [a.uuid, a.uuid, a.uuid]
+    end
+
+    assert Catalogue.get_item!(a.uuid).status == "deleted"
+  end
+
+  test "a reference that names nothing, live or trashed, is still not found", %{
+    catalogue: catalogue
+  } do
+    other = fixture_catalogue(%{name: "Other Delete Cat"})
+    foreign = item(other, "Foreign", %{sku: "SKU-F", data: %{"api" => %{"external_id" => "E-F"}}})
+    {:ok, _} = Catalogue.trash_item(foreign)
+
+    refs = [
+      %{"id" => foreign.uuid},
+      %{"sku" => "SKU-F"},
+      %{"external_id" => "E-F"},
+      %{"id" => "not-a-uuid"},
+      %{"sku" => "NOPE"}
+    ]
+
+    assert refs |> then(&delete(catalogue, &1)) |> rows() |> Enum.map(& &1["error"]["code"]) ==
+             List.duplicate("not_found", 5)
+  end
+
+  test "a sku shared by several trashed items stays not found (nothing says which one)", %{
+    catalogue: catalogue
+  } do
+    for name <- ["One", "Two"] do
+      {:ok, _} = catalogue |> item(name, %{sku: "SKU-DUP"}) |> Catalogue.trash_item()
+    end
+
+    assert [%{"error" => %{"code" => "not_found"}}] =
+             rows(delete(catalogue, [%{"sku" => "SKU-DUP"}]))
   end
 
   test "an item someone else trashed after the request was planned is unchanged", %{
