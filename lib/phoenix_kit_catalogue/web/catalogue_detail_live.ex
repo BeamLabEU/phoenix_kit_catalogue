@@ -2378,6 +2378,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end)
   end
 
+  # A collision on an external id is the one failure the operator can act
+  # on, so it names itself; any other mix keeps the generic sentence.
+  defp bulk_failure_message(reasons, generic) do
+    if :external_id_taken in reasons, do: Errors.message(:external_id_taken), else: generic
+  end
+
   defp do_bulk_move_categories(socket, uuids, catalogue_uuid, target_uuid) do
     {:ok, %{moved: moved, errors: errors}} =
       Catalogue.bulk_move_categories_to_catalogue(
@@ -2396,10 +2402,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moved %{count} categories.", count: moved),
       errors,
       "bulk_move_categories_to_catalogue",
-      Gettext.gettext(
-        PhoenixKitCatalogue.Gettext,
-        "%{count} categories could not be moved.",
-        count: length(errors)
+      bulk_failure_message(
+        Enum.map(errors, &elem(&1, 1)),
+        Gettext.gettext(
+          PhoenixKitCatalogue.Gettext,
+          "%{count} categories could not be moved.",
+          count: length(errors)
+        )
       )
     )
     |> reset_and_load()
@@ -2474,15 +2483,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     if errors == [] do
       {:noreply, socket}
     else
-      log_operation_error(socket, "bulk_restore_categories_partial", %{reasons: errors})
+      log_operation_error(socket, "bulk_restore_categories_partial", %{
+        reason: :partial_failure,
+        errors: errors
+      })
 
       {:noreply,
        put_flash(
          socket,
          :error,
-         Gettext.gettext(
-           PhoenixKitCatalogue.Gettext,
-           "Some categories couldn't be restored. The catalogue may be deleted — restore it first."
+         bulk_failure_message(
+           errors,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Some categories couldn't be restored. The catalogue may be deleted — restore it first."
+           )
          )
        )}
     end
