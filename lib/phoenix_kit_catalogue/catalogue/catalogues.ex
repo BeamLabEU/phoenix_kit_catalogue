@@ -438,6 +438,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
   (decided from the row, not the argument — callers often pass the
   pre-trash struct).
 
+  Refuses with `{:error, :external_id_taken}` when a live row has taken the
+  `external_id` of one of the rows coming back; nothing is restored.
+
+  Inside a caller's own transaction the collision is raised as the
+  `Postgrex.Error` instead, because the database has already aborted that
+  transaction.
+
   ## Examples
 
       {:ok, catalogue} = Catalogue.restore_catalogue(catalogue)

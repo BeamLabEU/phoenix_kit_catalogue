@@ -110,7 +110,8 @@ defmodule PhoenixKitCatalogue.API.Tools do
           "Fields not listed stay as they are, and so does everything the tool does not own (prices, shop " <>
           "data, translations). A rename does not change the item's URL slug. Rows are independent; each " <>
           "answers updated, unchanged or error. A request over the confirmation threshold (50 rows by " <>
-          "default) answers confirmation_required and runs when repeated with the confirm_token.",
+          "default) answers confirmation_required and runs when repeated with the confirm_token. " <>
+          "A sku and an external_id are stored and matched exactly as sent (not trimmed).",
       input_schema: Schemas.update_products(),
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.UpdateProducts, :call},
@@ -199,7 +200,8 @@ defmodule PhoenixKitCatalogue.API.Tools do
           "name, and later rows may name it as their parent. An id that does not exist is an error: an id " <>
           "cannot be chosen. An id together with an external_id sets or changes that category's external_id; " <>
           "an id with external_id null clears it. Rows are independent; each answers created, updated, " <>
-          "unchanged or error. A request over the confirmation threshold (50 rows by default) answers " <>
+          "unchanged or error. An external_id is stored and matched exactly as sent (not trimmed). " <>
+          "A request over the confirmation threshold (50 rows by default) answers " <>
           "confirmation_required and runs when repeated with the confirm_token.",
       input_schema: Schemas.upsert_categories(),
       output_schema: Schemas.batch_output(),

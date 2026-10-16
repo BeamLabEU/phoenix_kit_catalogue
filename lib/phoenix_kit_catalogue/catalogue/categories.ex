@@ -742,6 +742,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
   A category that is not deleted is returned unchanged. Logs
   `category.restored` with `descendants_restored` and `items_restored`.
 
+  Refuses with `{:error, :external_id_taken}` when a live row has taken the
+  `external_id` of one of the rows coming back; nothing is restored.
+
+  Inside a caller's own transaction the collision is raised as the
+  `Postgrex.Error` instead, because the database has already aborted that
+  transaction.
+
   ## Examples
 
       {:ok, _} = Catalogue.restore_category(category)
@@ -1152,7 +1159,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
   (`:kind_mismatch` — standard and smart items price differently), and
   a `parent_uuid:` that is missing, trashed or in another catalogue
   (`:parent_not_found`) or inside the moved subtree
-  (`:would_create_cycle`). Both catalogues are told about the move.
+  (`:would_create_cycle`), and a move that would give an item the
+  `external_id` a live item of the target already holds
+  (`:external_id_taken`; inside a caller's own transaction this is raised
+  as the `Postgrex.Error` instead, because the database has already
+  aborted that transaction). Both catalogues are told about the move.
 
   With `catalogue_uuid:`, a category that is no longer in that catalogue
   when its row is locked is refused (`:wrong_catalogue_scope`).
