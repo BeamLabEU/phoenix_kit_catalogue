@@ -92,7 +92,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Shared do
     attrs =
       case Keyword.get(opts, :log_metadata) do
         extra when is_map(extra) and map_size(extra) > 0 ->
-          Map.update(attrs, :metadata, extra, &ActivityLog.with_extra(&1, extra))
+          Map.update(
+            attrs,
+            :metadata,
+            ActivityLog.with_extra(%{}, extra),
+            &ActivityLog.with_extra(&1, extra)
+          )
 
         _none ->
           attrs

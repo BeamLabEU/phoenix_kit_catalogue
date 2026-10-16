@@ -83,6 +83,7 @@ defmodule PhoenixKitCatalogue.API.Tools do
         "Creates up to 500 items in one catalogue. Every row needs a name and at least one of sku and " <>
           "external_id (so a retried request cannot create the item twice). A row whose sku or external_id " <>
           "already exists is skipped with already_exists and the existing id: nothing is ever overwritten. " <>
+          "A sku and an external_id are stored and matched exactly as sent (not trimmed). " <>
           "New items have no price and are not visible in the shop until ecommerce.set_prices and " <>
           "ecommerce.set_availability are called. Rows are independent; each answers created, skipped or error. " <>
           "A request over the confirmation threshold (50 rows by default) answers confirmation_required and " <>

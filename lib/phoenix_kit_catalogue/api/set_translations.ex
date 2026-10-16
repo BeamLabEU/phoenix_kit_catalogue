@@ -15,6 +15,8 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Slugs
 
+  require Logger
+
   @tool "catalogue.set_translations"
   @max_languages 20
   # Fields whose text must not be blank: clearing is `null`.
@@ -390,7 +392,8 @@ defmodule PhoenixKitCatalogue.API.SetTranslations do
         by_uuid = Map.new(outcomes)
         plan |> Enum.map(&finish(&1, by_uuid)) |> Common.batch_result()
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.warning("#{@tool} batch could not be written: #{Common.reason_code(reason)}")
         {:error, :internal_error, "The batch could not be written.", %{}}
     end
   end
