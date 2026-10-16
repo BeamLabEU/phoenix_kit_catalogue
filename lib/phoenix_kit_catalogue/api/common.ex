@@ -243,6 +243,19 @@ defmodule PhoenixKitCatalogue.API.Common do
     end)
   end
 
+  @doc "A fixed sentence for why an attribute write was refused; never the raw reason."
+  @spec attribute_sentence(term()) :: String.t()
+  def attribute_sentence(:set_not_found), do: "an attribute set no longer exists"
+  def attribute_sentence(:not_attached), do: "an attribute set is no longer attached to the item"
+  def attribute_sentence(:entities_disabled), do: "attribute sets are not available"
+  def attribute_sentence(_other), do: "the write was refused"
+
+  @doc "A short machine-readable code for a context refusal: the atom, `invalid` or `unknown`."
+  @spec reason_code(term()) :: String.t()
+  def reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+  def reason_code(%Ecto.Changeset{}), do: "invalid"
+  def reason_code(_reason), do: "unknown"
+
   @doc "True when the changeset failed on the V5 `external_id` unique index."
   @spec external_id_conflict?(Ecto.Changeset.t()) :: boolean()
   def external_id_conflict?(%Ecto.Changeset{} = changeset),

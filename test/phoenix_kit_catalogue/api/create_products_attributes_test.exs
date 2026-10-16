@@ -8,7 +8,7 @@ defmodule PhoenixKitCatalogue.API.CreateProductsAttributesTest do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
   alias PhoenixKitCatalogue.Catalogue.PubSub
-  alias PhoenixKitCatalogue.Test.{ApiCase, MediaFixtures}
+  alias PhoenixKitCatalogue.Test.{ApiCase, MediaFixtures, QueryHook}
 
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
     setup do
@@ -83,6 +83,38 @@ defmodule PhoenixKitCatalogue.API.CreateProductsAttributesTest do
       assert one["error"]["context"]["allowed"] == [ctx.red.slug]
       assert two["error"]["code"] == "validation_failed"
       assert Catalogue.list_items_for_catalogue(ctx.catalogue.uuid) == []
+    end
+
+    test "an attribute write that fails after the item was created answers a fixed sentence and a code",
+         ctx do
+      input = %{
+        "catalogue_id" => ctx.catalogue.uuid,
+        "items" => [
+          %{
+            "sku" => "A-5",
+            "name" => "Half done",
+            "attributes" => [%{"set_id" => ctx.set.uuid, "values" => [ctx.red.slug]}]
+          }
+        ]
+      }
+
+      # The set goes away between the item's insert and the attribute write.
+      assert {:ok, %{"results" => [row]}} =
+               QueryHook.after_query(
+                 ~s(INSERT INTO "phoenix_kit_activities"),
+                 fn ->
+                   {:ok, _} =
+                     Catalogue.delete_attribute_set(Catalogue.get_attribute_set(ctx.set.uuid))
+                 end,
+                 fn -> ApiCase.call("catalogue.create_products", input) end
+               )
+
+      assert row["action"] == "error"
+      assert row["error"]["context"] == %{"created" => true, "reason" => "set_not_found"}
+      assert row["error"]["message"] =~ "attributes were not saved"
+      refute row["error"]["message"] =~ "set_not_found"
+      refute row["error"]["message"] =~ "Ecto"
+      assert Catalogue.get_item!(row["id"]).name == "Half done"
     end
 
     test "attribute writes announce no per-item event, only the one bulk event", ctx do
