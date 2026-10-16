@@ -57,6 +57,10 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
   shared with the modal since 2026-08-30; this surface previously hid
   descendant chips and rejected narrowing to them). See
   `PhoenixKitCatalogue.Catalogue.BrowseState`.
+
+  `internal` catalogues are left out even where the scope names them —
+  their items, and their chips. Pass `include_internal: true` for an embed
+  that should show them.
   """
 
   use Phoenix.LiveComponent
@@ -84,7 +88,10 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
     else
       browse =
         BrowseState.init(
-          scope: Browse.expand_scope(assigns[:scope] || %{}),
+          scope:
+            (assigns[:scope] || %{})
+            |> Browse.expand_scope()
+            |> Browse.put_internal_rule(assigns[:include_internal] == true),
           per_page: assigns[:per_page] || 24,
           # The module's shared sort (client, 2026-09-01): this embed's
           # listings read in the same order the admin detail page does.

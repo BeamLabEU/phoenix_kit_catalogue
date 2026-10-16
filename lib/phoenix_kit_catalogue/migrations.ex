@@ -115,13 +115,27 @@ defmodule PhoenixKitCatalogue.Migrations do
   catalogue), each with a guarded CHECK. Like V2's `slug`, an extra column
   on a manifested table is outside what core's `ExpectedSchema` looks at,
   so no core release is needed. V1's `CREATE TABLE` DDL is deliberately
-  left alone (V2's precedent): `up/1` replays V1..V4, so a fresh install
-  gets the columns from this version.
+  left alone (V2's precedent): `up/1` replays every version, so a fresh
+  install gets the columns from this version.
+
+  ## What V5 is
+
+  V5 adds three things. `phoenix_kit_cat_catalogues.internal boolean NOT
+  NULL DEFAULT false` keeps a catalogue out of the embeddable pop-ups.
+  `ai_notes text` on catalogues, categories and items is free text for an
+  AI reader, with a guarded length CHECK. And the first table this chain
+  creates rather than adopts, `phoenix_kit_cat_item_dependencies`: an
+  item's list of what it needs — exactly one target catalogue, category or
+  item per row (a `num_nonnulls` CHECK), a positive `quantity`, an
+  optional `note` and a `position`. Every reference is a real foreign key
+  with `ON DELETE CASCADE`, so a permanent delete of either end removes
+  the row; a soft trash does not touch it. Core's manifest names none of
+  this, so no core release is needed.
 
   ## What `down/1` is NOT
 
   `down/1` unstamps the version marker; it NEVER drops any of the
-  eighteen tables — catalogue, category, item, and supplier data is not
+  module's tables — catalogue, category, item, and supplier data is not
   this chain's to destroy, and most of it is core-created. The ownership
   test pins this by asserting no statement this module can emit matches
   `DROP`, `TRUNCATE`, or `DELETE`.
@@ -134,7 +148,7 @@ defmodule PhoenixKitCatalogue.Migrations do
 
   use Ecto.Migration
 
-  @current_version 4
+  @current_version 5
   @marker_prefix "pkc_schema:"
   @version_table "phoenix_kit_cat_catalogues"
 
@@ -218,7 +232,8 @@ defmodule PhoenixKitCatalogue.Migrations do
   tables/keys/checks/indexes below); `2` additionally adds V2's
   per-language `slug` column, its trigger projections, and the
   attribute-set GIN index; `3` the one-time view-preference copy; `4` the
-  item-type columns and their CHECKs. Mirrors `phoenix_kit_billing`'s version-aware
+  item-type columns and their CHECKs; `5` the internal flag, the AI
+  notes and the item-dependencies table. Mirrors `phoenix_kit_billing`'s version-aware
   `up_statements/2` — the wrapper migration core's update task generates
   calls this with an explicit `:version`, and a stale wrapper asking for
   `1` must not receive `2`'s objects.
@@ -234,12 +249,14 @@ defmodule PhoenixKitCatalogue.Migrations do
     v2 = if target >= 2, do: v2_statements(p), else: []
     v3 = if target >= 3, do: v3_statements(prefix, p), else: []
     v4 = if target >= 4, do: v4_statements(prefix, p), else: []
+    v5 = if target >= 5, do: v5_statements(prefix, p), else: []
 
     List.flatten([
       v1_statements(prefix, p),
       v2,
       v3,
       v4,
+      v5,
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{target}'"
     ])
   end
@@ -251,6 +268,89 @@ defmodule PhoenixKitCatalogue.Migrations do
       foreign_keys(prefix, p),
       checks(prefix, p),
       indexes(p)
+    ]
+  end
+
+  # ── V5: internal catalogues, notes for AI, item dependencies ───────
+  #
+  # Three additions, one version. `internal` keeps a catalogue out of the
+  # embeddable pop-ups; `ai_notes` is free text for an AI reader on the
+  # three levels, length-checked here as well as in the changesets; and
+  # `phoenix_kit_cat_item_dependencies` lets an item name what it needs —
+  # exactly one catalogue, category or item per row, with a quantity.
+  # Every target is a real foreign key, so a permanent delete of either
+  # end takes the row with it; a soft trash leaves it alone.
+  defp v5_statements(prefix, p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_cat_catalogues ADD COLUMN IF NOT EXISTS internal boolean DEFAULT false NOT NULL",
+      for table <- ~w(phoenix_kit_cat_catalogues phoenix_kit_cat_categories phoenix_kit_cat_items) do
+        [
+          "ALTER TABLE #{p}#{table} ADD COLUMN IF NOT EXISTS ai_notes text",
+          guarded_constraint(
+            prefix,
+            table,
+            "#{table}_ai_notes_length_check",
+            "ALTER TABLE #{p}#{table} ADD CONSTRAINT #{table}_ai_notes_length_check CHECK (((ai_notes IS NULL) OR (char_length(ai_notes) <= 10000)))"
+          )
+        ]
+      end,
+      """
+      CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_cat_item_dependencies (
+        uuid uuid DEFAULT #{p}uuid_generate_v7() NOT NULL,
+        item_uuid uuid NOT NULL,
+        target_catalogue_uuid uuid,
+        target_category_uuid uuid,
+        target_item_uuid uuid,
+        quantity numeric(12,4) NOT NULL,
+        note text,
+        "position" integer DEFAULT 0 NOT NULL,
+        inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+        updated_at timestamp with time zone DEFAULT now() NOT NULL
+      )
+      """,
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_item_dependencies",
+        "phoenix_kit_cat_item_dependencies_pkey",
+        "ALTER TABLE #{p}phoenix_kit_cat_item_dependencies ADD CONSTRAINT phoenix_kit_cat_item_dependencies_pkey PRIMARY KEY (uuid)"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_item_dependencies",
+        "phoenix_kit_cat_item_dependencies_one_target_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_item_dependencies ADD CONSTRAINT phoenix_kit_cat_item_dependencies_one_target_check CHECK ((num_nonnulls(target_catalogue_uuid, target_category_uuid, target_item_uuid) = 1))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_item_dependencies",
+        "phoenix_kit_cat_item_dependencies_not_self_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_item_dependencies ADD CONSTRAINT phoenix_kit_cat_item_dependencies_not_self_check CHECK (((target_item_uuid IS NULL) OR (target_item_uuid <> item_uuid)))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_item_dependencies",
+        "phoenix_kit_cat_item_dependencies_quantity_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_item_dependencies ADD CONSTRAINT phoenix_kit_cat_item_dependencies_quantity_check CHECK ((quantity > (0)::numeric))"
+      ),
+      for {column, table} <- [
+            {"item_uuid", "phoenix_kit_cat_items"},
+            {"target_catalogue_uuid", "phoenix_kit_cat_catalogues"},
+            {"target_category_uuid", "phoenix_kit_cat_categories"},
+            {"target_item_uuid", "phoenix_kit_cat_items"}
+          ] do
+        name = "phoenix_kit_cat_item_dependencies_#{column}_fkey"
+
+        guarded_constraint(
+          prefix,
+          "phoenix_kit_cat_item_dependencies",
+          name,
+          "ALTER TABLE #{p}phoenix_kit_cat_item_dependencies ADD CONSTRAINT #{name} FOREIGN KEY (#{column}) REFERENCES #{p}#{table}(uuid) ON DELETE CASCADE"
+        )
+      end,
+      "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_dependencies_item_uuid_position_index ON #{p}phoenix_kit_cat_item_dependencies USING btree (item_uuid, \"position\")",
+      "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_dependencies_target_catalogue_uuid_index ON #{p}phoenix_kit_cat_item_dependencies USING btree (target_catalogue_uuid) WHERE (target_catalogue_uuid IS NOT NULL)",
+      "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_dependencies_target_category_uuid_index ON #{p}phoenix_kit_cat_item_dependencies USING btree (target_category_uuid) WHERE (target_category_uuid IS NOT NULL)",
+      "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_dependencies_target_item_uuid_index ON #{p}phoenix_kit_cat_item_dependencies USING btree (target_item_uuid) WHERE (target_item_uuid IS NOT NULL)"
     ]
   end
 

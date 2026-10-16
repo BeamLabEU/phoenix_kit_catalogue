@@ -17,6 +17,12 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
 
   def allowed_kinds, do: @kinds
 
+  @ai_notes_max_length 10_000
+
+  @doc "The longest `ai_notes` a catalogue, category or item takes."
+  @spec ai_notes_max_length() :: pos_integer()
+  def ai_notes_max_length, do: @ai_notes_max_length
+
   schema "phoenix_kit_cat_catalogues" do
     field(:name, :string)
     field(:description, :string)
@@ -27,6 +33,13 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     field(:item_type, :string, default: "goods")
     field(:markup_percentage, :decimal, default: Decimal.new("0"))
     field(:discount_percentage, :decimal, default: Decimal.new("0"))
+    # Kept out of the embeddable pop-ups (`ItemPicker`, `ItemSelectorModal`,
+    # `CatalogueBrowse`) unless the host passes `include_internal`; the
+    # admin pages show it like any other catalogue.
+    field(:internal, :boolean, default: false)
+    # Free text for an AI that reads the catalogue — one language, never
+    # shown in the pop-ups, never machine-translated.
+    field(:ai_notes, :string)
     field(:status, :string, default: "active")
     field(:position, :integer, default: 0)
     field(:data, :map, default: %{})
@@ -55,6 +68,8 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     :item_type,
     :markup_percentage,
     :discount_percentage,
+    :internal,
+    :ai_notes,
     :status,
     :position,
     :data,
@@ -65,8 +80,9 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     catalogue
     |> cast(attrs, @required_fields ++ @optional_fields)
     # The column is NOT NULL; `cast` maps "" to the default, this guards an explicit nil.
-    |> validate_required(@required_fields ++ [:item_type])
+    |> validate_required(@required_fields ++ [:item_type, :internal])
     |> validate_length(:name, min: 1, max: 255)
+    |> validate_length(:ai_notes, max: ai_notes_max_length())
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:kind, @kinds)
     |> validate_inclusion(:item_type, @item_types)

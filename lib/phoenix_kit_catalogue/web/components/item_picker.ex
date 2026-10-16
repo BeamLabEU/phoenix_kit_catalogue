@@ -57,8 +57,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     * `:item_types` — item types to include (`"goods"`, `"service"`),
       matched on the EFFECTIVE type; `nil` or `[]` = all. Forwards to
       `Catalogue.search_items/2`'s `:item_types` opt.
+    * `:include_internal` — `false` (default) leaves out the items of
+      `internal` catalogues, even ones `:catalogue_uuids` names; pass
+      `true` where the picker serves people who may see them (the item
+      form's dependency picker does).
     * Changing any scope attr (`:category_uuids`, `:catalogue_uuids`,
-      `:include_descendants`, `:only`, `:statuses`, `:item_types`) from the parent
+      `:include_descendants`, `:only`, `:statuses`, `:item_types`,
+      `:include_internal`) from the parent
       invalidates the current option list and closes the dropdown — a
       result set fetched under the old scope is never left selectable.
     * `:selected_item` — the `%Item{}` currently chosen (or `nil`).
@@ -206,6 +211,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        only: nil,
        statuses: nil,
        item_types: nil,
+       include_internal: false,
        placeholder: nil,
        empty_query_limit: @default_empty_query_limit,
        page_size: @default_page_size,
@@ -244,7 +250,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     :include_descendants,
     :only,
     :statuses,
-    :item_types
+    :item_types,
+    :include_internal
   ]
 
   @impl true
@@ -502,6 +509,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       only: only,
       statuses: statuses,
       item_types: item_types,
+      include_internal: include_internal,
       page_size: page_size,
       empty_query_limit: empty_query_limit
     } = socket.assigns
@@ -515,7 +523,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       end
 
     opts =
-      [limit: limit, include_descendants: include_descendants]
+      [
+        limit: limit,
+        include_descendants: include_descendants,
+        exclude_internal: include_internal != true
+      ]
       |> maybe_put(:category_uuids, category_uuids)
       |> maybe_put(:catalogue_uuids, catalogue_uuids)
       |> maybe_put(:only, only)

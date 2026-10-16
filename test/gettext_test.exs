@@ -1341,4 +1341,61 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert Export.Pro100.formats() == [{:furniture, "Furnituur"}, {:materials, "Materjalid"}]
     end)
   end
+
+  # The internal catalogues, the notes for AI and the item dependencies
+  # (V5): every string they show is in every catalogue, with a real
+  # translation in each non-English one.
+  @v5_strings [
+    "Internal",
+    "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it.",
+    "Not shown in the item pickers and browse pop-ups",
+    "There is nothing to choose from here.",
+    "Notes for AI",
+    "For AI tools that read the catalogue. Customers never see it, and it is not translated.",
+    "e.g., Sold by the sheet; the price excludes edge banding.",
+    "Dependencies",
+    "What this item needs from other catalogues, categories or items, and how many. It is for the people using the catalogue: nothing is calculated from it.",
+    "No dependencies yet.",
+    "In trash",
+    "Note",
+    "e.g., pick by wood type",
+    "Move up",
+    "Move down",
+    "Add a catalogue or category",
+    "Add an item: search by name or SKU…",
+    "The note is too long (%{max} characters at most).",
+    "Enter a quantity above zero, with at most four decimal places.",
+    "That place no longer exists. Choose another.",
+    "An item cannot depend on itself.",
+    "Some dependency values are not valid.",
+    "A dependency could not be saved. Check the Dependencies tab.",
+    "%{count} other items list something this removes as a dependency. Those lines are removed with it.",
+    "Needs"
+  ]
+
+  test "the V5 strings are in every locale, translated outside English" do
+    for msgid <- @v5_strings do
+      assert po_msgstr("en", msgid) == msgid, msgid
+
+      for locale <- ~w(et ru uk de fr) do
+        translated = po_msgstr(locale, msgid)
+        assert is_binary(translated) and translated != "", "#{locale}: #{msgid}"
+      end
+    end
+  end
+
+  test "the V5 strings read in et and ru" do
+    assert gettext_in("et", "Dependencies") == "Sõltuvused"
+    assert gettext_in("ru", "Dependencies") == "Зависимости"
+    assert gettext_in("et", "Notes for AI") == "Märkmed tehisintellektile"
+    assert gettext_in("ru", "Internal") == "Внутренний"
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+    assert Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "%{count} other items list something this removes as a dependency. Those lines are removed with it.",
+             count: 3
+           ) =~ "3 muud toodet"
+  end
 end

@@ -45,12 +45,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
 
   alias PhoenixKitCatalogue.Catalogue.{
+    AiNotes,
     Attributes,
     AttributeSets,
     Catalogues,
     Categories,
     Counts,
     CrmLink,
+    Dependencies,
     Duplication,
     Folders,
     Items,
@@ -421,6 +423,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate update_catalogue_rule(rule, attrs, opts \\ []), to: Rules
 
   defdelegate delete_catalogue_rule(rule, opts \\ []), to: Rules
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Item dependencies — see PhoenixKitCatalogue.Catalogue.Dependencies
+  # ═══════════════════════════════════════════════════════════════════
+
+  defdelegate list_item_dependencies(item_or_uuid), to: Dependencies
+
+  defdelegate put_item_dependencies(item, specs, opts \\ []), to: Dependencies
+
+  defdelegate list_item_dependents(target), to: Dependencies
+
+  defdelegate count_outside_dependents(record), to: Dependencies
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Notes for AI — see PhoenixKitCatalogue.Catalogue.AiNotes
+  # ═══════════════════════════════════════════════════════════════════
+
+  defdelegate ai_notes_for_item(item), to: AiNotes
 
   # ═══════════════════════════════════════════════════════════════════
   # Smart-catalogue pricing — see PhoenixKitCatalogue.Catalogue.SmartPricing
