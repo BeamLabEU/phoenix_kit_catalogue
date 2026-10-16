@@ -3892,8 +3892,17 @@ msgstr "Некоторые значения зависимостей недоп�
 msgid "A dependency could not be saved. Check the Dependencies tab."
 msgstr "Не удалось сохранить зависимость. Проверьте вкладку «Зависимости»."
 
-msgid "%{count} other items list something this removes as a dependency. Those lines are removed with it."
-msgstr "%{count} других позиций указывают что-то из удаляемого как зависимость. Эти строки будут удалены вместе с ним."
-
 msgid "Needs"
 msgstr "Требуется"
+
+msgid "This no longer exists. Remove the line to save."
+msgstr "Этого больше нет. Удалите строку, чтобы сохранить."
+
+msgid "%{count} other item lists something this removes as a dependency. That line is removed with it."
+msgid_plural "%{count} other items list something this removes as a dependency. Those lines are removed with it."
+msgstr[0] "%{count} другая позиция указывает что-то из удаляемого как зависимость. Эта строка будет удалена вместе с ним."
+msgstr[1] "%{count} другие позиции указывают что-то из удаляемого как зависимость. Эти строки будут удалены вместе с ним."
+msgstr[2] "%{count} других позиций указывают что-то из удаляемого как зависимость. Эти строки будут удалены вместе с ним."
+
+msgid "%{quantity} × %{name}"
+msgstr "%{quantity} × %{name}"

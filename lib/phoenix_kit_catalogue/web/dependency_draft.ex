@@ -103,8 +103,8 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
   end
 
   defp put_typed(row, %{} = typed) do
-    quantity = to_string(Map.get(typed, "quantity", row.quantity))
-    note = to_string(Map.get(typed, "note", row.note))
+    quantity = typed_text(typed, "quantity", row.quantity)
+    note = typed_text(typed, "note", row.note)
 
     if quantity == row.quantity and note == row.note,
       do: row,
@@ -112,6 +112,14 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
   end
 
   defp put_typed(row, _typed), do: row
+
+  # Only text is typed text: a crafted map or list keeps what was there.
+  defp typed_text(typed, key, current) do
+    case Map.get(typed, key) do
+      value when is_binary(value) -> value
+      _ -> current
+    end
+  end
 
   @doc """
   Checks every row before anything is written. `{:ok, draft}` when all
@@ -125,6 +133,22 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
     draft = %{draft | rows: rows}
 
     if Enum.any?(rows, & &1.error), do: {:error, draft}, else: {:ok, draft}
+  end
+
+  @doc """
+  Marks every row whose target no longer exists — `exists?.(kind, uuid)`
+  answers false — with the `"gone"` error. `{:ok, draft}` when all are
+  there, `{:error, draft}` otherwise.
+  """
+  @spec mark_gone(t(), (kind(), String.t() -> boolean())) :: {:ok, t()} | {:error, t()}
+  def mark_gone(%__MODULE__{} = draft, exists?) when is_function(exists?, 2) do
+    rows = Enum.map(draft.rows, &mark_row_gone(&1, exists?))
+    draft = %{draft | rows: rows}
+    if Enum.any?(rows, &(&1.error == "gone")), do: {:error, draft}, else: {:ok, draft}
+  end
+
+  defp mark_row_gone(row, exists?) do
+    if exists?.(row.kind, row.uuid), do: row, else: %{row | error: "gone"}
   end
 
   @doc "The rows as `Catalogue.put_item_dependencies/3` specs, in order."

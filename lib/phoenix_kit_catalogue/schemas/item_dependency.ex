@@ -102,6 +102,11 @@ defmodule PhoenixKitCatalogue.Schemas.ItemDependency do
   @spec max_note_length() :: pos_integer()
   def max_note_length, do: @max_note_length
 
+  @doc """
+  Casts and checks one row: exactly one target, not the item itself, a
+  quantity above zero with at most four decimal places, a note within
+  `max_note_length/0`. The foreign keys and CHECKs map back to errors.
+  """
   @spec changeset(t() | Ecto.Changeset.t(t()), map()) :: Ecto.Changeset.t(t())
   def changeset(dependency, attrs) do
     dependency

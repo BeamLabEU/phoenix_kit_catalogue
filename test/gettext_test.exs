@@ -1369,8 +1369,9 @@ defmodule PhoenixKitCatalogue.GettextTest do
     "An item cannot depend on itself.",
     "Some dependency values are not valid.",
     "A dependency could not be saved. Check the Dependencies tab.",
-    "%{count} other items list something this removes as a dependency. Those lines are removed with it.",
-    "Needs"
+    "%{quantity} × %{name}",
+    "Needs",
+    "This no longer exists. Remove the line to save."
   ]
 
   test "the V5 strings are in every locale, translated outside English" do
@@ -1390,12 +1391,22 @@ defmodule PhoenixKitCatalogue.GettextTest do
     assert gettext_in("et", "Notes for AI") == "Märkmed tehisintellektile"
     assert gettext_in("ru", "Internal") == "Внутренний"
 
-    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+    one =
+      "%{count} other item lists something this removes as a dependency. That line is removed with it."
 
-    assert Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "%{count} other items list something this removes as a dependency. Those lines are removed with it.",
-             count: 3
-           ) =~ "3 muud toodet"
+    many =
+      "%{count} other items list something this removes as a dependency. Those lines are removed with it."
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+    assert Gettext.ngettext(PhoenixKitCatalogue.Gettext, one, many, 1) =~ "1 muu toode on"
+    assert Gettext.ngettext(PhoenixKitCatalogue.Gettext, one, many, 3) =~ "3 muud toodet"
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+    assert Gettext.ngettext(PhoenixKitCatalogue.Gettext, one, many, 1) =~ "1 другая позиция"
+    assert Gettext.ngettext(PhoenixKitCatalogue.Gettext, one, many, 3) =~ "3 другие позиции"
+    assert Gettext.ngettext(PhoenixKitCatalogue.Gettext, one, many, 5) =~ "5 других позиций"
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
+    assert Gettext.ngettext(PhoenixKitCatalogue.Gettext, one, many, 1) =~ "1 other item lists"
   end
 end

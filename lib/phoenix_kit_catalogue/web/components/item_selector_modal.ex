@@ -65,6 +65,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     * `per_page` — page size for the listing and load-more. Default `50`.
     * `locale` — forces the display language; omitted, the process gettext
       locale applies (the fallback the browse widget and picker share).
+    * `include_internal` — also offer `internal` catalogues (left out by
+      default, even where the scope names them). The scope's own
+      `:exclude_internal` key is set from this attr and cannot be passed.
+    * `show_dependencies` — add the item's dependencies to its details page
+      as a "Needs" row. Default `false`.
 
   ## Required host wiring (do not skip — silent failure otherwise)
 
@@ -275,7 +280,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   page as one "Needs" row (`8 × Screws, 2 × Hinge`) — off by default,
   since they are written for the people running the catalogue. A
   dependency on something the popup hides (an internal catalogue's, a
-  trashed one) is left out of that row.
+  trashed one) is left out of that row; a target in a catalogue outside
+  the scope is named — the row says what the item needs, not what this
+  popup sells.
 
   `internal` catalogues are left out even where the scope names them:
   no catalogue tile, no categories, no items, no search hits, no header.
@@ -526,7 +533,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     |> assign(
       browse: browse,
       cat_tree: cat_tree,
-      all_internal?: scope_all_internal?(browse.scope, original)
+      all_internal?: scope_all_internal?(browse.scope, original),
+      # The host-scoped record may have become internal (or trashed) since.
+      header_context:
+        if(socket.assigns.context_header?,
+          do: resolve_header_context(original, browse.scope, locale)
+        )
     )
     |> rehydrate_selection()
     |> refresh_detail()
@@ -594,7 +606,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         false
     end
   rescue
-    _ -> false
+    error ->
+      Logger.warning(
+        "ItemSelectorModal could not check the scope's catalogues: " <> Exception.message(error)
+      )
+
+      false
   end
 
   defp scope_all_internal?(_scope, _original), do: false
@@ -954,7 +971,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       Enum.reject(uuids, &Browse.hidden_catalogue?(scope, normalize_uuid(&1)))
     )
   rescue
-    _ -> scope
+    # Fail closed: a read that cannot tell which catalogues are internal
+    # offers no tiles rather than all of them.
+    error ->
+      Logger.warning(
+        "ItemSelectorModal could not apply the internal rule: " <> Exception.message(error)
+      )
+
+      Map.put(scope, :catalogue_uuids, [])
   end
 
   defp drop_hidden_catalogues(scope), do: scope
@@ -2380,9 +2404,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     # Re-checked against the scope's item types: a listed row can have
     # changed type since it was rendered, and its detail is exactly what
     # the scope excludes.
-    types = socket.assigns.browse.scope[:item_types]
+    scope = socket.assigns.browse.scope
+    types = scope[:item_types]
 
-    case Enum.filter(Catalogue.list_items_by_uuids([uuid]), &item_type_ok?(types, &1)) do
+    # And against the internal rule: an item linked directly (preselected)
+    # stays usable in the tray, but its details are what the popup hides —
+    # and a catalogue that became internal while the page was open closes
+    # the page on the next refresh.
+    shown? = fn item ->
+      item_type_ok?(types, item) and not Browse.hidden_catalogue?(scope, item.catalogue)
+    end
+
+    case Enum.filter(Catalogue.list_items_by_uuids([uuid]), shown?) do
       [item] ->
         locale = socket.assigns.locale
 
@@ -2430,7 +2463,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       lines -> [{gettext("Needs"), Enum.join(lines, ", ")}]
     end
   rescue
-    _ -> []
+    error ->
+      Logger.warning(
+        "ItemSelectorModal could not read item dependencies: " <> Exception.message(error)
+      )
+
+      []
   end
 
   defp dependency_fields(_socket, _item), do: []
@@ -2439,8 +2477,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     case dependency_target(dependency) do
       {target, catalogue} ->
         if shown_target?(target, catalogue, scope) do
-          name = translated_name(target, locale) || target.name
-          ["#{format_dependency_qty(dependency.quantity)} × #{name}"]
+          [
+            gettext("%{quantity} × %{name}",
+              quantity: format_qty(dependency.quantity),
+              name: translated_name(target, locale) || target.name
+            )
+          ]
         else
           []
         end
@@ -2463,9 +2505,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp dependency_target(%{target_item: %Item{} = item}), do: {item, item.catalogue}
   defp dependency_target(_), do: nil
-
-  defp format_dependency_qty(%Decimal{} = quantity),
-    do: quantity |> Decimal.normalize() |> Decimal.to_string(:normal)
 
   # A lenient zero probe for the quantity-first paths: parse_qty compares
   # against qty_min, but in that mode zero is the UNSELECTED state and must

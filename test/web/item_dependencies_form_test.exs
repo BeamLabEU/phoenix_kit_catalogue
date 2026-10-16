@@ -157,6 +157,37 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       assert has_element?(view, ~s(#dependency-item-picker-input[value=""]))
     end
 
+    test "a malformed push changes nothing and does not crash the form", %{conn: conn} = ctx do
+      view = open_tab(conn, ctx.susan)
+      pick_item(view, ctx.screw)
+
+      render_click(view, "dependency_remove", %{})
+      render_click(view, "dependency_move", %{"key" => "1", "direction" => "sideways"})
+      render_click(view, "dependency_move", %{"key" => %{"x" => 1}, "direction" => "up"})
+
+      assert Process.alive?(view.pid)
+      assert length(row_keys(view)) == 1
+    end
+
+    test "a target deleted for good meanwhile blocks the save before a new item is created",
+         %{conn: conn} = ctx do
+      {:ok, view, _html} = live(conn, "#{@base}/#{ctx.furniture.uuid}/items/new")
+      pick_item(view, ctx.screw)
+
+      {:ok, trashed} = Catalogue.trash_item(ctx.screw)
+      {:ok, _} = Catalogue.permanently_delete_item(trashed)
+
+      html =
+        view
+        |> form(form_selector(), %{"item" => %{"name" => "Orphan carousel", "status" => "active"}})
+        |> render_submit()
+
+      assert html =~ "This no longer exists. Remove the line to save."
+      assert Catalogue.search_items("Orphan carousel") == []
+      # The staged row is still there to remove.
+      assert [_row] = row_keys(view)
+    end
+
     test "the item itself cannot be added", %{conn: conn} = ctx do
       view = open_tab(conn, ctx.susan)
       html = pick_item(view, ctx.susan)
@@ -188,6 +219,33 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
 
       assert [%{target_item_uuid: screw}] = Catalogue.list_item_dependencies(created)
       assert screw == ctx.screw.uuid
+    end
+
+    test "a crafted value in the rows form is ignored, not a crash", %{conn: conn} = ctx do
+      view = open_tab(conn, ctx.susan)
+      pick_item(view, ctx.screw)
+      [row] = row_keys(view)
+
+      render_change(view, "dependency_change", %{
+        "dependencies" => %{row => %{"quantity" => %{"x" => "1"}, "note" => ["a"]}}
+      })
+
+      render_change(view, "dependency_change", %{"dependencies" => "nope"})
+
+      assert Process.alive?(view.pid)
+      assert has_element?(view, ~s(input[name="dependencies[#{row}][quantity]"][value="1"]))
+    end
+
+    test "Save writes the activity row under the signed-in admin", %{conn: conn} = ctx do
+      scope = build_admin_scope()
+      view = conn |> with_scope(scope) |> open_tab(ctx.susan)
+      pick_item(view, ctx.screw)
+      save(view)
+
+      assert_activity_logged("item.dependencies_synced",
+        resource_uuid: ctx.susan.uuid,
+        actor_uuid: scope.user.uuid
+      )
     end
 
     test "an untouched tab writes no activity row on save", %{conn: conn} = ctx do
@@ -247,6 +305,26 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
   end
 
   describe "permanent delete" do
+    test "the catalogue confirmation names the dependency lines it removes",
+         %{conn: conn} = ctx do
+      {:ok, _} =
+        Catalogue.put_item_dependencies(ctx.susan, [
+          %{target: {:catalogue, ctx.screws.uuid}, quantity: 8}
+        ])
+
+      {:ok, _} = Catalogue.trash_catalogue(ctx.screws)
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+
+      html =
+        render_click(view, "show_delete_confirm", %{
+          "uuid" => ctx.screws.uuid,
+          "type" => "catalogue"
+        })
+
+      assert html =~ "1 other item lists something this removes as a dependency."
+    end
+
     test "the confirmation names the dependency lines it removes", %{conn: conn} = ctx do
       {:ok, _} =
         Catalogue.put_item_dependencies(ctx.susan, [
@@ -261,7 +339,7 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       html =
         render_click(view, "show_delete_confirm", %{"uuid" => ctx.screw.uuid, "type" => "item"})
 
-      assert html =~ "1 other items list something this removes as a dependency."
+      assert html =~ "1 other item lists something this removes as a dependency."
     end
   end
 end
