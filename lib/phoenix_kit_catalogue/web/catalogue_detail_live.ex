@@ -961,8 +961,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item not found.")
          )}
 
-      {:error, :parent_catalogue_deleted} ->
-        {:noreply, put_flash(socket, :error, Errors.message(:parent_catalogue_deleted))}
+      {:error, reason} when reason in [:parent_catalogue_deleted, :external_id_taken] ->
+        {:noreply, put_flash(socket, :error, Errors.message(reason))}
 
       {:error, reason} ->
         log_operation_error(socket, "restore_item", %{
@@ -1351,8 +1351,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found.")
          )}
 
-      {:error, :parent_catalogue_deleted} ->
-        {:noreply, put_flash(socket, :error, Errors.message(:parent_catalogue_deleted))}
+      {:error, reason} when reason in [:parent_catalogue_deleted, :external_id_taken] ->
+        {:noreply, put_flash(socket, :error, Errors.message(reason))}
 
       {:error, reason} ->
         log_operation_error(socket, "restore_category", %{
@@ -2107,18 +2107,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp do_bulk_restore_items(socket, uuids) do
-    {count, _} = Catalogue.bulk_restore_items(uuids, scoped_muted_actor_opts(socket))
-    PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :restored, uuids)
-    broadcast_item_batch(socket)
+    case Catalogue.bulk_restore_items(uuids, scoped_muted_actor_opts(socket)) do
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, Errors.message(reason))}
 
-    socket
-    |> clear_item_selection()
-    |> put_flash(
-      :info,
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restored %{count} items.", count: count)
-    )
-    |> reset_and_load()
-    |> then(&{:noreply, &1})
+      {count, _} ->
+        PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :restored, uuids)
+        broadcast_item_batch(socket)
+
+        socket
+        |> clear_item_selection()
+        |> put_flash(
+          :info,
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restored %{count} items.", count: count)
+        )
+        |> reset_and_load()
+        |> then(&{:noreply, &1})
+    end
   end
 
   defp do_bulk_move_items(socket, uuids, destination) do

@@ -192,9 +192,16 @@ defmodule PhoenixKitCatalogue.API.CommonTest do
     other_data =
       %Item{} |> Ecto.Changeset.change() |> Ecto.Changeset.add_error(:data, "is invalid")
 
+    worded_alike =
+      %Item{}
+      |> Ecto.Changeset.change()
+      |> Ecto.Changeset.add_error(:data, "external_id is already taken in this catalogue")
+
     refute Common.external_id_conflict?(other)
     refute Common.external_id_conflict?(elsewhere)
     refute Common.external_id_conflict?(other_data)
+    # decided by the constraint, not by the sentence
+    refute Common.external_id_conflict?(worded_alike)
   end
 
   test "with_warnings/2" do

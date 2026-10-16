@@ -38,6 +38,22 @@ defmodule PhoenixKitCatalogue.ExternalIdRestoreTest do
     assert Catalogue.get_item(old.uuid).status == "deleted"
   end
 
+  test "inside a caller's own transaction the collision raises instead of poisoning it", %{
+    catalogue: catalogue
+  } do
+    {:ok, old} = Catalogue.create_item(attrs(catalogue, "X-6"))
+    {:ok, _} = Catalogue.trash_item(old)
+    {:ok, _live} = Catalogue.create_item(attrs(catalogue, "X-6"))
+
+    # A tuple answer here would leave the caller's transaction aborted
+    # (25P02 on its next statement); the exception unwinds it instead.
+    assert_raise Postgrex.Error, fn ->
+      Repo.transaction(fn -> Catalogue.restore_item(old) end)
+    end
+
+    assert Catalogue.get_item(old.uuid).status == "deleted"
+  end
+
   test "restore_item/2 still works when the id is free", %{catalogue: catalogue} do
     {:ok, old} = Catalogue.create_item(attrs(catalogue, "X-1"))
     {:ok, _} = Catalogue.trash_item(old)
@@ -86,7 +102,9 @@ defmodule PhoenixKitCatalogue.ExternalIdRestoreTest do
     {:ok, _} = Catalogue.trash_item(other)
     {:ok, _live} = Catalogue.create_item(attrs(catalogue, "X-4"))
 
-    assert {0, nil} = Catalogue.bulk_restore_items([old.uuid, other.uuid], [])
+    assert {:error, :external_id_taken} =
+             Catalogue.bulk_restore_items([old.uuid, other.uuid], [])
+
     assert Catalogue.get_item(old.uuid).status == "deleted"
     assert Catalogue.get_item(other.uuid).status == "deleted"
   end
@@ -129,6 +147,15 @@ defmodule PhoenixKitCatalogue.ExternalIdRestoreTest do
                Catalogue.move_category_to_catalogue(category, target.uuid)
 
       assert Catalogue.get_category(category.uuid).catalogue_uuid == source.uuid
+    end
+
+    test "move_item_to_catalogue/3 answers :external_id_taken, not a changeset, and moves nothing",
+         %{source: source, target: target} do
+      {:ok, clash} = Catalogue.create_item(attrs(source, "M-5"))
+      {:ok, _} = Catalogue.create_item(attrs(target, "M-5"))
+
+      assert {:error, :external_id_taken} = Catalogue.move_item_to_catalogue(clash, target.uuid)
+      assert Catalogue.get_item(clash.uuid).catalogue_uuid == source.uuid
     end
 
     test "bulk_move_items/3 moves none of a colliding batch", %{source: source, target: target} do

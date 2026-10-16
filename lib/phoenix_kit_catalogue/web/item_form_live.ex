@@ -2116,7 +2116,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               :kind_mismatch,
               :not_found,
               :same_catalogue,
-              :catalogue_moved
+              :catalogue_moved,
+              :external_id_taken
             ],
        do: Errors.message(reason)
 

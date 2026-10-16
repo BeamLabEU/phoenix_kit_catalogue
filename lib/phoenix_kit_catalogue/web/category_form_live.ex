@@ -212,7 +212,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               :not_found,
               :parent_not_found,
               :would_create_cycle,
-              :catalogue_moved
+              :catalogue_moved,
+              :external_id_taken
             ],
        do: Errors.message(reason)
 

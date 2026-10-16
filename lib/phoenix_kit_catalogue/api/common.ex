@@ -4,6 +4,8 @@ defmodule PhoenixKitCatalogue.API.Common do
   # entry say who and how, validation errors in the executor's shape, the row
   # shapes of batch answers, and the preview/fingerprint pair of a dry run.
 
+  alias PhoenixKitCatalogue.Catalogue
+
   # --- who and how --------------------------------------------------------------
 
   @doc """
@@ -243,10 +245,6 @@ defmodule PhoenixKitCatalogue.API.Common do
 
   @doc "True when the changeset failed on the V5 `external_id` unique index."
   @spec external_id_conflict?(Ecto.Changeset.t()) :: boolean()
-  def external_id_conflict?(%Ecto.Changeset{} = changeset) do
-    Enum.any?(
-      changeset_errors(changeset),
-      &(&1["path"] == "data" and &1["message"] =~ "external_id")
-    )
-  end
+  def external_id_conflict?(%Ecto.Changeset{} = changeset),
+    do: Catalogue.external_id_conflict?(changeset)
 end

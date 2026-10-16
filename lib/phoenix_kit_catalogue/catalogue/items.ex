@@ -2291,8 +2291,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   no category trash can land between the read that partitions the items
   and the write — a transaction alone does not stop that under READ
   COMMITTED, and it used to leave live items in a trashed category.
+
+  When a live item already holds the `external_id` of one of the trashed ones
+  the whole batch is rolled back and the answer is `{:error, :external_id_taken}`.
   """
-  @spec bulk_restore_items([Ecto.UUID.t()], keyword()) :: {non_neg_integer(), nil}
+  @spec bulk_restore_items([Ecto.UUID.t()], keyword()) ::
+          {non_neg_integer(), nil} | {:error, :external_id_taken}
   def bulk_restore_items([], _opts), do: {0, nil}
 
   def bulk_restore_items(uuids, opts) when is_list(uuids) do
@@ -2346,7 +2350,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
           broadcast: false
         )
 
-        {0, nil}
+        if reason == :external_id_taken, do: {:error, :external_id_taken}, else: {0, nil}
     end
   end
 
@@ -2826,8 +2830,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
     case current
          |> Item.changeset(%{catalogue_uuid: catalogue_uuid, category_uuid: nil})
          |> repo().update() do
-      {:ok, moved} -> {moved, current}
-      {:error, changeset} -> repo().rollback(changeset)
+      {:ok, moved} ->
+        {moved, current}
+
+      {:error, changeset} ->
+        repo().rollback(
+          if Trash.external_id_conflict?(changeset), do: :external_id_taken, else: changeset
+        )
     end
   end
 
@@ -2880,8 +2889,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   Returns `{:error, :catalogue_not_found}` if the target catalogue is
   missing or trashed, `{:error, :same_catalogue}` if the item is already
   there, `{:error, :kind_mismatch}` for a catalogue of the other kind,
-  `{:error, :not_found}` for a trashed item, or `{:error, changeset}` on
-  validation failure. Both catalogues' locks are held, so a concurrent
+  `{:error, :not_found}` for a trashed item, `{:error, :external_id_taken}`
+  when the target already holds a live item with the same `external_id`, or
+  `{:error, changeset}` on validation failure. Both catalogues' locks are held, so a concurrent
   trash of either cannot interleave. Logs an `item.moved` activity with
   from/to catalogue metadata and tells both catalogues.
 
@@ -2897,6 +2907,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
              | :kind_mismatch
              | :not_found
              | :catalogue_moved
+             | :external_id_taken
              | Ecto.Changeset.t(Item.t())}
   def move_item_to_catalogue(%Item{} = item, catalogue_uuid, opts \\ [])
       when is_binary(catalogue_uuid) do
