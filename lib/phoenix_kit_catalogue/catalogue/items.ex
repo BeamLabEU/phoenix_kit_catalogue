@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
   import Ecto.Query, warn: false
 
+  alias PhoenixKit.Modules.Storage.ResourceFolders
   alias PhoenixKit.Utils.Values
   alias PhoenixKitCatalogue.Catalogue.{ActivityLog, Helpers, Manufacturers, PubSub, Shared, Trash}
   alias PhoenixKitCatalogue.MediaFolders
@@ -26,9 +27,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   # turns these into `from`/`to` pairs, which core renders as `old → new`.
   #
   # `description` is tracked but records only THAT it changed — see
-  # `ActivityLog`'s `@flag_only_fields`. A move is not here at all; it has its
-  # own action (`item.moved`, `category.moved`, `catalogue.moved_to_folder`)
-  # carrying both ends.
+  # `ActivityLog`'s `@flag_only_fields`. `slug` is a per-language map and is
+  # reported per language (`slug.en-US`), so a changed slug leaves the old one
+  # in the log. A move is not here at all; it has its own action
+  # (`item.moved`, `category.moved`, `catalogue.moved_to_folder`) carrying both
+  # ends.
   @item_logged_fields [
     :name,
     :sku,
@@ -41,6 +44,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
     :default_value,
     :default_unit,
     :description,
+    :slug,
     :ai_notes
   ]
 
@@ -508,6 +512,23 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
     |> filter_by_item_types(opts)
     |> repo().all()
     |> Map.new()
+  end
+
+  @doc """
+  Returns a map of `%{category_uuid => [item_uuid]}` for the LIVE (not trashed)
+  items directly in the given categories, each list sorted; a category without
+  live items has no key. The identity behind `item_counts_by_category_for_catalogue/2`,
+  for a caller that has to tell two sets of the same size apart.
+  """
+  @spec live_item_uuids_by_category([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => [Ecto.UUID.t()]}
+  def live_item_uuids_by_category(category_uuids) do
+    from(i in Item,
+      where: i.category_uuid in ^category_uuids and i.status != "deleted",
+      select: {i.category_uuid, i.uuid}
+    )
+    |> repo().all()
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Map.new(fn {category_uuid, uuids} -> {category_uuid, Enum.sort(uuids)} end)
   end
 
   @doc """
@@ -1469,34 +1490,65 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   Omit the option (or pass `nil`) for the previous behavior: `data` is
   replaced wholesale by whatever `attrs["data"]` contains, same as a
   plain `Ecto.Changeset.cast/4` on a `:map` field.
+
+  ## `:data_owned_paths`
+
+  The nested counterpart of `:data_owned_keys`, for a writer that owns a few
+  leaves of a key other writers also use (the shop API owns
+  `["ecommerce", "compare_at_price"]`, the Shopify sync owns
+  `["ecommerce", "shopify"]`). A list of paths, each a non-empty list of
+  string keys (the first may not be `"_trash"`); `[]` owns nothing. The row
+  is read `FOR UPDATE` in the transaction and **the update is applied to that
+  fresh row**, not to the caller's copy: for every path present in
+  `attrs["data"]` its value replaces the fresh value at that path (an
+  explicit `nil` deletes the key and prunes the maps it empties); the rest of
+  `data`, and every column the caller did not change, is the fresh row's.
+  Returns `{:error, :not_found}` when the row is gone. Mutually exclusive
+  with `:data_owned_keys` (`ArgumentError`). The returned struct is the locked
+  row, so associations the caller had preloaded are not loaded on it (reload
+  them if needed). A path that runs through a value that is not a map (say
+  `data["api"]` holding a string) replaces that value with a map when written.
+
+  ## `:slug_owned_langs`
+
+  Only with `:data_owned_paths` (`ArgumentError` otherwise): a list of
+  language codes. The `slug` column is one map for all languages, so a caller
+  that read it earlier and writes it whole would silently overwrite a slug
+  another writer (the translation sweep, the item form, a second API call)
+  stored for ANOTHER language in between, and a lost slug is a moved URL with
+  no redirect. With this option `attrs[:slug]` is read as a set of per-language
+  deltas: for each listed language the value in `attrs[:slug]` replaces the
+  locked fresh row's value (an absent or blank value deletes that language's
+  slug), and every other language is the fresh row's. Nothing is merged, and
+  the fresh row's slug map is kept as it is, when the list is `[]` or when
+  `attrs` carries no `:slug` map at all (so a rename-only call never touches a
+  slug). Without the option `attrs[:slug]` is cast whole like any column.
+
+  ## Logging options
+
+    * `:log_metadata` — a string-keyed map merged into the `item.updated`
+      entry's metadata (the entry's own `"name"`, `"sku"` and `"changes"`
+      win on a clash). The shop API sets `via`, `key_prefix`, `request_id`
+      and `tool`.
+    * `:logged_data_paths` — `data` paths whose before/after values appear in
+      `metadata["changes"]` as `"data.<a>.<b>"`, next to the logged columns.
   """
   @spec update_item(Item.t(), map(), keyword()) ::
-          {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t())}
+          {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t()) | :not_found}
   def update_item(%Item{} = item, attrs, opts \\ []) do
-    skip_derive? = Keyword.get(opts, :skip_derive, false)
+    # A bad option raises before any query is issued.
+    _ = Shared.owned_options!(opts)
 
     result =
       repo().transaction(fn ->
-        # The category (FOR SHARE, in the derive) before the item row (FOR
-        # UPDATE, in the data narrowing): the order a category trash takes
-        # them, so a form save and a trash cannot deadlock.
-        {attrs, category} =
-          if skip_derive?, do: {attrs, nil}, else: derive_catalogue_uuid(item, attrs)
-
-        attrs = Shared.narrow_data_ownership(Item, item.uuid, attrs, opts)
-
-        case item
-             |> Item.changeset(attrs)
-             |> Shared.keep_trash_status(Item, item.uuid)
-             |> check_item_category(category)
-             |> repo().update() do
-          {:ok, updated} -> updated
-          {:error, changeset} -> repo().rollback(changeset)
+        case do_update_item(item, attrs, opts, []) do
+          {:ok, {before, updated, _changed?}} -> {before, updated}
+          {:error, reason} -> repo().rollback(reason)
         end
       end)
 
     case result do
-      {:ok, updated} ->
+      {:ok, {before, updated}} ->
         Shared.log_activity(
           %{
             action: "item.updated",
@@ -1508,20 +1560,415 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
             metadata:
               ActivityLog.with_changes(
                 %{"name" => updated.name, "sku" => updated.sku || ""},
-                item,
+                before,
                 updated,
-                @item_logged_fields
+                @item_logged_fields,
+                Keyword.get(opts, :logged_data_paths, [])
               )
           },
           opts
         )
 
-        MediaFolders.follow([{item, updated}], opts[:actor_uuid])
+        MediaFolders.follow([{before, updated}], opts[:actor_uuid])
         {:ok, updated}
 
       {:error, _changeset} = error ->
         error
     end
+  end
+
+  # One item update, run INSIDE the caller's transaction. Shared by
+  # `update_item/3` and `update_items/2`. Returns `{:ok, {before, updated,
+  # changed?}}` or `{:error, changeset | :not_found}`; `before` is the row the
+  # diff is taken against (the locked fresh row under `:data_owned_paths`, the
+  # caller's copy otherwise). `repo_opts` reach `repo().update/2` (the batch
+  # passes `mode: :savepoint` so one bad row cannot poison the transaction).
+  defp do_update_item(%Item{} = item, attrs, opts, repo_opts) do
+    skip_derive? = Keyword.get(opts, :skip_derive, false)
+
+    # The category (FOR SHARE, in the derive) before the item row (FOR
+    # UPDATE, in the data narrowing): the order a category trash takes
+    # them, so a form save and a trash cannot deadlock.
+    {attrs, category} =
+      if skip_derive?, do: {attrs, nil}, else: derive_catalogue_uuid(item, attrs)
+
+    with {:ok, attrs, base} <- narrow_item_data(item, attrs, opts) do
+      changeset =
+        base
+        |> Item.changeset(attrs)
+        |> Shared.keep_trash_status(Item, base.uuid)
+        |> check_item_category(category)
+
+      case write_item(changeset, repo_opts) do
+        {:ok, updated} -> {:ok, {base, updated, map_size(changeset.changes) > 0}}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # The batch's write runs under a savepoint, so a database error there has
+  # already been rolled back to it and is this row's alone. Only this write is
+  # answered that way: an error in any read around it leaves the transaction
+  # aborted and is not the row's to swallow.
+  defp write_item(changeset, repo_opts) do
+    repo().update(changeset, repo_opts)
+  rescue
+    error in Postgrex.Error ->
+      if repo_opts[:mode] == :savepoint do
+        Logger.warning(
+          "update_items row #{changeset.data.uuid} failed: #{pg_error_summary(error)}"
+        )
+
+        {:error, :database_error}
+      else
+        reraise(error, __STACKTRACE__)
+      end
+  end
+
+  defp narrow_item_data(%Item{} = item, attrs, opts) do
+    case Shared.owned_options!(opts) do
+      {nil, nil} ->
+        {:ok, Shared.narrow_data_ownership(Item, item.uuid, attrs, opts), item}
+
+      {paths, langs} ->
+        case Shared.lock_fresh(Item, item.uuid) do
+          nil ->
+            {:error, :not_found}
+
+          fresh ->
+            attrs = Shared.splice_owned_paths(fresh, attrs, paths)
+            attrs = Shared.splice_owned_slugs(fresh, attrs, langs)
+
+            {:ok, attrs, fresh}
+        end
+    end
+  end
+
+  @doc """
+  What `update_item/3` WOULD change, without writing anything: the diff in the
+  shape `item.updated` logs (`%{"name" => %{"from" => a, "to" => b},
+  "data.ecommerce.compare_at_price" => ...}`), or the changeset when the
+  update is invalid. Takes the same `:data_owned_paths` and
+  `:logged_data_paths` options; no lock is taken (it works on the caller's
+  copy), no category derivation, no log entry, no broadcast. This is what the
+  shop API's dry run and confirmation preview are made of.
+
+  It models the column and `:data_owned_paths` changes only. `:slug_owned_langs`
+  is validated but not applied: `attrs[:slug]` is taken as the planned whole
+  slug map. A `status` change on a trashed row (which `update_item/3` discards)
+  and `:data_owned_keys` are not modelled.
+  """
+  @spec preview_item_update(Item.t(), map(), keyword()) ::
+          {:ok, %{optional(String.t()) => map()}} | {:error, Ecto.Changeset.t(Item.t())}
+  def preview_item_update(%Item{} = item, attrs, opts \\ []) do
+    attrs =
+      case Shared.owned_options!(opts) do
+        {nil, _langs} -> attrs
+        {paths, _langs} -> Shared.splice_owned_paths(item, attrs, paths)
+      end
+
+    changeset = Item.changeset(item, attrs)
+
+    if changeset.valid? do
+      updated = Ecto.Changeset.apply_changes(changeset)
+
+      metadata =
+        ActivityLog.with_changes(
+          %{},
+          item,
+          updated,
+          @item_logged_fields,
+          Keyword.get(opts, :logged_data_paths, [])
+        )
+
+      {:ok, Map.get(metadata, "changes", %{})}
+    else
+      {:error, changeset}
+    end
+  end
+
+  @update_items_max 500
+
+  @typedoc "What `update_items/2` answers for one row."
+  @type item_outcome ::
+          {:updated, Item.t()}
+          | {:unchanged, Item.t()}
+          | {:error, Ecto.Changeset.t(Item.t()) | :not_found | :duplicate_row | :database_error}
+
+  @doc """
+  Updates many items in ONE transaction and logs them with ONE insert and ONE
+  broadcast (the shop API's batch write; a 500-row batch is not 500 inserts
+  and 500 broadcasts).
+
+  `rows` is a list of `{item_uuid, attrs}` or `{item_uuid, attrs, row_opts}`;
+  `row_opts` override the shared `opts` for that row. At most 500 rows
+  (`ArgumentError` above). Answers `{:ok, [{item_uuid, outcome}]}` in input
+  order, where `outcome` is `{:updated, item}`, `{:unchanged, item}` (the
+  changeset had nothing to change: no write, no log entry) or `{:error, reason}`
+  with a changeset, `:not_found` (no such row, or not a UUID),
+  `:duplicate_row` (the uuid already appeared earlier in this batch) or
+  `:database_error`. A uuid is matched in its canonical lowercase form (an
+  upper-case spelling of an existing row's uuid finds the row, and counts as
+  the same row for `:duplicate_row`); the outcome tuple keeps the string the
+  caller sent. The returned items carry no preloaded associations.
+
+  **Rows are independent**, as far as the row's own UPDATE goes: each is
+  applied under a savepoint, so a row whose UPDATE fails (a constraint, a
+  value the database refuses) leaves the others written. Any other database
+  error (the reads around the UPDATE, which touch rows the batch already
+  holds) is raised, and nothing is written; `{:error, term}` is left for the
+  `rollback/1` paths.
+
+  Rows are locked in a fixed order (the categories involved `FOR SHARE`, then
+  the item rows `FOR UPDATE`, each sorted by uuid), and every row goes through
+  the same code as `update_item/3`, including `:data_owned_paths` (applied to
+  the locked fresh row), `:skip_derive` and `:logged_data_paths`. Row and
+  category locks are ordered, so two batches over overlapping rows cannot
+  deadlock on them; waits on the `external_id` and slug unique indexes are
+  not ordered, and a row that is the victim of a deadlock detected there
+  answers `:database_error`.
+
+  ## Options
+
+  `:actor_uuid`, `:mode`, `:log_metadata`, `:logged_data_paths`,
+  `:data_owned_paths`, `:slug_owned_langs`, `:skip_derive` as in
+  `update_item/3`, and `:broadcast` (default `true`): when `false` no bulk
+  event is sent. The options (shared and per row) are validated before any
+  query is issued; a bad one raises `ArgumentError`, as in `update_item/3`.
+
+  After the commit: one `item.updated` entry per CHANGED row in a single
+  `ActivityLog.log_many/1`, and one `{:catalogue_bulk_change, catalogue_uuid,
+  :updated, uuids, from}` per catalogue the changed rows live in (a row that
+  moves to another catalogue through `category_uuid` is announced to the new
+  catalogue only). The media folders of the changed rows follow their renames
+  and moves in one `MediaFolders.follow/2` pass, like after `update_item/3`;
+  a row that failed or changed nothing leaves its folder where it is.
+
+  Called inside the caller's own transaction (the shop API's price and
+  availability writes do), the transaction here is the caller's, so "after the
+  commit" means only after this function's own statements, not after the
+  caller's commit:
+
+    * The activity entries are inserted inside it, and core announces them as
+      soon as they are inserted; the `{:catalogue_bulk_change, ...}` and
+      `{:catalogue_data_changed, :item, nil, catalogue}` events go out right
+      after. All of them reach their listeners before the caller commits, and
+      a rollback of the caller's transaction leaves them announced. Pass
+      `broadcast: false` to hold back the two catalogue events and send them
+      after the commit with `broadcast_item_batch_change/3`; the activity
+      announcement is core's and cannot be held back.
+    * The folder pass runs inside it, so the folders and the rows commit or
+      roll back together, and a pass that has work to do holds the site-wide
+      folder-tree lock until the caller commits. Rows that change neither name
+      nor category (a price or an availability) give it nothing to do.
+    * Neither the activity insert nor the folder pass runs under a savepoint.
+      Both never raise, but a statement of either that fails in the database
+      (an activity insert that errors, a batch move that meets a concurrent
+      name claim) leaves the caller's transaction aborted while this function
+      still answers `{:ok, _}`; the caller finds out at its next statement, and
+      its own commit fails.
+
+  A caller inside a transaction should therefore write only rows that move no
+  folder, or keep `update_items/2` out of its transaction.
+  """
+  @spec update_items([{Ecto.UUID.t(), map()} | {Ecto.UUID.t(), map(), keyword()}], keyword()) ::
+          {:ok, [{Ecto.UUID.t(), item_outcome()}]} | {:error, term()}
+  def update_items(rows, opts \\ []) when is_list(rows) and is_list(opts) do
+    if length(rows) > @update_items_max do
+      raise ArgumentError,
+            "update_items/2 takes at most #{@update_items_max} rows, got #{length(rows)}"
+    end
+
+    rows = Enum.map(rows, &normalize_update_row/1)
+
+    # A bad option raises before any query is issued, like in `update_item/3`.
+    Enum.each(rows, fn {_uuid, _attrs, row_opts} ->
+      Shared.owned_options!(Keyword.merge(opts, row_opts))
+    end)
+
+    case repo().transaction(fn -> run_update_items(rows, opts) end) do
+      {:ok, results} ->
+        entries = for {_uuid, _outcome, entry, _before} <- results, entry != nil, do: entry
+        ActivityLog.log_many(entries)
+        follow_updated_items(results, opts)
+        broadcast_updated_items(results, opts)
+        {:ok, Enum.map(results, fn {uuid, outcome, _entry, _before} -> {uuid, outcome} end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp normalize_update_row({uuid, attrs}), do: {uuid, attrs, []}
+
+  defp normalize_update_row({uuid, attrs, row_opts}) when is_list(row_opts),
+    do: {uuid, attrs, row_opts}
+
+  # Runs inside the transaction. Returns `[{uuid, outcome, log_entry | nil,
+  # before | nil}]`; `before` is the row as it was, for the rows that changed.
+  defp run_update_items(rows, opts) do
+    canonical = Enum.map(rows, fn {uuid, _attrs, _row_opts} -> canonical_uuid(uuid) end)
+    items = lock_items_for_batch(rows, Enum.reject(canonical, &is_nil/1))
+
+    {results, _seen} =
+      rows
+      |> Enum.zip(canonical)
+      |> Enum.map_reduce(MapSet.new(), fn {{uuid, attrs, row_opts}, canon}, seen ->
+        key = canon || uuid
+
+        if MapSet.member?(seen, key) do
+          {{uuid, {:error, :duplicate_row}, nil, nil}, seen}
+        else
+          {outcome, entry, before} =
+            update_batch_row(Map.get(items, canon), attrs, Keyword.merge(opts, row_opts))
+
+          {{uuid, outcome, entry, before}, MapSet.put(seen, key)}
+        end
+      end)
+
+    results
+  end
+
+  # The canonical (lowercase) form of anything `Ecto.UUID` accepts, else nil.
+  defp canonical_uuid(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, canonical} -> canonical
+      :error -> nil
+    end
+  end
+
+  # Categories FOR SHARE, then items FOR UPDATE, each in uuid order: the order
+  # a category trash takes them in, and the same order for every batch.
+  defp lock_items_for_batch(_rows, []), do: %{}
+
+  defp lock_items_for_batch(rows, uuids) do
+    current_categories =
+      repo().all(
+        from(i in Item,
+          where: i.uuid in ^uuids and not is_nil(i.category_uuid),
+          select: i.category_uuid
+        )
+      )
+
+    incoming_categories =
+      rows
+      |> Enum.map(fn {_uuid, attrs, _row_opts} ->
+        attrs |> Helpers.fetch_attr(:category_uuid) |> canonical_uuid()
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    category_uuids = (current_categories ++ incoming_categories) |> Enum.uniq() |> Enum.sort()
+
+    repo().all(
+      from(c in Category,
+        where: c.uuid in ^category_uuids,
+        order_by: c.uuid,
+        lock: "FOR SHARE",
+        select: c.uuid
+      )
+    )
+
+    from(i in Item, where: i.uuid in ^uuids, order_by: i.uuid, lock: "FOR UPDATE")
+    |> repo().all()
+    |> Map.new(&{&1.uuid, &1})
+  end
+
+  defp update_batch_row(nil, _attrs, _opts), do: {{:error, :not_found}, nil, nil}
+
+  defp update_batch_row(%Item{} = item, attrs, opts) do
+    case do_update_item(item, attrs, opts, mode: :savepoint) do
+      {:ok, {before, updated, true}} ->
+        {{:updated, updated}, batch_entry(before, updated, opts), before}
+
+      {:ok, {_before, updated, false}} ->
+        {{:unchanged, updated}, nil, nil}
+
+      {:error, reason} ->
+        {{:error, reason}, nil, nil}
+    end
+  end
+
+  # Only the structured, value-free fields of a database error: its message and
+  # detail can carry the offending value.
+  defp pg_error_summary(%Postgrex.Error{postgres: %{} = pg}) do
+    Enum.map_join([:pg_code, :code, :constraint, :table], " ", fn key ->
+      "#{key}=#{Map.get(pg, key, "-")}"
+    end)
+  end
+
+  defp pg_error_summary(%Postgrex.Error{}), do: "no server error"
+
+  defp batch_entry(before, updated, opts) do
+    metadata =
+      %{"name" => updated.name, "sku" => updated.sku || ""}
+      |> ActivityLog.with_changes(
+        before,
+        updated,
+        @item_logged_fields,
+        Keyword.get(opts, :logged_data_paths, [])
+      )
+      |> ActivityLog.with_extra(Keyword.get(opts, :log_metadata))
+
+    %{
+      action: "item.updated",
+      mode: opts[:mode] || "manual",
+      actor_uuid: opts[:actor_uuid],
+      resource_type: "item",
+      resource_uuid: updated.uuid,
+      metadata: metadata
+    }
+  end
+
+  # After the commit, like every other write: the folders of the rows that
+  # changed follow them, in one pass for the whole batch. A row that failed or
+  # changed nothing has no pair, so its folder stays where it is.
+  defp follow_updated_items(results, opts) do
+    results
+    |> Enum.flat_map(fn
+      {_uuid, {:updated, updated}, _entry, before} -> [{before, updated}]
+      _other -> []
+    end)
+    |> MediaFolders.follow(opts[:actor_uuid])
+  end
+
+  defp broadcast_updated_items(results, opts) do
+    if Keyword.get(opts, :broadcast, true) do
+      results
+      |> Enum.flat_map(fn
+        {_uuid, {:updated, item}, _entry, _before} -> [item]
+        _other -> []
+      end)
+      |> Enum.group_by(& &1.catalogue_uuid, & &1.uuid)
+      |> Enum.each(fn {catalogue_uuid, uuids} ->
+        PubSub.broadcast_bulk_change(catalogue_uuid, :updated, uuids)
+        # the nil-uuid event the catalogues index listens to, once per catalogue
+        PubSub.broadcast(:item, nil, catalogue_uuid)
+      end)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Announces a batch of item changes made WITHOUT per-row broadcasts (the shop
+  API creates and trashes with `broadcast: false` and announces once):
+  `{:catalogue_bulk_change, catalogue_uuid, kind, uuids, self()}` followed by
+  ONE `{:catalogue_data_changed, :item, nil, catalogue_uuid}` (what every
+  existing batch operation sends, and all the catalogues index listens to).
+  An empty list sends nothing.
+  """
+  @spec broadcast_item_batch_change(Ecto.UUID.t(), :created | :updated | :trashed, [
+          Ecto.UUID.t()
+        ]) :: :ok
+  def broadcast_item_batch_change(_catalogue_uuid, _kind, []), do: :ok
+
+  def broadcast_item_batch_change(catalogue_uuid, kind, uuids)
+      when kind in [:created, :updated, :trashed] and is_list(uuids) do
+    PubSub.broadcast_bulk_change(catalogue_uuid, kind, uuids)
+    # Like every existing batch operation (`broadcast_item_batch/2`), also the nil-uuid
+    # data-changed event: the catalogues index (Items count) listens to that one only.
+    PubSub.broadcast(:item, nil, catalogue_uuid)
+    :ok
   end
 
   @doc "Hard-deletes an item. Prefer `trash_item/1` for soft-delete."
@@ -1556,12 +2003,26 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   it in the trash. Returns `{:error, :not_found}` when the row is gone. An
   item already in the trash is returned unchanged.
 
+  Options: `:actor_uuid`, `:mode`, `:broadcast` (`false` sends no PubSub
+  event) and `:log_metadata` (extra keys for the activity entry).
+
   ## Examples
 
       {:ok, item} = Catalogue.trash_item(item)
   """
   @spec trash_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, :not_found | term()}
   def trash_item(%Item{} = item, opts \\ []) do
+    with {:ok, _outcome, trashed} <- trash_item_outcome(item, opts), do: {:ok, trashed}
+  end
+
+  @doc """
+  `trash_item/2` that tells whether THIS call trashed the item: `{:ok, :trashed,
+  item}`, or `{:ok, :already_trashed, item}` when it was in the trash already (a
+  concurrent trash that landed first) and nothing was changed or logged.
+  """
+  @spec trash_item_outcome(Item.t(), keyword()) ::
+          {:ok, :trashed | :already_trashed, Item.t()} | {:error, :not_found | term()}
+  def trash_item_outcome(%Item{} = item, opts \\ []) do
     result =
       Trash.locked_transaction(fn ->
         _locked = Trash.lock_row_in_catalogue!(Item, item.uuid)
@@ -1577,18 +2038,21 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
     # An item already in the trash was not trashed by this call.
     with {:ok, {trashed, trashed_now}} <- result do
       if trashed_now > 0 do
-        Shared.log_activity(%{
-          action: "item.trashed",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "item",
-          resource_uuid: trashed.uuid,
-          parent_catalogue_uuid: trashed.catalogue_uuid,
-          metadata: %{"name" => trashed.name}
-        })
+        Shared.log_activity(
+          %{
+            action: "item.trashed",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item",
+            resource_uuid: trashed.uuid,
+            parent_catalogue_uuid: trashed.catalogue_uuid,
+            metadata: %{"name" => trashed.name}
+          },
+          Keyword.take(opts, [:log_metadata, :broadcast, :mode])
+        )
       end
 
-      {:ok, trashed}
+      {:ok, if(trashed_now > 0, do: :trashed, else: :already_trashed), trashed}
     end
   end
 
@@ -1608,6 +2072,16 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   brings back the items its own trash took.
 
   An item that is not deleted is returned unchanged.
+
+  Refuses with `{:error, :external_id_taken}` when a live item has taken the
+  `external_id` of this one; nothing is restored.
+
+  Inside a caller's own transaction the collision is raised as the
+  `Postgrex.Error` instead, because the database has already aborted that
+  transaction.
+
+  Options: `:actor_uuid`, `:mode`, `:broadcast` (`false` sends no PubSub
+  event) and `:log_metadata` (extra keys for the activity entry).
 
   ## Examples
 
@@ -1634,17 +2108,20 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
       {:ok, {:restored, {restored, detached?}, fresh}} ->
         if detached?, do: MediaFolders.follow([{fresh, restored}], opts[:actor_uuid])
 
-        Shared.log_activity(%{
-          action: "item.restored",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "item",
-          resource_uuid: restored.uuid,
-          parent_catalogue_uuid: restored.catalogue_uuid,
-          metadata:
-            %{"name" => restored.name}
-            |> Map.merge(if detached?, do: %{"detached_from_category" => true}, else: %{})
-        })
+        Shared.log_activity(
+          %{
+            action: "item.restored",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item",
+            resource_uuid: restored.uuid,
+            parent_catalogue_uuid: restored.catalogue_uuid,
+            metadata:
+              %{"name" => restored.name}
+              |> Map.merge(if detached?, do: %{"detached_from_category" => true}, else: %{})
+          },
+          Keyword.take(opts, [:log_metadata, :broadcast, :mode])
+        )
 
         {:ok, restored}
 
@@ -1855,8 +2332,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   no category trash can land between the read that partitions the items
   and the write — a transaction alone does not stop that under READ
   COMMITTED, and it used to leave live items in a trashed category.
+
+  When a live item already holds the `external_id` of one of the trashed ones
+  the whole batch is rolled back and the answer is `{:error, :external_id_taken}`
+  (no audit entry is written for it). Inside a caller's own transaction the
+  collision is raised as the `Postgrex.Error` instead, because the database
+  has already aborted that transaction.
   """
-  @spec bulk_restore_items([Ecto.UUID.t()], keyword()) :: {non_neg_integer(), nil}
+  @spec bulk_restore_items([Ecto.UUID.t()], keyword()) ::
+          {non_neg_integer(), nil} | {:error, :external_id_taken}
   def bulk_restore_items([], _opts), do: {0, nil}
 
   def bulk_restore_items(uuids, opts) when is_list(uuids) do
@@ -1893,6 +2377,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
         end
 
         {count, nil}
+
+      # A refused restore changed nothing the operator asked for, so it
+      # leaves no audit row (each retry of the click would add one).
+      {:error, :external_id_taken} = refused ->
+        Logger.warning("bulk_restore_items rolled back: :external_id_taken")
+        refused
 
       # A rollback inside the batch is a result, not a MatchError — and
       # its audit row says "restore", not "reorder".
@@ -2243,6 +2733,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   (`:category_not_found`) and a category in a catalogue of the other
   kind (`:kind_mismatch`). A move across catalogues tells both.
 
+  The item's media folder follows it into the new category's folder. A caller
+  that moves many items uses `move_item_to_category_deferred/3` instead and
+  follows all the folders in one pass afterwards.
+
   ## Examples
 
       {:ok, item} = Catalogue.move_item_to_category(item, new_category_uuid)
@@ -2256,6 +2750,28 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
   def move_item_to_category(%Item{} = item, category_uuid, opts)
       when is_nil(category_uuid) or is_binary(category_uuid) do
+    with {:ok, {before, moved}} <- checked_item_move(item, category_uuid, opts) do
+      MediaFolders.follow([{before, moved}], opts[:actor_uuid])
+      {:ok, moved}
+    end
+  end
+
+  @doc """
+  `move_item_to_category/3` without the media folder step, for a caller that moves
+  many items: it returns the `{before, moved}` pair of the move, where `before` is
+  the row the move locked (not the caller's possibly stale copy), and the caller
+  hands the pairs of all its moves to `follow_moved_items/2` once. The item's folder
+  stays where it is until it does.
+  """
+  @spec move_item_to_category_deferred(Item.t(), Ecto.UUID.t() | nil, keyword()) ::
+          {:ok, {Item.t(), Item.t()}}
+          | {:error,
+             :category_not_found | :not_found | :kind_mismatch | Ecto.Changeset.t(Item.t())}
+  def move_item_to_category_deferred(%Item{} = item, category_uuid, opts \\ [])
+      when is_nil(category_uuid) or is_binary(category_uuid),
+      do: checked_item_move(item, category_uuid, opts)
+
+  defp checked_item_move(item, category_uuid, opts) do
     if is_nil(category_uuid) or Shared.valid_uuid?(category_uuid),
       do: do_move_item_to_category(item, category_uuid, opts),
       else: {:error, :category_not_found}
@@ -2299,15 +2815,49 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
               ])
           }
         },
-        Keyword.take(opts, [:broadcast, :mode])
+        Keyword.take(opts, [:broadcast, :mode, :log_metadata])
       )
 
       if before.catalogue_uuid != moved.catalogue_uuid and Keyword.get(opts, :broadcast, true),
         do: PubSub.broadcast(:item, nil, before.catalogue_uuid)
 
-      MediaFolders.follow([{before, moved}], opts[:actor_uuid])
-      {:ok, moved}
+      {:ok, {before, moved}}
     end
+  end
+
+  @doc """
+  Moves and renames the media folders of items moved with
+  `move_item_to_category_deferred/3`, given the `{before, moved}` pairs of all the
+  moves, in one pass instead of one by one (`MediaFolders.follow/2`).
+
+  `moved` is re-read, all rows in one query, just before the pass: an item that was
+  renamed or moved again since its own move (a window as long as the caller's
+  batch) is followed to where it is now, not to where the move left it. An item that
+  is gone keeps the pair as given. Never fails: a failure is logged and the folders
+  stay.
+  """
+  @spec follow_moved_items([{Item.t(), Item.t()}], Ecto.UUID.t() | nil) :: :ok
+  def follow_moved_items([], _actor_uuid), do: :ok
+
+  def follow_moved_items(pairs, actor_uuid) when is_list(pairs) do
+    pairs
+    |> current_pairs()
+    |> MediaFolders.follow(actor_uuid)
+  end
+
+  defp current_pairs(pairs) do
+    uuids = Enum.map(pairs, fn {_before, moved} -> moved.uuid end)
+    current = from(i in Item, where: i.uuid in ^uuids) |> repo().all() |> Map.new(&{&1.uuid, &1})
+
+    Enum.map(pairs, fn {before, moved} -> {before, Map.get(current, moved.uuid, moved)} end)
+  rescue
+    exception ->
+      Logger.warning(
+        "[Catalogue] moved items could not be re-read for their media folders: " <>
+          ResourceFolders.describe_failure(exception)
+      )
+
+      pairs
   end
 
   defp locked_move_item_to_catalogue(item, catalogue_uuid) do
@@ -2330,8 +2880,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
     case current
          |> Item.changeset(%{catalogue_uuid: catalogue_uuid, category_uuid: nil})
          |> repo().update() do
-      {:ok, moved} -> {moved, current}
-      {:error, changeset} -> repo().rollback(changeset)
+      {:ok, moved} ->
+        {moved, current}
+
+      {:error, changeset} ->
+        repo().rollback(
+          if Trash.external_id_conflict?(changeset), do: :external_id_taken, else: changeset
+        )
     end
   end
 
@@ -2384,8 +2939,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   Returns `{:error, :catalogue_not_found}` if the target catalogue is
   missing or trashed, `{:error, :same_catalogue}` if the item is already
   there, `{:error, :kind_mismatch}` for a catalogue of the other kind,
-  `{:error, :not_found}` for a trashed item, or `{:error, changeset}` on
-  validation failure. Both catalogues' locks are held, so a concurrent
+  `{:error, :not_found}` for a trashed item, `{:error, :external_id_taken}`
+  when the target already holds a live item with the same `external_id`, or
+  `{:error, changeset}` on validation failure. Inside a caller's own
+  transaction that collision is raised as the `Postgrex.Error` instead,
+  because the database has already aborted that transaction. Both
+  catalogues' locks are held, so a concurrent
   trash of either cannot interleave. Logs an `item.moved` activity with
   from/to catalogue metadata and tells both catalogues.
 
@@ -2401,6 +2960,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
              | :kind_mismatch
              | :not_found
              | :catalogue_moved
+             | :external_id_taken
              | Ecto.Changeset.t(Item.t())}
   def move_item_to_catalogue(%Item{} = item, catalogue_uuid, opts \\ [])
       when is_binary(catalogue_uuid) do

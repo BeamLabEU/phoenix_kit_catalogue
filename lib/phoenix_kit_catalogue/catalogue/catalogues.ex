@@ -447,6 +447,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
   (decided from the row, not the argument — callers often pass the
   pre-trash struct).
 
+  Refuses with `{:error, :external_id_taken}` when a live row has taken the
+  `external_id` of one of the rows coming back; nothing is restored.
+
+  Inside a caller's own transaction the collision is raised as the
+  `Postgrex.Error` instead, because the database has already aborted that
+  transaction.
+
   ## Examples
 
       {:ok, catalogue} = Catalogue.restore_catalogue(catalogue)
@@ -455,15 +462,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
           {:ok, Catalogue.t()} | {:error, term()}
   def restore_catalogue(%Catalogue{} = catalogue, opts \\ []) do
     result =
-      repo().transaction(fn ->
-        Shared.lock_catalogues_order!()
-        Trash.lock_catalogue!(catalogue.uuid)
-
-        case repo().get(Catalogue, catalogue.uuid) do
-          nil -> repo().rollback(:not_found)
-          %Catalogue{status: "deleted"} = fresh -> {:restored, do_restore_catalogue(fresh)}
-          fresh -> {:unchanged, {fresh, 0, 0}}
-        end
+      Trash.guard_external_id(fn ->
+        repo().transaction(fn -> restore_locked_catalogue(catalogue) end)
       end)
 
     case result do
@@ -488,6 +488,17 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp restore_locked_catalogue(catalogue) do
+    Shared.lock_catalogues_order!()
+    Trash.lock_catalogue!(catalogue.uuid)
+
+    case repo().get(Catalogue, catalogue.uuid) do
+      nil -> repo().rollback(:not_found)
+      %Catalogue{status: "deleted"} = fresh -> {:restored, do_restore_catalogue(fresh)}
+      fresh -> {:unchanged, {fresh, 0, 0}}
     end
   end
 

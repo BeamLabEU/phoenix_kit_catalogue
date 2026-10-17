@@ -55,11 +55,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Dependencies,
     Duplication,
     Folders,
+    ItemPaging,
     Items,
     ItemSupplierInfos,
     Links,
     Manufacturers,
     PdfLibrary,
+    RefLookup,
     Rules,
     Search,
     SmartPricing,
@@ -277,6 +279,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate update_category(category, attrs, opts \\ []), to: Categories
   defdelegate delete_category(category, opts \\ []), to: Categories
   defdelegate trash_category(category, opts \\ []), to: Categories
+  defdelegate trash_category_outcome(category, opts \\ []), to: Categories
+  defdelegate broadcast_categories_trashed(catalogue_uuid), to: Categories
   defdelegate restore_category(category, opts \\ []), to: Categories
   defdelegate permanently_delete_category(category, opts \\ []), to: Categories
   defdelegate permanent_delete_scope(category), to: Categories
@@ -296,6 +300,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate category_children_counts(catalogue_uuid, opts \\ []), to: Categories
   defdelegate category_uuids_with_children(catalogue_uuid, opts \\ []), to: Categories
   defdelegate next_category_position(catalogue_uuid, parent_uuid \\ nil), to: Categories
+  defdelegate max_category_position(), to: Categories
 
   defdelegate reorder_categories(catalogue_uuid, parent_uuid, ordered_uuids, opts \\ []),
     to: Categories
@@ -363,6 +368,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate item_status_counts_for_category(category_uuid), to: Items
   defdelegate item_status_counts_for_uncategorized(catalogue_uuid), to: Items
   defdelegate item_counts_by_category_for_catalogue(catalogue_uuid, opts \\ []), to: Items
+  defdelegate live_item_uuids_by_category(category_uuids), to: Items
   defdelegate next_item_position(catalogue_uuid, category_uuid), to: Items
   defdelegate reorder_items(catalogue_uuid, category_uuid, ordered_uuids, opts \\ []), to: Items
 
@@ -382,8 +388,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate list_items_by_uuids(uuids, opts \\ []), to: Items
   defdelegate create_item(attrs, opts \\ []), to: Items
   defdelegate update_item(item, attrs, opts \\ []), to: Items
+  defdelegate preview_item_update(item, attrs, opts \\ []), to: Items
+  defdelegate update_items(rows, opts \\ []), to: Items
+  defdelegate broadcast_item_batch_change(catalogue_uuid, kind, uuids), to: Items
   defdelegate delete_item(item, opts \\ []), to: Items
   defdelegate trash_item(item, opts \\ []), to: Items
+  defdelegate trash_item_outcome(item, opts \\ []), to: Items
   defdelegate restore_item(item, opts \\ []), to: Items
   defdelegate permanently_delete_item(item, opts \\ []), to: Items
   defdelegate trash_items_in_category(category_uuid, opts \\ []), to: Items
@@ -393,10 +403,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate bulk_move_items_to_category(uuids, target, opts), to: Items
   defdelegate bulk_move_items(uuids, destination, opts), to: Items
   defdelegate move_item_to_category(item, category_uuid, opts \\ []), to: Items
+  defdelegate move_item_to_category_deferred(item, category_uuid, opts \\ []), to: Items
+  defdelegate follow_moved_items(pairs, actor_uuid), to: Items
   defdelegate move_item_to_catalogue(item, catalogue_uuid, opts \\ []), to: Items
   defdelegate change_item(item, attrs \\ %{}), to: Items
   defdelegate item_pricing(item), to: Items
   defdelegate effective_item_type(item), to: Items
+
+  # ── Keyset paging for the shop API's incremental export ──────────
+  defdelegate list_items_keyset(opts), to: ItemPaging, as: :page
+  defdelegate count_items_matching(opts), to: ItemPaging, as: :count
+  defdelegate decode_items_cursor(cursor), to: ItemPaging, as: :decode_cursor
+
+  # ── Batched reference lookups for the shop API ───────────────────
+  defdelegate lookup_by_ids(kind, ids, opts \\ []), to: RefLookup, as: :by_ids
+  defdelegate lookup_by_skus(kind, skus, opts \\ []), to: RefLookup, as: :by_skus
+  defdelegate lookup_by_external_ids(kind, eids, opts \\ []), to: RefLookup, as: :by_external_ids
+  defdelegate external_id_conflict?(changeset), to: Trash
 
   # ═══════════════════════════════════════════════════════════════════
   # Smart-catalogue rules — see PhoenixKitCatalogue.Catalogue.Rules
