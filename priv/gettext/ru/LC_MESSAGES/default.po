@@ -248,6 +248,9 @@ msgstr "Этот JSON-файл не является экспортом ката
 msgid "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
 msgstr "Невозможно восстановить — родительский каталог удалён. Сначала восстановите каталог."
 
+msgid "Another active row already uses the same external id."
+msgstr "Другая активная запись уже использует этот внешний идентификатор."
+
 msgid "Cannot delete: %{count} smart items still reference this catalogue."
 msgstr "Невозможно удалить: %{count} смарт-позиций ссылаются на этот каталог."
 

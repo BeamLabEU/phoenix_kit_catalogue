@@ -87,6 +87,22 @@ defmodule PhoenixKitCatalogue.Catalogue.Shared do
   def log_activity(attrs, opts \\ []) do
     {parent_catalogue_uuid, attrs} = Map.pop(attrs, :parent_catalogue_uuid)
 
+    # The shop API's `via` / `key_prefix` / `request_id` / `tool` ride in
+    # `opts[:log_metadata]`; the entry's own metadata wins on a clash.
+    attrs =
+      case Keyword.get(opts, :log_metadata) do
+        extra when is_map(extra) and map_size(extra) > 0 ->
+          Map.update(
+            attrs,
+            :metadata,
+            ActivityLog.with_extra(%{}, extra),
+            &ActivityLog.with_extra(&1, extra)
+          )
+
+        _none ->
+          attrs
+      end
+
     # The caller's `mode` wins over the site's default ("manual"): the
     # importer passes `mode: "auto"`, and until 2026-09-12 every site but
     # `create_item/2` dropped it, so the log could not tell an import
@@ -267,9 +283,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Shared do
 
   @doc false
   def splice_owned_data(schema, uuid, attrs, owned_keys) do
-    query = from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE")
-
-    case repo().one(query) do
+    case lock_fresh(schema, uuid) do
       nil ->
         attrs
 
@@ -300,6 +314,163 @@ defmodule PhoenixKitCatalogue.Catalogue.Shared do
       {key, nil}, acc -> Map.delete(acc, key)
       {key, value}, acc -> Map.put(acc, key, value)
     end)
+  end
+
+  # `:data_owned_paths`: `nil` when the option is absent, the validated list
+  # otherwise. A malformed value is the caller's bug and raises.
+  @doc false
+  def owned_paths!(opts) do
+    case Keyword.get(opts, :data_owned_paths) do
+      nil ->
+        nil
+
+      paths ->
+        if Keyword.get(opts, :data_owned_keys) != nil do
+          raise ArgumentError, ":data_owned_paths and :data_owned_keys are mutually exclusive"
+        end
+
+        if valid_paths?(paths) do
+          paths
+        else
+          raise ArgumentError,
+                ":data_owned_paths must be a list of non-empty lists of non-empty strings " <>
+                  "(the first segment may not be \"_trash\")"
+        end
+    end
+  end
+
+  defp valid_paths?(paths) when is_list(paths) do
+    Enum.all?(paths, fn
+      [first | _] = path ->
+        first != "_trash" and Enum.all?(path, &(is_binary(&1) and &1 != ""))
+
+      _other ->
+        false
+    end)
+  end
+
+  defp valid_paths?(_other), do: false
+
+  # `:slug_owned_langs`: `nil` when the option is absent, the validated list
+  # otherwise. The messages carry no values: an ArgumentError message may end
+  # up in a log.
+  @doc false
+  def slug_langs!(opts) do
+    case Keyword.get(opts, :slug_owned_langs) do
+      nil ->
+        nil
+
+      langs when is_list(langs) ->
+        if Enum.all?(langs, &(is_binary(&1) and &1 != "")),
+          do: langs,
+          else: raise(ArgumentError, ":slug_owned_langs must be a list of non-empty strings")
+
+      _other ->
+        raise ArgumentError, ":slug_owned_langs must be a list of non-empty strings"
+    end
+  end
+
+  # Both options of the row-locked update, validated together: `{paths, langs}`,
+  # each `nil` when its option is absent.
+  @doc false
+  def owned_options!(opts) do
+    paths = owned_paths!(opts)
+    langs = slug_langs!(opts)
+
+    if langs != nil and paths == nil,
+      do: raise(ArgumentError, ":slug_owned_langs needs :data_owned_paths (the row lock)")
+
+    {paths, langs}
+  end
+
+  # Merges the owned languages of `attrs[:slug]` into the fresh row's slug map.
+  # `nil` langs (option absent): `attrs[:slug]` is cast whole like any column.
+  # With the option, and nothing to merge (`[]`, no `:slug` sent, or a `:slug`
+  # that is not a map), `:slug` is taken out of `attrs` so the fresh row's slug
+  # map stays exactly as it is.
+  @doc false
+  def splice_owned_slugs(_fresh, attrs, nil), do: attrs
+
+  def splice_owned_slugs(%{slug: fresh_slug}, attrs, langs) do
+    case Helpers.fetch_attr(attrs, :slug) do
+      %{} = incoming when langs != [] ->
+        Helpers.put_attr(attrs, :slug, merge_slug_langs(fresh_slug || %{}, incoming, langs))
+
+      _nothing_to_merge ->
+        attrs |> Map.delete(:slug) |> Map.delete("slug")
+    end
+  end
+
+  defp merge_slug_langs(fresh_slug, incoming, langs) do
+    Enum.reduce(langs, fresh_slug, fn lang, acc ->
+      case Map.get(incoming, lang) do
+        slug when is_binary(slug) and slug != "" -> Map.put(acc, lang, slug)
+        _blank -> Map.delete(acc, lang)
+      end
+    end)
+  end
+
+  @doc false
+  def lock_fresh(schema, uuid),
+    do: repo().one(from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE"))
+
+  # Copies the owned paths from `attrs["data"]` onto the fresh row's `data`;
+  # everything else in the result is the fresh row's. A path absent from the
+  # incoming data is left alone, an explicit `nil` deletes it.
+  @doc false
+  def splice_owned_paths(%{data: fresh_data}, attrs, paths) do
+    incoming = Helpers.fetch_attr(attrs, :data) || %{}
+
+    merged =
+      Enum.reduce(paths, fresh_data || %{}, fn path, acc ->
+        case fetch_path(incoming, path) do
+          {:ok, nil} -> delete_path(acc, path)
+          {:ok, value} -> put_path(acc, path, value)
+          :error -> acc
+        end
+      end)
+
+    Helpers.put_attr(attrs, :data, merged)
+  end
+
+  defp fetch_path(%{} = map, [key]), do: Map.fetch(map, key)
+
+  defp fetch_path(%{} = map, [key | rest]) do
+    case Map.get(map, key) do
+      %{} = child -> fetch_path(child, rest)
+      _other -> :error
+    end
+  end
+
+  defp fetch_path(_other, _path), do: :error
+
+  defp put_path(map, [key], value), do: Map.put(map, key, value)
+
+  defp put_path(map, [key | rest], value) do
+    child =
+      case Map.get(map, key) do
+        %{} = existing -> existing
+        _other -> %{}
+      end
+
+    Map.put(map, key, put_path(child, rest, value))
+  end
+
+  # Deletes the leaf and prunes the maps it leaves empty, so a record ends up
+  # looking like one that never had the key.
+  defp delete_path(map, [key]), do: Map.delete(map, key)
+
+  defp delete_path(map, [key | rest]) do
+    case Map.get(map, key) do
+      %{} = child ->
+        case delete_path(child, rest) do
+          empty when map_size(empty) == 0 -> Map.delete(map, key)
+          pruned -> Map.put(map, key, pruned)
+        end
+
+      _other ->
+        map
+    end
   end
 
   # The canonical string form only: `Ecto.UUID.cast/1` also accepts any

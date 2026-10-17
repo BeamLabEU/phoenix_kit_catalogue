@@ -72,7 +72,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Trash do
   # release, so the error goes back to the caller.
   @doc false
   def locked_transaction(fun, attempts \\ 3) do
-    case repo().transaction(fun) do
+    case guard_external_id(fn -> repo().transaction(fun) end) do
       {:error, :catalogue_moved} = error when attempts > 1 ->
         if repo().in_transaction?(), do: error, else: locked_transaction(fun, attempts - 1)
 
@@ -80,6 +80,43 @@ defmodule PhoenixKitCatalogue.Catalogue.Trash do
         result
     end
   end
+
+  # A restore brings rows back with `update_all`, which cannot map a
+  # constraint to a changeset: a live row that took the `external_id` of a
+  # trashed one arrives as a raised unique violation on one of the two V5
+  # indexes. Only that one is turned into a result; every other database
+  # error is re-raised untouched. The exception unwinds the transaction, so
+  # nothing is half-restored. Inside a caller's own transaction Postgres has
+  # already aborted it, so a tuple would invite the caller to carry on in a
+  # dead transaction (25P02); there the exception goes to the caller as is.
+  @external_id_indexes [
+    "phoenix_kit_cat_items_external_id_uniq",
+    "phoenix_kit_cat_categories_external_id_uniq"
+  ]
+
+  @doc false
+  def guard_external_id(fun) do
+    fun.()
+  rescue
+    error in Postgrex.Error ->
+      if external_id_violation?(error) and not repo().in_transaction?(),
+        do: {:error, :external_id_taken},
+        else: reraise(error, __STACKTRACE__)
+  end
+
+  @doc false
+  @spec external_id_conflict?(Ecto.Changeset.t()) :: boolean()
+  def external_id_conflict?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn
+      {:data, {_message, opts}} -> opts[:constraint_name] in @external_id_indexes
+      _other -> false
+    end)
+  end
+
+  defp external_id_violation?(%Postgrex.Error{postgres: %{code: :unique_violation} = postgres}),
+    do: postgres[:constraint] in @external_id_indexes
+
+  defp external_id_violation?(_error), do: false
 
   # Bulk paths: locks every catalogue the rows live in, then checks none
   # moved between that read and the locks. A category move takes the same

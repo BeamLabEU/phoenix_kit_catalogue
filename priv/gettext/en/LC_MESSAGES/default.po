@@ -248,6 +248,9 @@ msgstr "This JSON file is not a catalogue export: it needs an \"items\" list of 
 msgid "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
 msgstr "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
 
+msgid "Another active row already uses the same external id."
+msgstr "Another active row already uses the same external id."
+
 msgid "Cannot delete: %{count} smart items still reference this catalogue."
 msgstr "Cannot delete: %{count} smart items still reference this catalogue."
 
