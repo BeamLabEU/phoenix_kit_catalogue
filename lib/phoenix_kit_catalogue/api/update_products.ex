@@ -35,7 +35,7 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
           catalogue_uuid: catalogue.uuid
         )
 
-      plan = plan(Enum.zip(entries, resolutions), catalogue)
+      plan = Enum.zip(entries, resolutions) |> plan(catalogue) |> mark_sku_conflicts(catalogue)
 
       if ctx.dry_run?, do: preview(plan, catalogue), else: execute(plan, catalogue, ctx)
     end
@@ -43,8 +43,9 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
 
   # --- planning (reads only) ---------------------------------------------------------
 
-  # A planned row is `{:update, ref, item, update}`, `{:rejected, ref, message, context}`
-  # or `{:resolution_error, ref, reason}`.
+  # A planned row is `{:update, ref, item, update}`, `{:rejected, ref, message, context}`,
+  # `{:resolution_error, ref, reason}` or, after `mark_sku_conflicts/2`,
+  # `{:sku_taken, ref, holder_uuid}`.
   defp plan(pairs, catalogue) do
     {planned, _state} =
       Enum.map_reduce(pairs, %{seen: MapSet.new(), categories: %{}, sets: %{}}, fn {entry,
@@ -78,6 +79,61 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
         end
     end
   end
+
+  # A sku is not unique in the database, so nothing else stops a change that gives an item the
+  # sku another live item of the catalogue holds (a later lookup by that sku would then answer
+  # `ambiguous_ref`). `create_products` refuses such a row; so does this. The rows are walked in
+  # input order, like the write: a row that changes or clears a sku releases it for the rows after
+  # it, and a row that sets one takes it. An item that keeps its own sku is no conflict.
+  defp mark_sku_conflicts(plan, catalogue) do
+    {marked, _holders} = Enum.map_reduce(plan, sku_holders(plan, catalogue), &claim_sku/2)
+    marked
+  end
+
+  # `%{sku => [uuid]}` for the skus the plan wants to set.
+  defp sku_holders(plan, catalogue) do
+    refs =
+      for {:update, _ref, item, %{attrs: %{sku: sku}}} <- plan,
+          is_binary(sku),
+          sku != item.sku,
+          uniq: true,
+          do: %{"sku" => sku}
+
+    for {%{"sku" => sku}, resolution} <-
+          API.resolve_refs(refs, kind: :item, catalogue_uuid: catalogue.uuid),
+        into: %{},
+        do: {sku, holder_uuids(resolution)}
+  end
+
+  defp holder_uuids({:ok, item}), do: [item.uuid]
+  defp holder_uuids({:error, {:ambiguous_ref, uuids}}), do: uuids
+  defp holder_uuids({:error, _reason}), do: []
+
+  defp claim_sku({:update, ref, item, %{attrs: %{sku: wanted}}} = row, holders) do
+    if wanted == item.sku do
+      {row, holders}
+    else
+      case holders |> Map.get(wanted, []) |> List.delete(item.uuid) do
+        [holder | _others] when is_binary(wanted) ->
+          {{:sku_taken, ref, holder}, holders}
+
+        _free ->
+          {row, holders |> release_sku(item) |> hold_sku(wanted, item.uuid)}
+      end
+    end
+  end
+
+  defp claim_sku(row, holders), do: {row, holders}
+
+  defp release_sku(holders, %{sku: sku, uuid: uuid}) when is_binary(sku),
+    do: Map.update(holders, sku, [], &List.delete(&1, uuid))
+
+  defp release_sku(holders, _item), do: holders
+
+  defp hold_sku(holders, sku, uuid) when is_binary(sku),
+    do: Map.update(holders, sku, [uuid], &Enum.sort([uuid | &1]))
+
+  defp hold_sku(holders, _sku, _uuid), do: holders
 
   defp rejected(ref, path, message, context \\ %{}) do
     {:rejected, ref, message,
@@ -192,6 +248,9 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
 
       {:external_id_taken, ref, holder_uuid} ->
         external_id_taken(ref, holder_uuid)
+
+      {:sku_taken, ref, holder_uuid} ->
+        sku_taken(ref, holder_uuid)
     end)
     |> Common.preview()
   end
@@ -364,6 +423,9 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
   defp finish({:resolution_error, ref, reason}, _outcomes, _opts, _catalogue),
     do: {Common.resolution_error(ref, reason), false}
 
+  defp finish({:sku_taken, ref, holder_uuid}, _outcomes, _opts, _catalogue),
+    do: {sku_taken(ref, holder_uuid), false}
+
   defp finish({:update, ref, item, update}, outcomes, opts, catalogue) do
     case Map.get(outcomes, item.uuid) do
       {kind, %{status: "deleted"} = trashed} ->
@@ -512,6 +574,15 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
       ref,
       :already_exists,
       "Another item of the catalogue already has this external_id.",
+      %{"existing_id" => existing_id}
+    )
+  end
+
+  defp sku_taken(ref, existing_id) do
+    Common.row_error(
+      ref,
+      :sku_taken,
+      "Another live item of the catalogue already has this sku.",
       %{"existing_id" => existing_id}
     )
   end

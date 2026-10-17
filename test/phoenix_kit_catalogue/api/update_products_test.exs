@@ -593,6 +593,121 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
     end
   end
 
+  describe "a sku another live item of the catalogue holds" do
+    test "is a sku_taken row with the holder's id; the rest apply, the row writes nothing", %{
+      catalogue: catalogue
+    } do
+      holder = item(catalogue, "Holder", %{sku: "TAKEN"})
+      a = item(catalogue, "Alpha", %{sku: "A-OLD"})
+      b = item(catalogue, "Beta")
+
+      result =
+        run_update(catalogue, [
+          entry(%{"id" => a.uuid}, %{"sku" => "TAKEN", "name" => "Alpha 2"}),
+          entry(%{"id" => b.uuid}, %{"sku" => "B-NEW"})
+        ])
+
+      assert [taken, fine] = rows(result)
+      assert taken["action"] == "error"
+      assert taken["error"]["code"] == "sku_taken"
+      assert taken["error"]["context"]["existing_id"] == holder.uuid
+      assert fine["action"] == "updated"
+
+      reread = Catalogue.get_item!(a.uuid)
+      assert {reread.sku, reread.name} == {"A-OLD", "Alpha"}
+      assert Catalogue.get_item!(b.uuid).sku == "B-NEW"
+    end
+
+    test "is no conflict when the item keeps its own sku, even if a twin already shares it", %{
+      catalogue: catalogue
+    } do
+      a = item(catalogue, "Alpha", %{sku: "TWIN"})
+      item(catalogue, "Twin", %{sku: "TWIN"})
+
+      assert [row] =
+               rows(
+                 run_update(catalogue, [
+                   entry(%{"id" => a.uuid}, %{"sku" => "TWIN", "name" => "A2"})
+                 ])
+               )
+
+      assert row["action"] == "updated"
+      assert Catalogue.get_item!(a.uuid).name == "A2"
+    end
+
+    test "does not count a trashed item, an item of another catalogue, or a cleared sku", %{
+      catalogue: catalogue
+    } do
+      {:ok, _} = catalogue |> item("Trashed", %{sku: "T-1"}) |> Catalogue.trash_item()
+      item(fixture_catalogue(%{name: "Elsewhere"}), "Foreign", %{sku: "F-1"})
+      a = item(catalogue, "Alpha")
+      b = item(catalogue, "Beta")
+      c = item(catalogue, "Gamma", %{sku: "C-1"})
+
+      result =
+        run_update(catalogue, [
+          entry(%{"id" => a.uuid}, %{"sku" => "T-1"}),
+          entry(%{"id" => b.uuid}, %{"sku" => "F-1"}),
+          entry(%{"id" => c.uuid}, %{"sku" => nil})
+        ])
+
+      assert Enum.map(rows(result), & &1["action"]) == ["updated", "updated", "updated"]
+    end
+
+    test "is checked row by row: a released sku can be taken, a claimed one cannot", %{
+      catalogue: catalogue
+    } do
+      a = item(catalogue, "Alpha", %{sku: "S-A"})
+      b = item(catalogue, "Beta")
+      c = item(catalogue, "Gamma")
+      d = item(catalogue, "Delta")
+
+      entries = [
+        # a lets go of S-A and takes S-NEW
+        entry(%{"id" => a.uuid}, %{"sku" => "S-NEW"}),
+        # so b may take S-A
+        entry(%{"id" => b.uuid}, %{"sku" => "S-A"}),
+        # but c may not take S-NEW (a holds it now)
+        entry(%{"id" => c.uuid}, %{"sku" => "S-NEW"}),
+        # and d may not take S-A (b holds it now)
+        entry(%{"id" => d.uuid}, %{"sku" => "S-A"})
+      ]
+
+      assert {:preview, %{"rows" => preview_rows}, _} =
+               run_update(catalogue, entries, %{dry_run?: true})
+
+      executed = rows(run_update(catalogue, entries))
+
+      for answered <- [preview_rows, executed] do
+        assert Enum.map(answered, & &1["action"]) == ["updated", "updated", "error", "error"]
+
+        assert Enum.map(
+                 Enum.drop(answered, 2),
+                 &{&1["error"]["code"], &1["error"]["context"]["existing_id"]}
+               ) ==
+                 [{"sku_taken", a.uuid}, {"sku_taken", b.uuid}]
+      end
+
+      assert {Catalogue.get_item!(a.uuid).sku, Catalogue.get_item!(b.uuid).sku} ==
+               {"S-NEW", "S-A"}
+
+      assert Catalogue.get_item!(c.uuid).sku == nil
+    end
+
+    test "answers the same in the preview as in the write", %{catalogue: catalogue} do
+      holder = item(catalogue, "Holder", %{sku: "TAKEN"})
+      a = item(catalogue, "Alpha")
+      entries = [entry(%{"id" => a.uuid}, %{"sku" => "TAKEN"})]
+
+      assert {:preview, %{"rows" => [taken], "summary" => %{"error" => 1}}, _} =
+               run_update(catalogue, entries, %{dry_run?: true})
+
+      assert taken["error"]["code"] == "sku_taken"
+      assert taken["error"]["context"]["existing_id"] == holder.uuid
+      assert Catalogue.get_item!(a.uuid).sku == nil
+    end
+  end
+
   describe "dry run" do
     test "previews the changes, writes nothing, and the fingerprint follows the state", %{
       catalogue: catalogue
