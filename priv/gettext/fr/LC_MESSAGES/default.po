@@ -3899,8 +3899,14 @@ msgstr "Dépendances liées"
 msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
 msgstr "Ligne %{row} : « %{ref} » introuvable, cette dépendance a été ignorée."
 
-msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
-msgstr "Quelqu'un d'autre a modifié les dépendances de cet article pendant votre modification. Sa liste est maintenant affichée ; refaites vos changements."
+msgid "Someone else saved this item's dependencies while you were editing. Your list is still here: Save again to replace theirs, or reload the page to see theirs."
+msgstr "Quelqu'un d'autre a enregistré les dépendances de cet article pendant votre modification. Votre liste est toujours là : enregistrez à nouveau pour remplacer la sienne, ou rechargez la page pour voir la sienne."
 
 msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
 msgstr "Dépendance illisible : %{raw}. Écrivez chacune sous la forme « 8 × SKU », séparées par des points-virgules."
+
+msgid "Row %{row}: more than one match for “%{ref}”, so that dependency was left out. Add it on the item."
+msgstr "Ligne %{row} : « %{ref} » correspond à plusieurs éléments, cette dépendance a été ignorée. Ajoutez-la sur l'article."
+
+msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
+msgstr "Ligne %{row} : « %{ref} » n'a pas pu être enregistré. Ajoutez-le sur l'article."

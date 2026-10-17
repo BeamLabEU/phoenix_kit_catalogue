@@ -2443,14 +2443,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       finish_edit_save(socket, item, mode)
     else
       # Another admin saved this item's dependencies since the form loaded
-      # them: theirs are loaded, ours are not written.
+      # them. Nothing of ours was written and nothing typed is lost: the
+      # draft stays, and the base becomes their list, so a second Save is a
+      # deliberate replace.
       {:error, :dependencies_changed} ->
         {:noreply,
          socket
          |> refresh_after_edit(
            Catalogue.get_item(socket.assigns.item.uuid) || socket.assigns.item
          )
-         |> reload_dependencies(socket.assigns.item)
+         |> assign(:dependency_base, Catalogue.list_item_dependencies(socket.assigns.item))
          |> assign(:current_tab, :dependencies)
          |> put_flash(:error, Errors.message(:dependencies_changed))}
 

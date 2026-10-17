@@ -3913,8 +3913,14 @@ msgstr "Связано зависимостей"
 msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
 msgstr "Строка %{row}: «%{ref}» не найдено, эта зависимость пропущена."
 
-msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
-msgstr "Кто-то другой изменил зависимости этой позиции, пока вы редактировали. Теперь показан его список; внесите свои изменения заново."
+msgid "Someone else saved this item's dependencies while you were editing. Your list is still here: Save again to replace theirs, or reload the page to see theirs."
+msgstr "Кто-то другой сохранил зависимости этой позиции, пока вы редактировали. Ваш список на месте: сохраните ещё раз, чтобы заменить его список, или перезагрузите страницу, чтобы увидеть его."
 
 msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
 msgstr "Нечитаемая зависимость: %{raw}. Пишите каждую как «8 × SKU», через точку с запятой."
+
+msgid "Row %{row}: more than one match for “%{ref}”, so that dependency was left out. Add it on the item."
+msgstr "Строка %{row}: «%{ref}» подходит нескольким, эта зависимость пропущена. Добавьте её в позиции."
+
+msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
+msgstr "Строка %{row}: «%{ref}» не удалось сохранить. Добавьте её в позиции."

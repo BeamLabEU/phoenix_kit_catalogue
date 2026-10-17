@@ -3905,8 +3905,14 @@ msgstr ""
 msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
 msgstr ""
 
-msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
+msgid "Someone else saved this item's dependencies while you were editing. Your list is still here: Save again to replace theirs, or reload the page to see theirs."
 msgstr ""
 
 msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
+msgstr ""
+
+msgid "Row %{row}: more than one match for “%{ref}”, so that dependency was left out. Add it on the item."
+msgstr ""
+
+msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
 msgstr ""

@@ -202,8 +202,10 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       |> Enum.with_index(1)
       |> Enum.reduce({[], []}, fn {row, row_idx}, {items_acc, errors_acc} ->
         case build_item_attrs(mappings, row, unit_map) do
+          # The source row travels with the item, so a later report (the
+          # dependency links) names the file's row, not the plan's index.
           {:ok, attrs} ->
-            {[attrs | items_acc], errors_acc}
+            {[Map.put(attrs, :_row, row_idx) | items_acc], errors_acc}
 
           {:error, reason} ->
             {items_acc, [{row_idx, reason} | errors_acc]}

@@ -1374,7 +1374,9 @@ defmodule PhoenixKitCatalogue.GettextTest do
     "This no longer exists. Remove the line to save.",
     "Dependencies linked",
     "Row %{row}: nothing found for “%{ref}”, so that dependency was left out.",
-    "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again.",
+    "Row %{row}: “%{ref}” could not be saved. Add it on the item.",
+    "Row %{row}: more than one match for “%{ref}”, so that dependency was left out. Add it on the item.",
+    "Someone else saved this item's dependencies while you were editing. Your list is still here: Save again to replace theirs, or reload the page to see theirs.",
     "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
   ]
 

@@ -263,12 +263,16 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
         |> form(form_selector(), %{"item" => %{"name" => "Lazy susan"}})
         |> render_submit()
 
-      assert html =~ "Someone else changed this item&#39;s dependencies"
-      # The first admin's list stands, and the second form now shows it.
+      assert html =~ "Someone else saved this item&#39;s dependencies"
+      # The first admin's list stands; the second keeps what they staged.
       assert [%{target_item_uuid: screw}] = Catalogue.list_item_dependencies(ctx.susan)
       assert screw == ctx.screw.uuid
-      assert has_element?(second, "[data-dependency-kind=item]", "Screw 4x30")
-      refute has_element?(second, "[data-dependency-kind=catalogue]")
+      assert has_element?(second, "[data-dependency-kind=catalogue]", "Screws")
+
+      # Saving again is now a deliberate replace, and goes through.
+      save(second)
+      assert [%{target_catalogue_uuid: screws}] = Catalogue.list_item_dependencies(ctx.susan)
+      assert screws == ctx.screws.uuid
     end
 
     test "an untouched tab picks up a list saved in another tab", %{conn: conn} = ctx do

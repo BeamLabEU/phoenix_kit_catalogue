@@ -3899,8 +3899,14 @@ msgstr "Lingitud sõltuvused"
 msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
 msgstr "Rida %{row}: „%{ref}” ei leitud, see sõltuvus jäeti välja."
 
-msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
-msgstr "Keegi teine muutis selle toote sõltuvusi sinu muutmise ajal. Nüüd on näha tema loend; tee oma muudatused uuesti."
+msgid "Someone else saved this item's dependencies while you were editing. Your list is still here: Save again to replace theirs, or reload the page to see theirs."
+msgstr "Keegi teine salvestas selle toote sõltuvused sinu muutmise ajal. Sinu loend on alles: salvesta uuesti, et tema oma asendada, või laadi leht uuesti, et tema oma näha."
 
 msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
 msgstr "Loetamatu sõltuvus: %{raw}. Kirjuta igaüks kujul „8 × SKU”, semikoolonitega eraldatult."
+
+msgid "Row %{row}: more than one match for “%{ref}”, so that dependency was left out. Add it on the item."
+msgstr "Rida %{row}: „%{ref}” sobib mitmele, see sõltuvus jäeti välja. Lisa see toote juures."
+
+msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
+msgstr "Rida %{row}: „%{ref}” ei õnnestunud salvestada. Lisa see toote juures."
