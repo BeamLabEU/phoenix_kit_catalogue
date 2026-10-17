@@ -64,7 +64,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
   @doc """
   Finds the live target an import names — `%{type, uuid, sku, name,
   catalogue}` as `Import.DependencyCell` reads it — and answers
-  `{:ok, {kind, uuid}}` or `:error`.
+  `{:ok, {kind, uuid}}`, `{:error, :not_found}` or `{:error, :ambiguous}`
+  (several rows match and none is preferred), so an import report can say
+  which.
 
   The uuid wins when it names a live row of that kind (an export imported
   back into the same database). Otherwise an item is found by its exact
@@ -75,7 +77,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
   rows of trashed catalogues are never matched.
   """
   @spec resolve_import_ref(map(), keyword()) ::
-          {:ok, {ItemDependency.kind(), Ecto.UUID.t()}} | :error
+          {:ok, {ItemDependency.kind(), Ecto.UUID.t()}} | {:error, :not_found | :ambiguous}
   def resolve_import_ref(%{type: type} = ref, opts \\ []) do
     kind = String.to_existing_atom(type)
 
@@ -83,14 +85,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
       nil ->
         case by_name(kind, ref, opts[:catalogue_uuid]) do
           {:ok, uuid} -> {:ok, {kind, uuid}}
-          :error -> :error
+          {:error, _reason} = error -> error
         end
 
       uuid ->
         {:ok, {kind, uuid}}
     end
   rescue
-    ArgumentError -> :error
+    ArgumentError -> {:error, :not_found}
   end
 
   defp by_uuid(_kind, uuid) when not is_binary(uuid), do: nil
@@ -143,18 +145,19 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
     query |> repo().all() |> pick_unique(nil)
   end
 
-  defp by_name(_kind, _ref, _preferred), do: :error
+  defp by_name(_kind, _ref, _preferred), do: {:error, :not_found}
 
+  defp pick_unique([], _preferred), do: {:error, :not_found}
   defp pick_unique([{uuid, _}], _preferred), do: {:ok, uuid}
 
   defp pick_unique(matches, preferred) when is_binary(preferred) do
     case Enum.filter(matches, fn {_uuid, catalogue} -> catalogue == preferred end) do
       [{uuid, _}] -> {:ok, uuid}
-      _ -> :error
+      _ -> {:error, :ambiguous}
     end
   end
 
-  defp pick_unique(_matches, _preferred), do: :error
+  defp pick_unique(_matches, _preferred), do: {:error, :ambiguous}
 
   # Live rows of a kind, in live catalogues.
   defp live_query(:catalogue), do: from(r in Catalogue, where: r.status != "deleted")
@@ -214,7 +217,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
   `list_item_dependencies/1`) — to refuse the write when someone else has
   changed the list since: `{:error, :dependencies_changed}`, nothing
   written. The check and the write run under a lock on the item row, so
-  two saves of one item take turns.
+  two saves of one item take turns. The check compares contents, not a
+  revision: a list changed and changed back reads as unchanged.
 
   Returns `{:ok, rows}` (as `list_item_dependencies/1` reads them),
   `{:error, changeset}` for the first row that does not validate, or
@@ -280,11 +284,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
     current = Enum.map(existing, &comparable/1)
 
     cond do
-      is_list(expected) and Enum.map(expected, &comparable/1) != current ->
-        repo().rollback(:dependencies_changed)
-
+      # Already what this save asks for (someone saved the same list): no
+      # conflict and nothing to write.
       current == Enum.map(changesets, &comparable/1) ->
         {:unchanged, existing}
+
+      is_list(expected) and Enum.map(expected, &comparable/1) != current ->
+        repo().rollback(:dependencies_changed)
 
       true ->
         from(d in ItemDependency, where: d.item_uuid == ^item.uuid) |> repo().delete_all()

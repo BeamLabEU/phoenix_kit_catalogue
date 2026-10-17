@@ -58,6 +58,29 @@ defmodule PhoenixKitCatalogue.Import.DependencyImportTest do
       assert {:error, _} = DependencyCell.parse("[not json")
     end
 
+    test "what the column would refuse is refused here, so a row never loses its list later" do
+      assert {:error, _} = DependencyCell.parse("0.00001 × A")
+      assert {:error, _} = DependencyCell.parse("100000000 × A")
+
+      long_note = String.duplicate("n", 501)
+
+      assert {:error, _} =
+               DependencyCell.parse(
+                 Jason.encode!([
+                   %{"type" => "item", "sku" => "A", "quantity" => 1, "note" => long_note}
+                 ])
+               )
+
+      assert {:ok, [_]} = DependencyCell.parse("0.0001 × A")
+    end
+
+    test "a cell is capped at 200 references and 100 000 characters" do
+      assert {:ok, refs} = DependencyCell.parse(Enum.map_join(1..200, "; ", &"1 × S#{&1}"))
+      assert length(refs) == 200
+      assert {:error, _} = DependencyCell.parse(Enum.map_join(1..201, "; ", &"1 × S#{&1}"))
+      assert {:error, _} = DependencyCell.parse("1 × " <> String.duplicate("A", 100_001))
+    end
+
     test "a NUL in a JSON note is dropped, not sent to the database" do
       assert {:ok, [%{note: "ab"}]} =
                DependencyCell.parse(
@@ -108,7 +131,7 @@ defmodule PhoenixKitCatalogue.Import.DependencyImportTest do
       other = fixture_catalogue(%{name: "Other"})
       twin = fixture_item(%{name: "Twin", sku: "S-1", catalogue_uuid: other.uuid})
 
-      assert :error = Catalogue.resolve_import_ref(%{type: "item", sku: "S-1"})
+      assert {:error, :ambiguous} = Catalogue.resolve_import_ref(%{type: "item", sku: "S-1"})
 
       assert {:ok, {:item, uuid}} =
                Catalogue.resolve_import_ref(%{type: "item", sku: "S-1"},
@@ -122,12 +145,12 @@ defmodule PhoenixKitCatalogue.Import.DependencyImportTest do
     test "trashed rows and nonsense are never matched", ctx do
       {:ok, _} = Catalogue.trash_item(ctx.screw)
 
-      assert :error =
+      assert {:error, :not_found} =
                Catalogue.resolve_import_ref(%{type: "item", uuid: ctx.screw.uuid, sku: "S-1"})
 
-      assert :error = Catalogue.resolve_import_ref(%{type: "item", sku: "NOPE"})
-      assert :error = Catalogue.resolve_import_ref(%{type: "item"})
-      assert :error = Catalogue.resolve_import_ref(%{type: "nonsense", name: "x"})
+      assert {:error, :not_found} = Catalogue.resolve_import_ref(%{type: "item", sku: "NOPE"})
+      assert {:error, :not_found} = Catalogue.resolve_import_ref(%{type: "item"})
+      assert {:error, :not_found} = Catalogue.resolve_import_ref(%{type: "nonsense", name: "x"})
     end
   end
 
@@ -238,7 +261,51 @@ defmodule PhoenixKitCatalogue.Import.DependencyImportTest do
       result = Executor.execute(plan, target.uuid, nil)
 
       assert result.created == 1
-      assert {1, "S-430"} in result.dependencies_unresolved
+      assert {1, "S-430", :not_found} in result.dependencies_unresolved
+    end
+
+    test "an ambiguous SKU is reported as ambiguous, not as missing", ctx do
+      other = fixture_catalogue(%{name: "Other"})
+      fixture_item(%{name: "Twin screw", sku: "S-430", catalogue_uuid: other.uuid})
+      target = fixture_catalogue(%{name: "Third"})
+
+      {:ok, parsed} =
+        Universal.parse(
+          Jason.encode!(%{
+            "items" => [
+              %{
+                "name" => "Shelf",
+                "base_price" => "10.00",
+                "dependencies" => [%{"type" => "item", "sku" => "S-430", "quantity" => 1}]
+              }
+            ]
+          }),
+          "x.json",
+          :json
+        )
+
+      plan = Mapper.build_import_plan(Mapper.auto_detect_mappings(parsed.headers), parsed.rows)
+      result = Executor.execute(plan, target.uuid, nil)
+
+      assert result.dependencies_unresolved == [{1, "S-430", :ambiguous}]
+      _ = ctx
+    end
+  end
+
+  describe "the report names the file's row" do
+    test "a rejected row before it does not shift the row number" do
+      catalogue = fixture_catalogue(%{name: "Rows"})
+      mappings = Mapper.auto_detect_mappings(["Name", "Price", "Dependencies"])
+
+      rows = [
+        ["Bad price", "abc", ""],
+        ["Good", "1.00", "1 × MISSING"]
+      ]
+
+      plan = Mapper.build_import_plan(mappings, rows)
+      result = Executor.execute(plan, catalogue.uuid, nil)
+
+      assert result.dependencies_unresolved == [{2, "MISSING", :not_found}]
     end
   end
 

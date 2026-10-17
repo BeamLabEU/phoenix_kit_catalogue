@@ -336,7 +336,7 @@ defmodule PhoenixKitCatalogue.Errors do
     do:
       Gettext.gettext(
         PhoenixKitCatalogue.Gettext,
-        "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
+        "Someone else saved this item's dependencies while you were editing. Your list is still here: Save again to replace theirs, or reload the page to see theirs."
       )
 
   # Tagged tuples — atoms that carry a single parameter.

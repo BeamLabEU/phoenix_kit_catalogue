@@ -189,6 +189,18 @@ defmodule PhoenixKitCatalogue.Web.InternalCataloguePopupsTest do
       end)
     end
 
+    test "a chip that goes away while chosen drops back to the whole catalogue", ctx do
+      only = fixture_category(ctx.showroom, %{name: "Only chip"})
+      {:ok, view, _html} = open(conn_of(ctx), "browse=true&c=#{ctx.showroom.uuid}")
+
+      view |> with_target("#surface") |> render_click("browse_category", %{"uuid" => only.uuid})
+      refute render(view) =~ "Oak chair"
+
+      {:ok, _} = Catalogue.trash_category(only)
+
+      eventually(fn -> render(view) =~ "Oak chair" end)
+    end
+
     test "leaves the internal catalogue's items out unless asked", ctx do
       {:ok, _view, html} =
         open(conn_of(ctx), "browse=true&c=#{ctx.showroom.uuid}&c2=#{ctx.nails.uuid}")

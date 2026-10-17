@@ -176,16 +176,13 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
     |> run_fetch(effect)
   end
 
+  # Chips are the only way to pick a category here, so one the user
+  # stands on that is no longer among them (trashed, its catalogue made
+  # internal — an empty row included) has gone.
   defp stranded_chip?(%{category_uuid: uuid}, chips) when is_binary(uuid),
-    do: chips != [] and not Enum.any?(chips, &(&1.uuid == uuid))
-
-  defp stranded_chip?(%{category_uuid: uuid, scope: scope}, []) when is_binary(uuid),
-    do: Browse.hidden_catalogue?(scope, single_catalogue(scope))
+    do: not Enum.any?(chips, &(&1.uuid == uuid))
 
   defp stranded_chip?(_browse, _chips), do: false
-
-  defp single_catalogue(%{catalogue_uuids: [uuid]}), do: to_string(uuid)
-  defp single_catalogue(_scope), do: nil
 
   # The chip row follows the module's shared category sort where a chip
   # carries the data — name (chips are `%{uuid, name}` maps, so the

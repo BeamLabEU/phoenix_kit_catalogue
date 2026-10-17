@@ -19,6 +19,12 @@ defmodule PhoenixKitCatalogue.Import.DependencyCell do
   """
 
   alias PhoenixKit.Utils.Number
+  alias PhoenixKitCatalogue.Schemas.ItemDependency
+
+  # A cell is one item's list: these bound what one row can cost — the
+  # references are resolved one query each and written in one transaction.
+  @max_refs 200
+  @max_cell_length 100_000
 
   @type ref :: %{
           type: String.t(),
@@ -39,11 +45,20 @@ defmodule PhoenixKitCatalogue.Import.DependencyCell do
   @spec parse(String.t() | nil) :: {:ok, [ref()]} | {:error, String.t()}
   def parse(nil), do: {:ok, []}
 
+  def parse(cell) when is_binary(cell) and byte_size(cell) > @max_cell_length,
+    do: {:error, String.slice(cell, 0, 60)}
+
   def parse(cell) when is_binary(cell) do
-    case String.trim(cell) do
-      "" -> {:ok, []}
-      "[" <> _ = json -> parse_json(json)
-      text -> parse_text(text)
+    result =
+      case String.trim(cell) do
+        "" -> {:ok, []}
+        "[" <> _ = json -> parse_json(json)
+        text -> parse_text(text)
+      end
+
+    case result do
+      {:ok, refs} when length(refs) > @max_refs -> {:error, String.slice(cell, 0, 60)}
+      other -> other
     end
   end
 
@@ -55,7 +70,8 @@ defmodule PhoenixKitCatalogue.Import.DependencyCell do
   end
 
   defp json_ref(%{"type" => type} = entry) when type in @types do
-    with {:ok, quantity} <- quantity(entry["quantity"]) do
+    with {:ok, quantity} <- quantity(entry["quantity"]),
+         true <- note_fits?(entry["note"]) do
       {:ok,
        %{
          type: type,
@@ -70,6 +86,11 @@ defmodule PhoenixKitCatalogue.Import.DependencyCell do
   end
 
   defp json_ref(_entry), do: :error
+
+  defp note_fits?(note) when is_binary(note),
+    do: String.length(note) <= ItemDependency.max_note_length()
+
+  defp note_fits?(_note), do: true
 
   defp parse_text(text) do
     text
@@ -114,8 +135,10 @@ defmodule PhoenixKitCatalogue.Import.DependencyCell do
 
   defp quantity(value) when is_number(value) or is_binary(value) do
     case Number.parse_decimal(value) do
+      # What the column takes — above zero, at most four decimal places —
+      # or the row's whole list would fail to save later.
       {:ok, %Decimal{} = decimal} ->
-        if Decimal.compare(decimal, 0) == :gt, do: {:ok, decimal}, else: :error
+        if ItemDependency.valid_quantity?(decimal), do: {:ok, decimal}, else: :error
 
       _ ->
         :error

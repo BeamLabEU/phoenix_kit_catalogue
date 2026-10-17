@@ -165,6 +165,14 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemDependenciesTest do
                )
     end
 
+    test "two saves of the same new list from the same read are no conflict", ctx do
+      read = Catalogue.list_item_dependencies(ctx.susan)
+      specs = [%{target: {:item, ctx.screw.uuid}, quantity: 8}]
+
+      assert {:ok, [_]} = Catalogue.put_item_dependencies(ctx.susan, specs, expected: read)
+      assert {:ok, [_]} = Catalogue.put_item_dependencies(ctx.susan, specs, expected: read)
+    end
+
     test "a bad row refuses the whole list and writes nothing", ctx do
       put!(ctx.susan, [%{target: {:item, ctx.screw.uuid}, quantity: 8}])
 

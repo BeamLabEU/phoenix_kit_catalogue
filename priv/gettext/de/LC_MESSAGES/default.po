@@ -3899,8 +3899,14 @@ msgstr "Verknüpfte Abhängigkeiten"
 msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
 msgstr "Zeile %{row}: „%{ref}“ nicht gefunden, diese Abhängigkeit wurde ausgelassen."
 
-msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
-msgstr "Jemand anderes hat die Abhängigkeiten dieses Artikels während Ihrer Bearbeitung geändert. Jetzt wird dessen Liste angezeigt; nehmen Sie Ihre Änderungen erneut vor."
+msgid "Someone else saved this item's dependencies while you were editing. Your list is still here: Save again to replace theirs, or reload the page to see theirs."
+msgstr "Jemand anderes hat die Abhängigkeiten dieses Artikels während Ihrer Bearbeitung gespeichert. Ihre Liste ist noch da: Speichern Sie erneut, um seine zu ersetzen, oder laden Sie die Seite neu, um seine zu sehen."
 
 msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
 msgstr "Unlesbare Abhängigkeit: %{raw}. Schreiben Sie jede als „8 × SKU“, getrennt durch Semikolons."
+
+msgid "Row %{row}: more than one match for “%{ref}”, so that dependency was left out. Add it on the item."
+msgstr "Zeile %{row}: „%{ref}“ passt auf mehrere, diese Abhängigkeit wurde ausgelassen. Fügen Sie sie beim Artikel hinzu."
+
+msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
+msgstr "Zeile %{row}: „%{ref}“ konnte nicht gespeichert werden. Fügen Sie es beim Artikel hinzu."

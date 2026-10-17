@@ -185,7 +185,7 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
 
     test "dependencies_changed" do
       assert Errors.message(:dependencies_changed) =~
-               "Someone else changed this item's dependencies"
+               "Someone else saved this item's dependencies"
     end
 
     test "already_linked" do

@@ -3913,8 +3913,14 @@ msgstr "Пов'язано залежностей"
 msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
 msgstr "Рядок %{row}: «%{ref}» не знайдено, цю залежність пропущено."
 
-msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
-msgstr "Хтось інший змінив залежності цієї позиції, поки ви редагували. Тепер показано його список; внесіть свої зміни знову."
+msgid "Someone else saved this item's dependencies while you were editing. Your list is still here: Save again to replace theirs, or reload the page to see theirs."
+msgstr "Хтось інший зберіг залежності цієї позиції, поки ви редагували. Ваш список на місці: збережіть ще раз, щоб замінити його список, або перезавантажте сторінку, щоб побачити його."
 
 msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
 msgstr "Нечитабельна залежність: %{raw}. Пишіть кожну як «8 × SKU», через крапку з комою."
+
+msgid "Row %{row}: more than one match for “%{ref}”, so that dependency was left out. Add it on the item."
+msgstr "Рядок %{row}: «%{ref}» підходить кільком, цю залежність пропущено. Додайте її в позиції."
+
+msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
+msgstr "Рядок %{row}: «%{ref}» не вдалося зберегти. Додайте її в позиції."

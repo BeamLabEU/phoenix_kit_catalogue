@@ -23,7 +23,9 @@ defmodule PhoenixKitCatalogue.Import.Executor do
           suppliers_created: non_neg_integer(),
           manufacturer_supplier_links_created: non_neg_integer(),
           dependencies_linked: non_neg_integer(),
-          dependencies_unresolved: [{non_neg_integer(), String.t()}]
+          dependencies_unresolved: [
+            {non_neg_integer(), String.t(), :not_found | :ambiguous | :not_saved}
+          ]
         }
 
   @doc """
@@ -150,6 +152,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
           |> apply_language(language)
 
         {dependency_refs, attrs} = Map.pop(attrs, :_dependencies, [])
+        {source_row, attrs} = Map.pop(attrs, :_row, idx)
         result = insert_item(attrs, activity_opts)
 
         # A supplier column means "this item is supplied by X", so it
@@ -161,7 +164,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
         pending =
           case {result, dependency_refs} do
-            {{:ok, item}, [_ | _]} -> [{idx, item, dependency_refs} | pending]
+            {{:ok, item}, [_ | _]} -> [{source_row, item, dependency_refs} | pending]
             _ -> pending
           end
 
@@ -212,38 +215,53 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   # whose target cannot be found, or would be the item itself, is left out
   # and reported by its row — the item is imported either way.
   defp link_dependencies(pending, catalogue_uuid, activity_opts) do
-    Enum.reduce(pending, {0, []}, fn {idx, item, refs}, {linked, unresolved} ->
-      {specs, missing} = resolve_refs(item, refs, catalogue_uuid)
-      written = write_dependencies(item, specs, activity_opts)
-      {linked + written, unresolved ++ Enum.map(missing, &{idx, &1})}
+    Enum.reduce(pending, {0, []}, fn {row, item, refs}, {linked, unresolved} ->
+      {labelled_specs, missing} = resolve_refs(item, refs, catalogue_uuid)
+
+      {written, failed} =
+        write_dependencies(item, labelled_specs, activity_opts)
+
+      report = Enum.map(missing ++ failed, fn {label, reason} -> {row, label, reason} end)
+      {linked + written, unresolved ++ report}
     end)
   end
 
-  # `{specs, missing_labels}`, both in the file's order.
+  # `{[{spec, label}], [{label, reason}]}`, both in the file's order.
   defp resolve_refs(item, refs, catalogue_uuid) do
     {specs, missing} =
       Enum.reduce(refs, {[], []}, fn ref, {specs, missing} ->
+        label = describe_ref(ref)
+
         case Catalogue.resolve_import_ref(ref, catalogue_uuid: catalogue_uuid) do
           {:ok, {:item, uuid}} when uuid == item.uuid ->
-            {specs, [describe_ref(ref) | missing]}
+            {specs, [{label, :not_found} | missing]}
 
           {:ok, target} ->
-            {[%{target: target, quantity: ref.quantity, note: ref.note} | specs], missing}
+            {[{%{target: target, quantity: ref.quantity, note: ref.note}, label} | specs],
+             missing}
 
-          :error ->
-            {specs, [describe_ref(ref) | missing]}
+          {:error, reason} ->
+            {specs, [{label, reason} | missing]}
         end
       end)
 
     {Enum.reverse(specs), Enum.reverse(missing)}
   end
 
-  defp write_dependencies(_item, [], _activity_opts), do: 0
+  # `{rows_written, [{label, :not_saved}]}` — a write that fails (a target
+  # deleted for good since it was found) is reported line by line, never
+  # dropped in silence.
+  defp write_dependencies(_item, [], _activity_opts), do: {0, []}
 
-  defp write_dependencies(item, specs, activity_opts) do
+  defp write_dependencies(item, labelled_specs, activity_opts) do
+    specs = Enum.map(labelled_specs, &elem(&1, 0))
+
     case Catalogue.put_item_dependencies(item, specs, [broadcast: false] ++ activity_opts) do
-      {:ok, rows} -> length(rows)
-      {:error, _reason} -> 0
+      {:ok, rows} ->
+        {length(rows), []}
+
+      {:error, _reason} ->
+        {0, Enum.map(labelled_specs, fn {_spec, label} -> {label, :not_saved} end)}
     end
   end
 

@@ -2726,8 +2726,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           class="alert alert-warning max-w-md"
         >
           <div class="text-sm">
-            <p :for={{row_idx, ref} <- Enum.take(@import_result.dependencies_unresolved, 10)}>
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Row %{row}: nothing found for “%{ref}”, so that dependency was left out.", row: row_idx, ref: ref)}
+            <p :for={{row_idx, ref, reason} <- Enum.take(@import_result.dependencies_unresolved, 10)}>
+              {unresolved_dependency_message(row_idx, ref, reason)}
             </p>
           </div>
         </div>
@@ -3090,6 +3090,33 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp translate_target(label), do: label
 
   defp translate_error(reason), do: PhoenixKitCatalogue.Errors.message(reason)
+
+  defp unresolved_dependency_message(row, ref, :ambiguous),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Row %{row}: more than one match for “%{ref}”, so that dependency was left out. Add it on the item.",
+        row: row,
+        ref: ref
+      )
+
+  defp unresolved_dependency_message(row, ref, :not_saved),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Row %{row}: “%{ref}” could not be saved. Add it on the item.",
+        row: row,
+        ref: ref
+      )
+
+  defp unresolved_dependency_message(row, ref, _not_found),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Row %{row}: nothing found for “%{ref}”, so that dependency was left out.",
+        row: row,
+        ref: ref
+      )
 
   # An exception message safe to log and to show.
   #
