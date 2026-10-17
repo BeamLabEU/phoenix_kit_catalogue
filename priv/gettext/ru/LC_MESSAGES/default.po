@@ -3871,11 +3871,11 @@ msgstr "Переместить вверх"
 msgid "Move down"
 msgstr "Переместить вниз"
 
-msgid "Add a catalogue or category"
-msgstr "Добавить каталог или категорию"
+msgid "Add a dependency"
+msgstr "Добавить зависимость"
 
-msgid "Add an item: search by name or SKU…"
-msgstr "Добавить позицию: поиск по названию или SKU…"
+msgid "Search catalogues, categories and items…"
+msgstr "Поиск каталогов, категорий и позиций…"
 
 msgid "The note is too long (%{max} characters at most)."
 msgstr "Примечание слишком длинное (не более %{max} символов)."
@@ -3883,8 +3883,8 @@ msgstr "Примечание слишком длинное (не более %{ma
 msgid "Enter a quantity above zero, with at most four decimal places."
 msgstr "Введите количество больше нуля, не более четырёх знаков после запятой."
 
-msgid "That place no longer exists. Choose another."
-msgstr "Этого места больше нет. Выберите другое."
+msgid "That no longer exists. Choose another."
+msgstr "Этого больше нет. Выберите другое."
 
 msgid "An item cannot depend on itself."
 msgstr "Позиция не может зависеть от самой себя."

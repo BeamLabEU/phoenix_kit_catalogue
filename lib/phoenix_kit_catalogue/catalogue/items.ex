@@ -1038,6 +1038,23 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   end
 
   @doc """
+  The live (non-deleted) items of several catalogues in one query, in
+  each level's order (position, then name), with no preloads. For pickers
+  that hang every item under its category across many catalogues at once,
+  where `list_items_for_catalogue/2` per catalogue would be a query each.
+  """
+  @spec list_live_items([Ecto.UUID.t()]) :: [Item.t()]
+  def list_live_items([]), do: []
+
+  def list_live_items(catalogue_uuids) when is_list(catalogue_uuids) do
+    from(i in Item,
+      where: i.catalogue_uuid in ^catalogue_uuids and i.status != "deleted",
+      order_by: [asc: i.position, asc: i.name, asc: i.uuid]
+    )
+    |> repo().all()
+  end
+
+  @doc """
   Lists non-deleted items for a catalogue, ordered by category position,
   then item position, name and uuid. Includes uncategorized items (those
   with no category) at the end.

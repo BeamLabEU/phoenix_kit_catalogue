@@ -35,15 +35,19 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
     view
   end
 
+  # Opens the Add pop-up and picks `id` the way its tree does.
   defp pick_place(view, id) do
-    render_click(view, "dependency_open_places", %{})
+    view |> element("#dependency-add") |> render_click()
     send(view.pid, {TreePicker, "dependency-place-picker", id})
     render(view)
   end
 
-  defp pick_item(view, item) do
-    send(view.pid, {:item_picker_select, "dependency-item-picker", item})
-    render(view)
+  defp pick_item(view, item), do: pick_place(view, "item:" <> item.uuid)
+
+  defp search_picker(view, text) do
+    view
+    |> element("#dependency-place-picker-search")
+    |> render_hook("search", %{"value" => text})
   end
 
   defp row_keys(view) do
@@ -151,15 +155,40 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       assert Catalogue.list_item_dependencies(ctx.susan) == []
     end
 
-    test "the item picker empties itself after a pick, ready for the next", %{conn: conn} = ctx do
+    test "Add opens one tree of catalogues, categories and items; a picked row is staged",
+         %{conn: conn} = ctx do
+      {:ok, _} = Catalogue.update_item(ctx.screw, %{sku: "S-430"})
       view = open_tab(conn, ctx.susan)
-      picker = with_target(view, "#dependency-item-picker")
+      refute has_element?(view, "#dependency-picker")
 
-      render_hook(picker, "query_change", %{"value" => "Screw"})
-      render_click(picker, "select", %{"uuid" => ctx.screw.uuid})
+      view |> element("#dependency-add") |> render_click()
+      assert has_element?(view, "#dependency-picker")
+      assert has_element?(view, ~s([data-tree-node="catalogue:#{ctx.screws.uuid}"]))
 
-      assert [_row] = row_keys(view)
-      assert has_element?(view, ~s(#dependency-item-picker-input[value=""]))
+      # Found by SKU as well as by name, under its catalogue and category.
+      search_picker(view, "s-430")
+      assert has_element?(view, ~s([data-tree-node="item:#{ctx.screw.uuid}"]), "Screw 4x30")
+      assert has_element?(view, ~s([data-tree-node="category:#{ctx.wood.uuid}"]))
+
+      # The item being edited is not offered.
+      search_picker(view, "Lazy")
+      refute has_element?(view, ~s([data-tree-node="item:#{ctx.susan.uuid}"]))
+
+      search_picker(view, "4x30")
+      view |> element(~s([data-tree-node="item:#{ctx.screw.uuid}"])) |> render_click()
+
+      refute has_element?(view, "#dependency-picker")
+      assert has_element?(view, "[data-dependency-kind=item]", "Screw 4x30")
+      assert has_element?(view, "#item-dependencies", "Screws › Wood screws")
+    end
+
+    test "the Add pop-up closes without adding anything", %{conn: conn} = ctx do
+      view = open_tab(conn, ctx.susan)
+      view |> element("#dependency-add") |> render_click()
+      render_click(view, "dependency_close_picker", %{})
+
+      refute has_element?(view, "#dependency-picker")
+      assert row_keys(view) == []
     end
 
     test "a malformed push changes nothing and does not crash the form", %{conn: conn} = ctx do
@@ -206,7 +235,7 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       {:ok, _} = Catalogue.trash_category(ctx.wood)
 
       html = pick_place(view, "category:" <> ctx.wood.uuid)
-      assert html =~ "That place no longer exists. Choose another."
+      assert html =~ "That no longer exists. Choose another."
       assert row_keys(view) == []
     end
 
