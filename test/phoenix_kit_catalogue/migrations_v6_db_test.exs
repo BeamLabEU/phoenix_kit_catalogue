@@ -1,6 +1,6 @@
 defmodule PhoenixKitCatalogue.MigrationsV6DBTest do
   @moduledoc """
-  V6 (internal catalogues, notes for AI, item dependencies) against the
+  V6 (internal categories, notes for AI, item dependencies) against the
   real database: a replay is a no-op, the columns and the table land with
   the declared shape, and the CHECKs and foreign keys hold — including the
   cascade that removes a dependency row with either end.
@@ -93,7 +93,7 @@ defmodule PhoenixKitCatalogue.MigrationsV6DBTest do
   test "the columns have the declared shape" do
     replay_chain!()
 
-    assert [["boolean", "NO", "false"]] = column("phoenix_kit_cat_catalogues", "internal")
+    assert [["boolean", "NO", "false"]] = column("phoenix_kit_cat_categories", "internal")
 
     for t <- ~w(phoenix_kit_cat_catalogues phoenix_kit_cat_categories phoenix_kit_cat_items) do
       assert [["text", "YES", nil]] = column(t, "ai_notes")
@@ -102,13 +102,9 @@ defmodule PhoenixKitCatalogue.MigrationsV6DBTest do
     assert [["numeric", "NO", nil]] = column("phoenix_kit_cat_item_dependencies", "quantity")
   end
 
-  test "existing catalogues read as not internal", %{catalogue: catalogue} do
-    %{rows: [[internal]]} =
-      Repo.query!("SELECT internal FROM phoenix_kit_cat_catalogues WHERE uuid::text = $1", [
-        catalogue.uuid
-      ])
-
-    assert internal == false
+  test "existing categories read as not internal" do
+    %{rows: rows} = Repo.query!("SELECT DISTINCT internal FROM phoenix_kit_cat_categories")
+    assert rows in [[], [[false]]]
   end
 
   test "a row names exactly one target", %{item: item, screw: screw} do

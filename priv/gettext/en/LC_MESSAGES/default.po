@@ -3816,8 +3816,8 @@ msgstr "Reorder all items"
 msgid "Internal"
 msgstr "Internal"
 
-msgid "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it."
-msgstr "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it."
+msgid "Kept out of the item pickers and browse pop-ups that other pages embed, with its subcategories and their items. The admin pages still show it."
+msgstr "Kept out of the item pickers and browse pop-ups that other pages embed, with its subcategories and their items. The admin pages still show it."
 
 msgid "Not shown in the item pickers and browse pop-ups"
 msgstr "Not shown in the item pickers and browse pop-ups"

@@ -3816,8 +3816,8 @@ msgstr "Järjesta kõik tooted ümber"
 msgid "Internal"
 msgstr "Sisemine"
 
-msgid "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it."
-msgstr "Ei ole nähtav toodete valijates ega sirvimisakendes, mida teised lehed kasutavad. Halduslehed näitavad seda endiselt."
+msgid "Kept out of the item pickers and browse pop-ups that other pages embed, with its subcategories and their items. The admin pages still show it."
+msgstr "Ei ole nähtav toodete valijates ega sirvimisakendes, mida teised lehed kasutavad, koos alamkategooriate ja nende toodetega. Halduslehed näitavad seda endiselt."
 
 msgid "Not shown in the item pickers and browse pop-ups"
 msgstr "Ei ole nähtav toodete valijates ega sirvimisakendes"

@@ -293,6 +293,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate swap_category_positions(cat_a, cat_b, opts \\ []), to: Categories
   defdelegate change_category(category, attrs \\ %{}), to: Categories
   defdelegate category_subtree_uuids(category_uuids), to: Categories
+
+  defdelegate internal_category_uuids(), to: Categories
   defdelegate list_move_target_categories(category), to: Categories
   defdelegate list_category_tree(catalogue_uuid, opts \\ []), to: Categories
   defdelegate list_live_categories(catalogue_uuids), to: Categories

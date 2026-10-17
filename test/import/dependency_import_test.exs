@@ -1,8 +1,8 @@
 defmodule PhoenixKitCatalogue.Import.DependencyImportTest do
   @moduledoc """
   The new fields through export and import: the Dependencies cell parser,
-  the reference resolver, the Universal JSON export carrying the internal
-  flag, the notes for AI and the dependencies, and a full round trip —
+  the reference resolver, the Universal JSON export carrying the
+  notes for AI and the dependencies, and a full round trip —
   export, parse, map, execute — into another catalogue, where targets are
   found by SKU or name and a missing one is reported, not fatal.
   """
@@ -156,7 +156,7 @@ defmodule PhoenixKitCatalogue.Import.DependencyImportTest do
 
   describe "export, then import into another catalogue" do
     setup do
-      screws = fixture_catalogue(%{name: "Screws", internal: true, ai_notes: "Back office"})
+      screws = fixture_catalogue(%{name: "Screws", ai_notes: "Back office"})
       screw = fixture_item(%{name: "Screw 4x30", sku: "S-430", catalogue_uuid: screws.uuid})
 
       furniture = fixture_catalogue(%{name: "Furniture"})
@@ -188,10 +188,10 @@ defmodule PhoenixKitCatalogue.Import.DependencyImportTest do
       %{json: json, screws: screws, screw: screw, susan: susan}
     end
 
-    test "the JSON carries the internal flag, the notes and the dependencies", %{json: json} do
+    test "the JSON carries the notes and the dependencies", %{json: json} do
       payload = Jason.decode!(json)
 
-      assert %{"internal" => true, "ai_notes" => "Back office"} =
+      assert %{"ai_notes" => "Back office"} =
                Enum.find(payload["catalogues"], &(&1["name"] == "Screws"))
 
       susan = Enum.find(payload["items"], &(&1["name"] == "Lazy susan"))

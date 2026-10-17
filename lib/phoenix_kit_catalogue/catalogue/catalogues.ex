@@ -25,7 +25,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
     :status,
     :markup_percentage,
     :discount_percentage,
-    :internal,
     :description,
     :ai_notes
   ]
@@ -62,10 +61,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
       catalogues. When omitted, returns catalogues in any folder. Note this is a
       strict DB filter and does NOT orphan-promote catalogues whose folder is
       trashed — the tree view groups in-memory against the active folder set.
-    * `:internal` — `false` leaves out `internal` catalogues (what a page
-      facing non-admin users wants), `true` returns only them. When omitted,
-      returns both — the flag hides a catalogue from the module's pop-ups,
-      it does not restrict who may read it.
 
   ## Examples
 
@@ -90,7 +85,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
     |> filter_status(Keyword.get(opts, :status))
     |> filter_kind(Keyword.get(opts, :kind))
     |> filter_folder(Keyword.get(opts, :folder_uuid, :any))
-    |> filter_internal(Keyword.get(opts, :internal))
     |> repo().all()
   end
 
@@ -106,11 +100,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
     do: where(query, [c], is_nil(c.folder_uuid))
 
   defp filter_folder(query, uuid), do: where(query, [c], c.folder_uuid == ^uuid)
-
-  defp filter_internal(query, nil), do: query
-
-  defp filter_internal(query, internal) when is_boolean(internal),
-    do: where(query, [c], c.internal == ^internal)
 
   @doc """
   Lists catalogues whose name starts with `prefix`, case-insensitive.

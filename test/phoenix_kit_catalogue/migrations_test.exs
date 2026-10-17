@@ -312,7 +312,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
   test "V6 adds the internal flag, the AI notes and the dependencies table" do
     stmts = Migrations.up_statements("public")
 
-    assert "ALTER TABLE public.phoenix_kit_cat_catalogues ADD COLUMN IF NOT EXISTS internal boolean DEFAULT false NOT NULL" in stmts
+    assert "ALTER TABLE public.phoenix_kit_cat_categories ADD COLUMN IF NOT EXISTS internal boolean DEFAULT false NOT NULL" in stmts
 
     for t <- ~w(phoenix_kit_cat_catalogues phoenix_kit_cat_categories phoenix_kit_cat_items) do
       assert "ALTER TABLE public.#{t} ADD COLUMN IF NOT EXISTS ai_notes text" in stmts

@@ -1462,7 +1462,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     assign(socket,
       dependency_base: rows,
       dependency_draft:
-        DependencyDraft.new(rows, dependency_name_fun(socket.assigns[:current_locale]))
+        DependencyDraft.new(
+          rows,
+          dependency_name_fun(socket.assigns[:current_locale]),
+          Map.new(Catalogue.internal_category_uuids(), &{&1, true})
+        )
     )
   end
 

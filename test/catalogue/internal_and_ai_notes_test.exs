@@ -1,11 +1,12 @@
 defmodule PhoenixKitCatalogue.Catalogue.InternalAndAiNotesTest do
   @moduledoc """
-  The context half of two V5 additions.
+  The context half of two V6 additions.
 
-  `internal` keeps a catalogue out of the embeddable pop-ups: the fetch
-  layer leaves its items and categories out only when asked
-  (`exclude_internal: true` — the admin pages call the same functions and
-  list everything), and `list_catalogues/1` filters on it.
+  `internal` keeps a category — with its subcategories and their items —
+  out of the embeddable pop-ups: the fetch layer leaves them out only when
+  asked (`exclude_internal: true` — the admin pages call the same
+  functions and list everything), and `internal_category_uuids/0` is the
+  hidden set.
 
   `ai_notes` is free text on catalogues, categories and items: kept by
   the changesets (within the length cap), logged as "changed" only,
@@ -23,59 +24,106 @@ defmodule PhoenixKitCatalogue.Catalogue.InternalAndAiNotesTest do
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
   alias PhoenixKitCatalogue.Schemas.{Category, Item}
 
+  # One catalogue: an open category, an internal "Nails" category with a
+  # subcategory under it, and an uncategorized item.
   setup do
     public = fixture_catalogue(%{name: "Showroom"})
-    nails = fixture_catalogue(%{name: "Nails", internal: true})
-    open_item = fixture_item(%{name: "Shared bracket open", catalogue_uuid: public.uuid})
-    nail = fixture_item(%{name: "Shared bracket nail", catalogue_uuid: nails.uuid})
-    nail_category = fixture_category(nails, %{name: "Shared bracket box"})
+    open_category = fixture_category(public, %{name: "Shared bracket shelf"})
+    nails = fixture_category(public, %{name: "Shared bracket nails", internal: true})
+    boxes = fixture_category(public, %{name: "Shared bracket boxes", parent_uuid: nails.uuid})
+
+    open_item =
+      fixture_item(%{
+        name: "Shared bracket open",
+        catalogue_uuid: public.uuid,
+        category_uuid: open_category.uuid
+      })
+
+    nail =
+      fixture_item(%{
+        name: "Shared bracket nail",
+        catalogue_uuid: public.uuid,
+        category_uuid: nails.uuid
+      })
+
+    boxed =
+      fixture_item(%{
+        name: "Shared bracket boxed",
+        catalogue_uuid: public.uuid,
+        category_uuid: boxes.uuid
+      })
+
+    loose = fixture_item(%{name: "Shared bracket loose", catalogue_uuid: public.uuid})
 
     %{
       public: public,
+      open_category: open_category,
       nails: nails,
+      boxes: boxes,
       open_item: open_item,
       nail: nail,
-      nail_category: nail_category
+      boxed: boxed,
+      loose: loose
     }
   end
 
   describe "the internal flag" do
-    test "is off unless set, and the changeset keeps it", %{public: public, nails: nails} do
-      refute public.internal
+    test "is off unless set, and the changeset keeps it", %{open_category: open, nails: nails} do
+      refute open.internal
       assert nails.internal
 
-      {:ok, updated} = Catalogue.update_catalogue(public, %{internal: true})
+      {:ok, updated} = Catalogue.update_category(open, %{internal: true})
       assert updated.internal
     end
 
     test "an explicit nil is refused rather than reaching the NOT NULL column" do
-      changeset = CatalogueSchema.changeset(%CatalogueSchema{}, %{name: "X", internal: nil})
+      changeset =
+        Category.changeset(%Category{}, %{
+          name: "X",
+          catalogue_uuid: Ecto.UUID.generate(),
+          internal: nil
+        })
+
       assert %{internal: [_]} = errors_on(changeset)
     end
 
-    test "search leaves internal items out only when asked", ctx do
-      both = [ctx.public.uuid, ctx.nails.uuid]
-      names = &Enum.map(&1, fn item -> item.name end)
+    test "catalogues no longer carry it" do
+      refute Map.has_key?(%CatalogueSchema{}, :internal)
+    end
 
-      assert Enum.sort(names.(Catalogue.search_items("bracket", catalogue_uuids: both))) ==
-               ["Shared bracket nail", "Shared bracket open"]
+    test "the hidden set is the internal categories and everything under them", ctx do
+      assert Enum.sort(Catalogue.internal_category_uuids()) ==
+               Enum.sort([ctx.nails.uuid, ctx.boxes.uuid])
+    end
+
+    test "search leaves internal items out only when asked, uncategorized ones never", ctx do
+      names = &(Enum.map(&1, fn item -> item.name end) |> Enum.sort())
+
+      assert names.(Catalogue.search_items("bracket", catalogue_uuids: [ctx.public.uuid])) ==
+               [
+                 "Shared bracket boxed",
+                 "Shared bracket loose",
+                 "Shared bracket nail",
+                 "Shared bracket open"
+               ]
 
       # Named in the scope and still left out: the scope cannot widen past it.
       assert names.(
-               Catalogue.search_items("bracket", catalogue_uuids: both, exclude_internal: true)
-             ) ==
-               ["Shared bracket open"]
+               Catalogue.search_items("bracket",
+                 category_uuids: [ctx.nails.uuid],
+                 exclude_internal: true
+               )
+             ) == []
 
-      # An unrestricted search is the case a scope list cannot cover.
       assert names.(Catalogue.search_items("bracket", exclude_internal: true)) ==
-               ["Shared bracket open"]
+               ["Shared bracket loose", "Shared bracket open"]
     end
 
     test "the count agrees with the list it counts", ctx do
       for opts <- [
             [],
             [exclude_internal: true],
-            [catalogue_uuids: [ctx.nails.uuid], exclude_internal: true]
+            [catalogue_uuids: [ctx.public.uuid], exclude_internal: true]
           ] do
         assert Catalogue.count_search_items("bracket", opts) ==
                  length(Catalogue.search_items("bracket", opts)),
@@ -83,17 +131,12 @@ defmodule PhoenixKitCatalogue.Catalogue.InternalAndAiNotesTest do
       end
     end
 
-    test "category search finds nothing in an internal catalogue when asked", ctx do
-      assert [%Category{}] = Catalogue.search_categories(ctx.nails.uuid, "bracket")
-      assert [] = Catalogue.search_categories(ctx.nails.uuid, "bracket", exclude_internal: true)
-    end
+    test "category search leaves internal categories and their subtree out when asked", ctx do
+      all = Enum.map(Catalogue.search_categories(ctx.public.uuid, "bracket"), & &1.name)
+      assert "Shared bracket nails" in all and "Shared bracket boxes" in all
 
-    test "list_catalogues filters on it only when asked", %{public: public, nails: nails} do
-      all = Enum.map(Catalogue.list_catalogues(), & &1.uuid)
-      assert public.uuid in all and nails.uuid in all
-
-      assert nails.uuid not in Enum.map(Catalogue.list_catalogues(internal: false), & &1.uuid)
-      assert Enum.map(Catalogue.list_catalogues(internal: true), & &1.uuid) == [nails.uuid]
+      assert [%Category{name: "Shared bracket shelf"}] =
+               Catalogue.search_categories(ctx.public.uuid, "bracket", exclude_internal: true)
     end
 
     test "the browse state carries the rule into every fetch" do
@@ -105,17 +148,17 @@ defmodule PhoenixKitCatalogue.Catalogue.InternalAndAiNotesTest do
       assert opts[:exclude_internal] == true
     end
 
-    test "a change to it is in the activity log as from/to", %{public: public} do
-      {:ok, _} = Catalogue.update_catalogue(public, %{internal: true})
+    test "a change to it is in the activity log as from/to", %{open_category: open} do
+      {:ok, _} = Catalogue.update_category(open, %{internal: true})
 
-      assert_activity_logged("catalogue.updated",
-        resource_uuid: public.uuid,
+      assert_activity_logged("category.updated",
+        resource_uuid: open.uuid,
         metadata_has: %{"changes" => %{"internal" => %{"from" => "false", "to" => "true"}}}
       )
     end
 
-    test "duplicating a catalogue keeps it", %{nails: nails} do
-      {:ok, %{catalogue: copy}} = Catalogue.duplicate_catalogue(nails)
+    test "duplicating a category keeps it", %{nails: nails} do
+      {:ok, %{category: copy}} = Catalogue.duplicate_category(nails)
       assert copy.internal
     end
   end
@@ -179,7 +222,11 @@ defmodule PhoenixKitCatalogue.Catalogue.InternalAndAiNotesTest do
       assert copy.ai_notes == "Catalogue note"
 
       [copied_category] =
-        Repo.all(from(c in Category, where: c.catalogue_uuid == ^copy.uuid))
+        Repo.all(
+          from(c in Category,
+            where: c.catalogue_uuid == ^copy.uuid and c.ai_notes == "Category note"
+          )
+        )
 
       assert copied_category.ai_notes == "Category note"
 

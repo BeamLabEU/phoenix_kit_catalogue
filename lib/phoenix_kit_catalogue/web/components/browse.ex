@@ -267,32 +267,25 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   def normalize_uuid(other), do: to_string(other)
 
   @doc """
-  Puts the pop-ups' internal-catalogue rule into a scope:
+  Puts the pop-ups' internal-category rule into a scope:
   `exclude_internal: true` unless the host passed `include_internal`.
   Set AFTER the host's scope is read, so a host can only reach internal
-  catalogues through the attr, never by naming them in the scope.
+  categories through the attr, never by naming them in the scope.
   """
   @spec put_internal_rule(map(), boolean()) :: map()
   def put_internal_rule(scope, include_internal) when is_map(scope),
     do: Map.put(scope, :exclude_internal, include_internal != true)
 
   @doc """
-  Whether a scope with the internal rule hides this catalogue — a
-  catalogue struct, or a uuid read from the database. A catalogue that
-  cannot be read is not hidden here: the fetch layer finds nothing in it
-  anyway.
+  The categories a scope with the internal rule hides — every `internal`
+  category and everything under it (`Catalogue.internal_category_uuids/0`),
+  as a map of text uuids to `true`. Empty for a scope without the rule.
   """
-  @spec hidden_catalogue?(map(), struct() | Ecto.UUID.t() | nil) :: boolean()
-  def hidden_catalogue?(%{exclude_internal: true}, %{internal: internal}), do: internal == true
+  @spec hidden_categories(map()) :: %{optional(String.t()) => true}
+  def hidden_categories(%{exclude_internal: true}),
+    do: Map.new(Catalogue.internal_category_uuids(), &{&1, true})
 
-  def hidden_catalogue?(%{exclude_internal: true} = scope, uuid) when is_binary(uuid) do
-    case Catalogue.get_catalogue(uuid) do
-      nil -> false
-      catalogue -> hidden_catalogue?(scope, catalogue)
-    end
-  end
-
-  def hidden_catalogue?(_scope, _catalogue), do: false
+  def hidden_categories(_scope), do: %{}
 
   @doc """
   Expands a scope's `:category_uuids` through the category tree, once, at
@@ -412,10 +405,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   def chip_categories(%{only: :uncategorized_only}, _locale), do: []
 
   def chip_categories(%{catalogue_uuids: [catalogue_uuid]} = scope, locale) do
+    hidden = hidden_categories(scope)
+
     categories =
-      if hidden_catalogue?(scope, catalogue_uuid),
-        do: [],
-        else: Catalogue.list_categories_metadata_for_catalogue(catalogue_uuid)
+      catalogue_uuid
+      |> Catalogue.list_categories_metadata_for_catalogue()
+      |> Enum.reject(&Map.has_key?(hidden, to_string(&1.uuid)))
 
     categories =
       case scope[:category_uuids] do

@@ -3816,8 +3816,8 @@ msgstr "Alle Artikel neu ordnen"
 msgid "Internal"
 msgstr "Intern"
 
-msgid "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it."
-msgstr "Wird in den Artikelauswahl- und Durchsuchen-Fenstern anderer Seiten nicht angezeigt. Die Verwaltungsseiten zeigen ihn weiterhin."
+msgid "Kept out of the item pickers and browse pop-ups that other pages embed, with its subcategories and their items. The admin pages still show it."
+msgstr "Wird mit ihren Unterkategorien und deren Artikeln in den Artikelauswahl- und Durchsuchen-Fenstern anderer Seiten nicht angezeigt. Die Verwaltungsseiten zeigen sie weiterhin."
 
 msgid "Not shown in the item pickers and browse pop-ups"
 msgstr "Nicht in den Artikelauswahl- und Durchsuchen-Fenstern sichtbar"

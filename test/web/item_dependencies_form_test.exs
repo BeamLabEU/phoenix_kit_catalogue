@@ -19,8 +19,8 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
 
   setup do
     furniture = fixture_catalogue(%{name: "Furniture"})
-    screws = fixture_catalogue(%{name: "Screws", internal: true})
-    wood = fixture_category(screws, %{name: "Wood screws"})
+    screws = fixture_catalogue(%{name: "Screws"})
+    wood = fixture_category(screws, %{name: "Wood screws", internal: true})
     susan = fixture_item(%{name: "Lazy susan", catalogue_uuid: furniture.uuid})
 
     screw =
@@ -62,12 +62,17 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
 
       {:ok, _} =
         Catalogue.put_item_dependencies(ctx.susan, [
-          %{target: {:catalogue, ctx.screws.uuid}, quantity: 8, note: "by wood type"}
+          %{target: {:catalogue, ctx.screws.uuid}, quantity: 8, note: "by wood type"},
+          %{target: {:category, ctx.wood.uuid}, quantity: 1},
+          %{target: {:item, ctx.screw.uuid}, quantity: 2}
         ])
 
       view = open_tab(conn, ctx.susan)
       assert has_element?(view, "[data-dependency-kind=catalogue]", "Screws")
-      assert has_element?(view, "#item-dependencies", "Internal")
+      refute has_element?(view, ~s([data-internal-badge="#{ctx.screws.uuid}"]))
+      # The category is internal, and so is the item filed under it.
+      assert has_element?(view, ~s([data-internal-badge="#{ctx.wood.uuid}"]))
+      assert has_element?(view, ~s([data-internal-badge="#{ctx.screw.uuid}"]))
       assert has_element?(view, ~s(input[value="by wood type"]))
     end
 
@@ -293,22 +298,36 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
   end
 
   describe "the Internal box and the notes for AI" do
-    test "the catalogue form saves both", %{conn: conn} = ctx do
+    test "the catalogue form saves its notes and has no Internal box", %{conn: conn} = ctx do
       {:ok, view, _html} = live(conn, "#{@base}/#{ctx.furniture.uuid}/edit")
+      refute has_element?(view, ~s(input[name="catalogue[internal]"]))
 
       view
       |> form(form_selector(), %{
-        "catalogue" => %{
-          "name" => "Furniture",
-          "internal" => "true",
-          "ai_notes" => "Prices exclude VAT."
-        }
+        "catalogue" => %{"name" => "Furniture", "ai_notes" => "Prices exclude VAT."}
       })
       |> render_submit()
 
-      catalogue = Catalogue.get_catalogue(ctx.furniture.uuid)
-      assert catalogue.internal
-      assert catalogue.ai_notes == "Prices exclude VAT."
+      assert Catalogue.get_catalogue(ctx.furniture.uuid).ai_notes == "Prices exclude VAT."
+    end
+
+    test "the category form saves the Internal box", %{conn: conn} = ctx do
+      chairs = fixture_category(ctx.furniture, %{name: "Chairs"})
+      {:ok, view, _html} = live(conn, "#{@base}/categories/#{chairs.uuid}/edit")
+
+      view
+      |> form(form_selector(), %{"category" => %{"name" => "Chairs", "internal" => "true"}})
+      |> render_submit()
+
+      assert Catalogue.get_category(chairs.uuid).internal
+
+      {:ok, view, _html} = live(conn, "#{@base}/categories/#{chairs.uuid}/edit")
+
+      view
+      |> form(form_selector(), %{"category" => %{"name" => "Chairs", "internal" => "false"}})
+      |> render_submit()
+
+      refute Catalogue.get_category(chairs.uuid).internal
     end
 
     test "the category and item forms save their notes", %{conn: conn} = ctx do
@@ -331,13 +350,20 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       assert Catalogue.get_item(ctx.susan.uuid).ai_notes == "Turns 360°."
     end
 
-    test "the admin lists badge an internal catalogue", %{conn: conn} = ctx do
-      {:ok, view, _html} = live(conn, @base)
-      assert has_element?(view, ~s([data-internal-badge="#{ctx.screws.uuid}"]))
-      refute has_element?(view, ~s([data-internal-badge="#{ctx.furniture.uuid}"]))
+    test "the admin pages badge an internal category and its subtree", %{conn: conn} = ctx do
+      plain = fixture_category(ctx.screws, %{name: "Metal screws"})
+      child = fixture_category(ctx.screws, %{name: "Short", parent_uuid: ctx.wood.uuid})
 
       {:ok, view, _html} = live(conn, "#{@base}/#{ctx.screws.uuid}")
+      assert has_element?(view, ~s([data-internal-badge="#{ctx.wood.uuid}"]))
+      refute has_element?(view, ~s([data-internal-badge="#{plain.uuid}"]))
+      refute has_element?(view, "#detail-level-caption [data-internal-badge]")
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{ctx.screws.uuid}?category=#{child.uuid}")
       assert has_element?(view, "#detail-level-caption [data-internal-badge]")
+
+      {:ok, view, _html} = live(conn, @base)
+      refute has_element?(view, "[data-internal-badge]")
     end
   end
 

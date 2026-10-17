@@ -331,7 +331,7 @@ Key invariants to preserve:
   `category_uuid` normalizes to `nil`. Callers passing `skip_derive: true`
   (the importers) are checked against the category's catalogue under the same
   `FOR SHARE` read and get a changeset error on a mismatch.
-- **`Search.search_items/2` lists internal catalogues unless asked.** The
+- **`Search.search_items/2` lists internal categories' items unless asked.** The
   admin pages share it, so `exclude_internal: true` is opt-in; anything a
   non-admin user browses must pass it (the three embeddable components do,
   through `Browse.put_internal_rule/2`).
@@ -383,7 +383,7 @@ PubSub topic: `"phoenix_kit_catalogue"`.
 
 Owns a versioned chain: `PhoenixKitCatalogue.Migrations` via
 `migration_module/0`, marker `pkc_schema:<N>` as a `COMMENT ON TABLE
-phoenix_kit_cat_catalogues`, currently V5. `mix phoenix_kit.update` applies it
+phoenix_kit_cat_catalogues`, currently V6. `mix phoenix_kit.update` applies it
 in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 `execute/1`, which only works inside an `Ecto.Migration` run).
 
@@ -422,6 +422,11 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
   (`Catalogue.Trash.guard_external_id/1`; inside a caller's own transaction the
   Postgrex error is re-raised instead, the transaction being aborted by then),
   and a copy drops the id (`Duplication.copy_data/3`).
+- **V6 is internal categories, notes for AI and item dependencies**:
+  `internal boolean NOT NULL DEFAULT false` on categories, a nullable
+  `ai_notes text` on catalogues, categories and items, and the
+  `phoenix_kit_cat_item_dependencies` table. None of it is declared in core's
+  manifest.
 - UUIDv7 PKs and `use PhoenixKit.SchemaPrefix` on every table-backed schema.
 
 ## Testing
@@ -558,20 +563,24 @@ Pointers, not docs — the moduledocs are the contract.
 - **Pricing** — chain is `base → markup → discount`.
   `Catalogue.item_pricing/1` is the one-stop API for UIs; pure helpers live on
   `Item`.
-- **Internal catalogues** — `internal` keeps a catalogue out of
-  `ItemPicker`, `ItemSelectorModal` and `CatalogueBrowse` even where the
-  host's scope names it; each takes `include_internal` to show it. A
-  preselected item from one stays usable, and the admin pages ignore the
-  flag. Never shrink a scope's `catalogue_uuids` to apply it — an emptied
-  list means every catalogue; the fetch layer's `exclude_internal` does the
-  filtering. Pinned by `test/web/internal_catalogue_popups_test.exs`.
+- **Internal categories** — `internal` on a category keeps it, its whole
+  subtree and every item filed there out of `ItemPicker`,
+  `ItemSelectorModal` and `CatalogueBrowse` even where the host's scope
+  names it; each takes `include_internal` to show them. The hidden set is
+  `Catalogue.internal_category_uuids/0` (the flagged categories plus their
+  descendants); an uncategorized item is never internal, and catalogues
+  have no flag. A preselected item from one stays usable but its details
+  stay closed, and the admin pages only badge it. Never shrink a scope's
+  `category_uuids` or `catalogue_uuids` to apply it — an emptied list
+  means everything; the fetch layer's `exclude_internal` does the
+  filtering. Pinned by `test/web/internal_category_popups_test.exs`.
   `CatalogueBrowse` is live through `Web.ComponentRelay` like the modal,
-  so a catalogue becoming internal leaves an open embed too.
+  so a category becoming internal leaves an open embed too.
 - **Notes for AI** — `ai_notes` on catalogues, categories and items: one
   language, never shown by the pop-ups, never machine-translated, logged
   only as "changed". `Catalogue.ai_notes_for_item/1` gathers an item's with
   its catalogue's and categories', general first. The Universal JSON
-  export carries them (and the catalogue's `internal`), and "Notes for AI"
+  export carries them, and "Notes for AI"
   is an import column.
 - **Item dependencies** — the item form's Dependencies tab is staged in
   `Web.DependencyDraft` and written on Save by

@@ -156,15 +156,15 @@ defmodule PhoenixKitCatalogue.Export do
 
   defp dependencies_for(_destination, _items), do: %{}
 
-  # Lightweight catalogue headers (uuid, name and the catalogue's own
-  # flags) for the export context.
+  # Lightweight catalogue headers (uuid, name and the notes for AI) for the
+  # export context.
   # Avoids Catalogue.get_catalogue!/1, which preloads the whole category+item
   # tree per catalogue — items are already loaded by list_export_items/1.
   defp list_catalogue_headers(catalogue_uuids) do
     from(c in PhoenixKitCatalogue.Schemas.Catalogue,
       where: c.uuid in ^catalogue_uuids,
       order_by: c.name,
-      select: %{uuid: c.uuid, name: c.name, internal: c.internal, ai_notes: c.ai_notes}
+      select: %{uuid: c.uuid, name: c.name, ai_notes: c.ai_notes}
     )
     |> repo().all()
   end

@@ -3816,8 +3816,8 @@ msgstr "Réorganiser tous les articles"
 msgid "Internal"
 msgstr "Interne"
 
-msgid "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it."
-msgstr "Exclu des sélecteurs d'articles et des fenêtres de navigation intégrés par d'autres pages. Les pages d'administration l'affichent toujours."
+msgid "Kept out of the item pickers and browse pop-ups that other pages embed, with its subcategories and their items. The admin pages still show it."
+msgstr "Exclue, avec ses sous-catégories et leurs articles, des sélecteurs d'articles et des fenêtres de navigation intégrés par d'autres pages. Les pages d'administration l'affichent toujours."
 
 msgid "Not shown in the item pickers and browse pop-ups"
 msgstr "Non affiché dans les sélecteurs d'articles et les fenêtres de navigation"

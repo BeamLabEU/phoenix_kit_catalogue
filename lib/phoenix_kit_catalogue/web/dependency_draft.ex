@@ -17,7 +17,10 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
 
   # `dirty` — the admin changed something since the list was loaded; a
   # clean draft may be replaced by a fresher read without losing anything.
-  defstruct rows: [], next_key: 1, dirty: false
+  # `hidden` — the internal categories and everything under them
+  # (`Catalogue.internal_category_uuids/0`, read by the caller): a row
+  # whose target is one, or is filed in one, is marked internal.
+  defstruct rows: [], next_key: 1, dirty: false, hidden: %{}
 
   @type kind :: ItemDependency.kind()
 
@@ -35,16 +38,22 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
           error: String.t() | nil
         }
 
-  @type t :: %__MODULE__{rows: [row()], next_key: pos_integer(), dirty: boolean()}
+  @type t :: %__MODULE__{
+          rows: [row()],
+          next_key: pos_integer(),
+          dirty: boolean(),
+          hidden: %{optional(String.t()) => true}
+        }
 
   @doc """
   A draft holding the item's saved dependencies (`list_item_dependencies/1`
   rows, targets preloaded). `name_of` turns a record into the name the page
   shows (the form's locale).
   """
-  @spec new([ItemDependency.t()], (struct() -> String.t() | nil)) :: t()
-  def new(dependencies \\ [], name_of \\ &default_name/1) do
-    Enum.reduce(dependencies, %__MODULE__{}, fn dependency, draft ->
+  @spec new([ItemDependency.t()], (struct() -> String.t() | nil), %{optional(String.t()) => true}) ::
+          t()
+  def new(dependencies \\ [], name_of \\ &default_name/1, hidden \\ %{}) do
+    Enum.reduce(dependencies, %__MODULE__{hidden: hidden}, fn dependency, draft ->
       case saved_target(dependency) do
         nil ->
           draft
@@ -184,7 +193,7 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
       name: name_of.(record),
       place: place(kind, record, name_of),
       trashed?: trashed?(kind, record),
-      internal?: internal?(kind, record),
+      internal?: internal?(kind, record, draft.hidden),
       quantity: Keyword.fetch!(values, :quantity),
       note: Keyword.fetch!(values, :note),
       error: nil
@@ -242,10 +251,16 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
       (kind != :catalogue and match?(%{status: "deleted"}, Map.get(record, :catalogue)))
   end
 
-  defp internal?(:catalogue, record), do: Map.get(record, :internal) == true
+  defp internal?(:category, record, hidden), do: Map.has_key?(hidden, to_string(record.uuid))
 
-  defp internal?(_kind, record),
-    do: match?(%{internal: true}, Map.get(record, :catalogue))
+  defp internal?(:item, record, hidden) do
+    case Map.get(record, :category_uuid) do
+      uuid when is_binary(uuid) -> Map.has_key?(hidden, uuid)
+      _ -> false
+    end
+  end
+
+  defp internal?(:catalogue, _record, _hidden), do: false
 
   defp row_error(row) do
     case parse_quantity(row.quantity) do

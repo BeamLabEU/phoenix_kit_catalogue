@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
+  import PhoenixKitWeb.Components.Core.Checkbox, only: [checkbox: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.FormFieldLabel, only: [label: 1]
@@ -51,7 +52,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # secondary language tab (same shape as the attribute-group fix —
   # without this, filling all languages before the first save loses the
   # primary text on :new).
-  @preserve_fields %{"name" => :name, "description" => :description, "ai_notes" => :ai_notes}
+  @preserve_fields %{
+    "name" => :name,
+    "description" => :description,
+    "ai_notes" => :ai_notes,
+    "internal" => :internal
+  }
 
   # Top-level `data` keys this form writes OUTSIDE the shared multilang/
   # extension pipeline `data_owned_keys/2` already covers — see
@@ -966,6 +972,15 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                  level (the position is computed at insert) and ordering is
                  drag-managed on the catalogue detail page — same as
                  catalogues and items. --%>
+
+            <.checkbox
+              field={@form[:internal]}
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Internal")}
+            >
+              <:description>
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kept out of the item pickers and browse pop-ups that other pages embed, with its subcategories and their items. The admin pages still show it.")}
+              </:description>
+            </.checkbox>
 
             <.ai_notes_field field={@form[:ai_notes]} />
 

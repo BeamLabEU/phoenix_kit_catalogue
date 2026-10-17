@@ -60,8 +60,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     * `:clear_on_select` — `true` empties the input after a pick, for a
       picker that ADDS items to a list rather than choosing one (the item
       form's Dependencies tab). Default `false`: the input shows the pick.
-    * `:include_internal` — `false` (default) leaves out the items of
-      `internal` catalogues, even ones `:catalogue_uuids` names; pass
+    * `:include_internal` — `false` (default) leaves out the items filed
+      under an `internal` category, even where the scope names it; pass
       `true` where the picker serves people who may see them (the item
       form's dependency picker does).
     * Changing any scope attr (`:category_uuids`, `:catalogue_uuids`,

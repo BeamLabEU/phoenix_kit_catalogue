@@ -58,16 +58,16 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
   descendant chips and rejected narrowing to them). See
   `PhoenixKitCatalogue.Catalogue.BrowseState`.
 
-  `internal` catalogues are left out even where the scope names them —
-  their items, and their chips. Pass `include_internal: true` for an embed
-  that should show them. The scope's own `:exclude_internal` key is set
+  `internal` categories are left out with everything under them, even
+  where the scope names them — their items and their chips. Pass
+  `include_internal: true` for an embed that should show them. The scope's own `:exclude_internal` key is set
   from that attr and cannot be passed.
 
   ## Live
 
   The embed follows the catalogue while it is on the page, as the modal
   does (`PhoenixKitCatalogue.Web.ComponentRelay`): renames, prices, new
-  or trashed rows and a catalogue becoming internal show up within a
+  or trashed rows and a category becoming internal show up within a
   moment, with the user's search, chip and scroll depth kept.
   """
 

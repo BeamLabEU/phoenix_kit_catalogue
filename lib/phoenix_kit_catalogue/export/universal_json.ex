@@ -8,7 +8,7 @@ defmodule PhoenixKitCatalogue.Export.UniversalJson do
   ## Output shape
 
       {
-        "catalogues": [{"uuid": "...", "name": "...", "internal": false, "ai_notes": ""}, ...],
+        "catalogues": [{"uuid": "...", "name": "...", "ai_notes": ""}, ...],
         "exported_at": "2026-06-26T16:00:00Z",
         "index": 1111111111,
         "items": [
@@ -64,7 +64,6 @@ defmodule PhoenixKitCatalogue.Export.UniversalJson do
     %{
       "uuid" => catalogue.uuid,
       "name" => catalogue.name,
-      "internal" => Map.get(catalogue, :internal) == true,
       "ai_notes" => Map.get(catalogue, :ai_notes) || ""
     }
   end

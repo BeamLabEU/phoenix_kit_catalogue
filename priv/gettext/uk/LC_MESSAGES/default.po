@@ -3829,8 +3829,8 @@ msgstr "Змінити порядок усіх позицій"
 msgid "Internal"
 msgstr "Внутрішній"
 
-msgid "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it."
-msgstr "Не показується у вікнах вибору та перегляду позицій, які вбудовують інші сторінки. Сторінки адміністрування й надалі його показують."
+msgid "Kept out of the item pickers and browse pop-ups that other pages embed, with its subcategories and their items. The admin pages still show it."
+msgstr "Не показується у вікнах вибору та перегляду позицій, які вбудовують інші сторінки, разом із підкатегоріями та їхніми позиціями. Сторінки адміністрування й надалі її показують."
 
 msgid "Not shown in the item pickers and browse pop-ups"
 msgstr "Не показується у вікнах вибору та перегляду позицій"

@@ -2734,19 +2734,19 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def dependents_delete_messages(_count), do: []
 
   @doc """
-  The "Internal" badge for a catalogue (or a row map of one) whose
-  `internal` flag is set — it is kept out of the embeddable pop-ups.
-  Nothing for any other catalogue.
+  The "Internal" badge for a category (or a row map of one) whose
+  `internal` flag is set — it and everything under it are kept out of the
+  embeddable pop-ups. Nothing for any other record.
   """
-  attr(:catalogue, :any, required: true)
+  attr(:record, :any, required: true)
 
   def internal_badge(assigns) do
     ~H"""
     <span
-      :if={Map.get(@catalogue, :internal) == true}
+      :if={Map.get(@record, :internal) == true}
       class="badge badge-outline badge-xs gap-1 shrink-0 text-base-content/70"
       title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Not shown in the item pickers and browse pop-ups")}
-      data-internal-badge={@catalogue.uuid}
+      data-internal-badge={@record.uuid}
     >
       <.icon name="hero-eye-slash" class="w-3 h-3" />
       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Internal")}
@@ -3917,7 +3917,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   attr(:include_internal, :boolean,
     default: false,
-    doc: "Also offer the items of `internal` catalogues (left out by default)."
+    doc: "Also offer the items under `internal` categories (left out by default)."
   )
 
   attr(:clear_on_select, :boolean,

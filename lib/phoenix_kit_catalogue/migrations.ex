@@ -144,8 +144,9 @@ defmodule PhoenixKitCatalogue.Migrations do
 
   ## What V6 is
 
-  V6 adds three things. `phoenix_kit_cat_catalogues.internal boolean NOT
-  NULL DEFAULT false` keeps a catalogue out of the embeddable pop-ups.
+  V6 adds three things. `phoenix_kit_cat_categories.internal boolean NOT
+  NULL DEFAULT false` keeps a category — with its subcategories and their
+  items — out of the embeddable pop-ups.
   `ai_notes text` on catalogues, categories and items is free text for an
   AI reader, with a guarded length CHECK. And the first table this chain
   creates rather than adopts, `phoenix_kit_cat_item_dependencies`: an
@@ -298,9 +299,10 @@ defmodule PhoenixKitCatalogue.Migrations do
     ]
   end
 
-  # ── V6: internal catalogues, notes for AI, item dependencies ───────
+  # ── V6: internal categories, notes for AI, item dependencies ───────
   #
-  # Three additions, one version. `internal` keeps a catalogue out of the
+  # Three additions, one version. `internal` keeps a category (and all under
+  # it) out of the
   # embeddable pop-ups; `ai_notes` is free text for an AI reader on the
   # three levels, length-checked here as well as in the changesets; and
   # `phoenix_kit_cat_item_dependencies` lets an item name what it needs —
@@ -309,7 +311,7 @@ defmodule PhoenixKitCatalogue.Migrations do
   # end takes the row with it; a soft trash leaves it alone.
   defp v6_statements(prefix, p) do
     [
-      "ALTER TABLE #{p}phoenix_kit_cat_catalogues ADD COLUMN IF NOT EXISTS internal boolean DEFAULT false NOT NULL",
+      "ALTER TABLE #{p}phoenix_kit_cat_categories ADD COLUMN IF NOT EXISTS internal boolean DEFAULT false NOT NULL",
       for table <- ~w(phoenix_kit_cat_catalogues phoenix_kit_cat_categories phoenix_kit_cat_items) do
         [
           "ALTER TABLE #{p}#{table} ADD COLUMN IF NOT EXISTS ai_notes text",
