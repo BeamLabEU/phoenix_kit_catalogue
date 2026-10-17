@@ -201,6 +201,12 @@ defmodule PhoenixKitCatalogue.API.DeleteCategoriesTest do
     assert status(a) == "deleted"
     # One entry: the other writer's, none for this call.
     assert_activity_logged("category.trashed", resource_uuid: a.uuid)
+
+    # One event too: the other writer's. A call that removed nothing announces nothing.
+    cat_uuid = catalogue.uuid
+    a_uuid = a.uuid
+    assert_receive {:catalogue_data_changed, :category, ^a_uuid, ^cat_uuid}
+    refute_receive {:catalogue_data_changed, _, _, _}, 50
   end
 
   test "bad rows are reported at their position and never poison the others", %{
@@ -325,6 +331,91 @@ defmodule PhoenixKitCatalogue.API.DeleteCategoriesTest do
 
       assert Enum.map(rows(delete(catalogue, refs)), & &1["action"]) == ["unchanged", "removed"]
     end
+  end
+
+  describe "a live category below a trashed one (restored on its own)" do
+    # R (live) > A (trashed) > B (live, restored alone), with items in B.
+    setup %{catalogue: catalogue} do
+      r = category(catalogue, "R")
+      a = category(catalogue, "A", %{parent_uuid: r.uuid})
+      b = category(catalogue, "B", %{parent_uuid: a.uuid})
+
+      {:ok, _} = Catalogue.trash_category(Catalogue.get_category!(a.uuid))
+      {:ok, _} = Catalogue.restore_category(Catalogue.get_category!(b.uuid))
+      assert status(b) == "active"
+      assert status(a) == "deleted"
+
+      items = for n <- 1..3, do: item(catalogue, "In B #{n}", %{category_uuid: b.uuid})
+      %{r: r, a: a, b: b, items: items}
+    end
+
+    test "the dry run counts what the write takes, and a new item below changes the fingerprint",
+         %{catalogue: catalogue, r: r, b: b} do
+      refs = [%{"id" => r.uuid}]
+
+      assert {:preview, %{"rows" => [row]}, fingerprint} =
+               delete(catalogue, refs, %{dry_run?: true})
+
+      # B is the only live subcategory (A is already in the trash); its 3 items go.
+      assert row["subcategories"] == 1
+      assert row["items"] == 3
+
+      item(catalogue, "Late in B", %{category_uuid: b.uuid})
+
+      assert {:preview, %{"rows" => [after_row]}, other} =
+               delete(catalogue, refs, %{dry_run?: true})
+
+      assert after_row["items"] == 4
+      assert other != fingerprint
+
+      assert {:ok, %{"results" => [removed]}} = delete(catalogue, refs)
+      assert removed["action"] == "removed"
+      assert status(b) == "deleted"
+      assert Catalogue.get_category!(b.uuid).data["_trash"]["root"] == r.uuid
+      assert Catalogue.list_items_for_category(b.uuid) == []
+    end
+
+    test "listed with its root, in either order, it is taken by the root", %{
+      catalogue: catalogue,
+      r: r,
+      b: b
+    } do
+      refs = [%{"id" => b.uuid}, %{"id" => r.uuid}]
+
+      assert {:preview, %{"rows" => preview_rows}, _} = delete(catalogue, refs, %{dry_run?: true})
+      assert Enum.map(preview_rows, & &1["action"]) == ["unchanged", "removed"]
+
+      assert {:ok, %{"results" => written}} = delete(catalogue, refs)
+      assert Enum.map(written, & &1["action"]) == ["unchanged", "removed"]
+
+      stamp = Catalogue.get_category!(b.uuid).data["_trash"]
+      assert stamp["via"] == "category"
+      assert stamp["root"] == r.uuid
+    end
+  end
+
+  test "an equal-size swap of the items below a category changes the fingerprint", %{
+    catalogue: catalogue
+  } do
+    parent = category(catalogue, "Parent")
+    kept = item(catalogue, "Kept", %{category_uuid: parent.uuid})
+    gone = item(catalogue, "Gone", %{category_uuid: parent.uuid})
+    refs = [%{"id" => parent.uuid}]
+
+    assert {:preview, %{"rows" => [row]}, fingerprint} =
+             delete(catalogue, refs, %{dry_run?: true})
+
+    assert row["items"] == 2
+
+    {:ok, _} = Catalogue.trash_item(gone)
+    item(catalogue, "Arrived", %{category_uuid: parent.uuid})
+
+    assert {:preview, %{"rows" => [same_size]}, other} =
+             delete(catalogue, refs, %{dry_run?: true})
+
+    assert same_size["items"] == 2
+    assert other != fingerprint
+    assert Catalogue.get_item!(kept.uuid).status == "active"
   end
 
   defp flush do

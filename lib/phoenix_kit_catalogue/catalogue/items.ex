@@ -514,6 +514,27 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   end
 
   @doc """
+  Returns a map of `%{category_uuid => [item_uuid]}` for the LIVE (not trashed)
+  items of every category in a catalogue, each list sorted. The identity behind
+  `item_counts_by_category_for_catalogue/2`, for a caller that has to tell two
+  sets of the same size apart.
+  """
+  @spec live_item_uuids_by_category_for_catalogue(Ecto.UUID.t()) :: %{
+          Ecto.UUID.t() => [Ecto.UUID.t()]
+        }
+  def live_item_uuids_by_category_for_catalogue(catalogue_uuid) do
+    from(i in Item,
+      where:
+        i.catalogue_uuid == ^catalogue_uuid and not is_nil(i.category_uuid) and
+          i.status != "deleted",
+      select: {i.category_uuid, i.uuid}
+    )
+    |> repo().all()
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Map.new(fn {category_uuid, uuids} -> {category_uuid, Enum.sort(uuids)} end)
+  end
+
+  @doc """
   Returns the next available `position` for a new item within a scope.
 
   Items are scoped to `(catalogue_uuid, category_uuid)`. Pass
