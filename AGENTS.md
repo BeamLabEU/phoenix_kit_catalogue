@@ -585,8 +585,8 @@ Pointers, not docs — the moduledocs are the contract.
 - **Item dependencies** — the item form's Dependencies tab adds a target
   through one pop-up tree like the Location chooser's
   (`PlaceTree.places/2` with `items: true`, built on open, the item itself
-  pruned; a pick selects, Add stages it and the pop-up stays open until
-  Done), is staged in `Web.DependencyDraft` and written on Save by
+  pruned; a pick selects, Add stages it and closes; rows reorder by
+  dragging), is staged in `Web.DependencyDraft` and written on Save by
   `Catalogue.put_item_dependencies/3` (replace-all; writes nothing when the
   list is unchanged). The form passes `expected:` — the rows it loaded —
   so a list another admin saved meanwhile is never overwritten

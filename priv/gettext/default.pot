@@ -3858,12 +3858,6 @@ msgstr ""
 msgid "e.g., pick by wood type"
 msgstr ""
 
-msgid "Move up"
-msgstr ""
-
-msgid "Move down"
-msgstr ""
-
 msgid "Add a dependency"
 msgstr ""
 
@@ -3880,9 +3874,6 @@ msgid "Nothing selected yet."
 msgstr ""
 
 msgid "Already on the list. Adding it again makes a second line."
-msgstr ""
-
-msgid "Added %{quantity} × %{name}."
 msgstr ""
 
 msgid "Any item in %{place}"

@@ -3852,12 +3852,6 @@ msgstr "Notiz"
 msgid "e.g., pick by wood type"
 msgstr "z. B. je nach Holzart wählen"
 
-msgid "Move up"
-msgstr "Nach oben"
-
-msgid "Move down"
-msgstr "Nach unten"
-
 msgid "Add a dependency"
 msgstr "Abhängigkeit hinzufügen"
 
@@ -3875,9 +3869,6 @@ msgstr "Noch nichts ausgewählt."
 
 msgid "Already on the list. Adding it again makes a second line."
 msgstr "Steht schon auf der Liste. Erneutes Hinzufügen ergibt eine zweite Zeile."
-
-msgid "Added %{quantity} × %{name}."
-msgstr "Hinzugefügt: %{quantity} × %{name}."
 
 msgid "Any item in %{place}"
 msgstr "Beliebiger Artikel aus %{place}"

@@ -3865,12 +3865,6 @@ msgstr "Примечание"
 msgid "e.g., pick by wood type"
 msgstr "напр., подбирать по типу древесины"
 
-msgid "Move up"
-msgstr "Переместить вверх"
-
-msgid "Move down"
-msgstr "Переместить вниз"
-
 msgid "Add a dependency"
 msgstr "Добавить зависимость"
 
@@ -3888,9 +3882,6 @@ msgstr "Пока ничего не выбрано."
 
 msgid "Already on the list. Adding it again makes a second line."
 msgstr "Уже есть в списке. Повторное добавление создаст вторую строку."
-
-msgid "Added %{quantity} × %{name}."
-msgstr "Добавлено: %{quantity} × %{name}."
 
 msgid "Any item in %{place}"
 msgstr "Любая позиция из %{place}"

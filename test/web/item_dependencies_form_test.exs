@@ -47,15 +47,20 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
     view |> form("#dependency-picker-form", %{"picker" => values}) |> render_submit()
   end
 
-  defp done(view), do: view |> element("#dependency-picker-done") |> render_click()
+  defp cancel(view), do: view |> element("#dependency-picker-cancel") |> render_click()
 
-  # Opens the Add pop-up, selects `id`, adds it with the defaults and
-  # closes the pop-up.
+  # Opens the Add pop-up, selects `id` and adds it with the defaults.
   defp pick_place(view, id) do
     open_picker(view)
     select(view, id)
     confirm(view)
-    done(view)
+  end
+
+  # What the rows' drag-and-drop list (core's SortableGrid hook) pushes.
+  defp drag(view, keys) do
+    view
+    |> element("#dependency-rows")
+    |> render_hook("dependency_reorder", %{"ordered_ids" => keys})
   end
 
   defp pick_item(view, item), do: pick_place(view, "item:" <> item.uuid)
@@ -131,21 +136,20 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       assert Decimal.equal?(b.quantity, Decimal.new("2.5"))
     end
 
-    test "moves and removes rows before saving", %{conn: conn} = ctx do
+    test "drags and removes rows before saving", %{conn: conn} = ctx do
       view = open_tab(conn, ctx.susan)
-      pick_place(view, "catalogue:" <> ctx.screws.uuid)
       pick_item(view, ctx.screw)
-      [catalogue_row, item_row] = row_keys(view)
+      # One row has nothing to reorder: no drag handle.
+      refute has_element?(view, "#dependency-rows .pk-drag-handle")
 
-      render_click(view, "dependency_move", %{"key" => item_row, "direction" => "up"})
-      assert row_keys(view) == [item_row, catalogue_row]
+      pick_place(view, "catalogue:" <> ctx.screws.uuid)
+      [item_row, catalogue_row] = row_keys(view)
+      assert has_element?(view, ~s(#dependency-rows [data-id="#{item_row}"] .pk-drag-handle))
 
-      view
-      |> element(~s(#dependency-row-#{item_row} button[phx-value-direction="down"]))
-      |> render_click()
-
+      drag(view, [catalogue_row, item_row])
       assert row_keys(view) == [catalogue_row, item_row]
-      render_click(view, "dependency_move", %{"key" => item_row, "direction" => "up"})
+      drag(view, [item_row, catalogue_row])
+      assert row_keys(view) == [item_row, catalogue_row]
 
       render_click(view, "dependency_remove", %{"key" => catalogue_row})
       save(view)
@@ -218,16 +222,15 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
 
       confirm(view, %{"quantity" => "8", "note" => "by wood type"})
 
-      # Staged, and the pop-up stays for the next pick: the search is kept,
-      # the selection, quantity and note start over, and it says what landed.
-      assert has_element?(view, "#dependency-picker")
-      assert has_element?(view, "#dependency-picker-added", "Added 8 × Screw 4x30.")
-      assert has_element?(view, ~s(#dependency-place-picker-search[value="4x30"]))
+      # Staged, and the pop-up closes.
+      refute has_element?(view, "#dependency-picker")
+      assert has_element?(view, "[data-dependency-kind=item]", "Screw 4x30")
+      assert has_element?(view, "#item-dependencies", "Screws › Wood screws")
+
+      # Reopened, it starts over; a category reads as what its line means.
+      open_picker(view)
       assert has_element?(view, "#dependency-picker-selection", "Nothing selected yet.")
       assert has_element?(view, ~s(#dependency-picker-quantity[value="1"]))
-      assert has_element?(view, "#dependency-picker-confirm[disabled]")
-
-      # A category reads as what its line means.
       select(view, "category:" <> ctx.wood.uuid)
 
       assert has_element?(
@@ -237,12 +240,7 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
              )
 
       confirm(view, %{"quantity" => "2"})
-      assert has_element?(view, "#dependency-picker-added", "Added 2 × Wood screws.")
-
-      done(view)
       refute has_element?(view, "#dependency-picker")
-      assert has_element?(view, "[data-dependency-kind=item]", "Screw 4x30")
-      assert has_element?(view, "#item-dependencies", "Screws › Wood screws")
       [key, _category_key] = row_keys(view)
       assert has_element?(view, ~s(#dependency-#{key}-quantity[value="8"]))
       assert has_element?(view, ~s(#dependency-#{key}-note[value="by wood type"]))
@@ -274,7 +272,8 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       refute has_element?(view, "#dependency-picker-listed")
       confirm(view)
 
-      # Also for a line added in this same sitting.
+      # Also for a line staged but not saved yet.
+      open_picker(view)
       select(view, "item:" <> ctx.screw.uuid)
       assert has_element?(view, "#dependency-picker-listed")
 
@@ -287,7 +286,7 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       view = open_tab(conn, ctx.susan)
       view |> element("#dependency-add") |> render_click()
       select(view, "item:" <> ctx.screw.uuid)
-      done(view)
+      cancel(view)
 
       refute has_element?(view, "#dependency-picker")
       assert row_keys(view) == []
@@ -298,8 +297,9 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       pick_item(view, ctx.screw)
 
       render_click(view, "dependency_remove", %{})
-      render_click(view, "dependency_move", %{"key" => "1", "direction" => "sideways"})
-      render_click(view, "dependency_move", %{"key" => %{"x" => 1}, "direction" => "up"})
+      render_click(view, "dependency_reorder", %{})
+      render_click(view, "dependency_reorder", %{"ordered_ids" => "1"})
+      render_click(view, "dependency_reorder", %{"ordered_ids" => [%{"x" => 1}, "nope"]})
 
       assert Process.alive?(view.pid)
       assert length(row_keys(view)) == 1

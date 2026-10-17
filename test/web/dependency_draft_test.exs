@@ -114,13 +114,20 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraftTest do
              |> DependencyDraft.validate()
   end
 
-  test "move swaps neighbours and stops at the ends; remove drops one row" do
+  test "reorder follows the dragged order and loses nothing; remove drops one row" do
     draft = draft()
     keys = Enum.map(draft.rows, & &1.key)
 
-    assert Enum.map(DependencyDraft.move(draft, "1", :up).rows, & &1.key) == keys
-    assert Enum.map(DependencyDraft.move(draft, "1", :down).rows, & &1.key) == ["2", "1", "3"]
-    assert Enum.map(DependencyDraft.move(draft, "3", :down).rows, & &1.key) == keys
+    reordered = DependencyDraft.reorder(draft, ["3", "1", "2"])
+    assert Enum.map(reordered.rows, & &1.key) == ["3", "1", "2"]
+    assert reordered.dirty
+
+    # Unknown and repeated keys are ignored; rows left out keep their place after.
+    assert Enum.map(DependencyDraft.reorder(draft, ["2", "x", "2"]).rows, & &1.key) ==
+             ["2", "1", "3"]
+
+    # The same order changes nothing, not even the dirty flag.
+    assert DependencyDraft.reorder(draft, keys) == draft
     assert Enum.map(DependencyDraft.remove(draft, "2").rows, & &1.key) == ["1", "3"]
     assert DependencyDraft.count(DependencyDraft.remove(draft, "2")) == 2
   end
