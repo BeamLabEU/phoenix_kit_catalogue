@@ -120,6 +120,42 @@ defmodule PhoenixKitCatalogue.Web.PlacePickerTest do
                |> then(& &1.children)
     end
 
+    test "places/2 with items: under their category, the loose ones after the categories",
+         ctx do
+      knob =
+        fixture_item(%{
+          name: "Knob",
+          sku: "KN-1",
+          catalogue_uuid: ctx.kitchen.uuid,
+          category_uuid: ctx.oak.uuid
+        })
+
+      loose = fixture_item(%{name: "Loose hinge", catalogue_uuid: ctx.kitchen.uuid})
+      gone = fixture_item(%{name: "Old knob", catalogue_uuid: ctx.kitchen.uuid})
+      {:ok, _} = Catalogue.trash_item(gone)
+
+      tree = PlaceTree.places("standard", items: true)
+      kitchen = PlaceTree.find(tree, "catalogue:" <> ctx.kitchen.uuid)
+
+      assert [
+               %{type: :category, name: "Doors"},
+               %{id: loose_id, type: :item, name: "Loose hinge"}
+             ] =
+               kitchen.children
+
+      assert loose_id == "item:" <> loose.uuid
+
+      # The SKU rides in the name, because a search matches names only.
+      assert PlaceTree.path_in(tree, "item:" <> knob.uuid, [:folder]) ==
+               ["Kitchen", "Doors", "Oak", "Knob · KN-1"]
+
+      refute PlaceTree.find(tree, "item:" <> gone.uuid)
+      assert PlaceTree.uuid("item:" <> knob.uuid) == knob.uuid
+
+      # Without the option the tree stops at the categories.
+      refute PlaceTree.find(PlaceTree.places("standard"), "item:" <> knob.uuid)
+    end
+
     test "categories/2 hangs them under the catalogue's own row when asked", ctx do
       assert [%{name: "Doors"}] = PlaceTree.categories(ctx.kitchen)
 

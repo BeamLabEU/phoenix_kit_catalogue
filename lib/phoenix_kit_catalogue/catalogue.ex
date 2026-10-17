@@ -381,6 +381,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate list_items(opts \\ []), to: Items
   defdelegate list_items_for_category(category_uuid, opts \\ []), to: Items
   defdelegate list_items_for_catalogue(catalogue_uuid, opts \\ []), to: Items
+  defdelegate list_live_items(catalogue_uuids), to: Items
   defdelegate list_deleted_items_for_catalogue(catalogue_uuid, opts \\ []), to: Items
   defdelegate list_uncategorized_items(catalogue_uuid, opts \\ []), to: Items
   defdelegate get_item(uuid, opts \\ []), to: Items

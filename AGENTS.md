@@ -582,8 +582,10 @@ Pointers, not docs — the moduledocs are the contract.
   its catalogue's and categories', general first. The Universal JSON
   export carries them, and "Notes for AI"
   is an import column.
-- **Item dependencies** — the item form's Dependencies tab is staged in
-  `Web.DependencyDraft` and written on Save by
+- **Item dependencies** — the item form's Dependencies tab adds a target
+  through one pop-up tree like the Location chooser's
+  (`PlaceTree.places/2` with `items: true`, built on open, the item itself
+  pruned), is staged in `Web.DependencyDraft` and written on Save by
   `Catalogue.put_item_dependencies/3` (replace-all; writes nothing when the
   list is unchanged). The form passes `expected:` — the rows it loaded —
   so a list another admin saved meanwhile is never overwritten

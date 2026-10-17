@@ -1,19 +1,19 @@
 defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   @moduledoc """
   The item form's Dependencies tab: the staged rows of a
-  `PhoenixKitCatalogue.Web.DependencyDraft` and the two ways to add one —
-  a catalogue or category from the place tree, or an item from the item
-  picker.
+  `PhoenixKitCatalogue.Web.DependencyDraft` and its Add button, which opens
+  a pop-up like the Location chooser's — one tree of folders › catalogues ›
+  categories › items (`PlaceTree.places/2` with `items: true`) where any
+  catalogue, category or item is picked.
 
   Rendered OUTSIDE the item form: the rows are a small form of their own
-  (`dependency_change`), and the pickers bring their own inputs. Nothing
+  (`dependency_change`), and the picker brings its own search box. Nothing
   here writes — the item's Save does (`ItemFormLive`). The host
-  LiveView handles `dependency_open_places`, `dependency_change`,
-  `dependency_remove` and `dependency_move`, plus the pickers' messages
-  `{TreePicker, "dependency-place-picker", id}` and
-  `{:item_picker_select, "dependency-item-picker", item}`.
+  LiveView handles `dependency_open_picker`, `dependency_close_picker`,
+  `dependency_change`, `dependency_remove` and `dependency_move`, plus the
+  picker's `{TreePicker, "dependency-place-picker", id}`.
 
-  Internal catalogues are offered here like any other: this is an admin
+  Internal categories are offered here like any other: this is an admin
   page, and back-office stock is exactly what a dependency points at.
   """
 
@@ -22,7 +22,8 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   import PhoenixKitWeb.Components.Core.DecimalInput, only: [decimal_input: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
-  import PhoenixKitCatalogue.Web.Components, only: [internal_badge: 1, item_picker: 1]
+  import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
+  import PhoenixKitCatalogue.Web.Components, only: [internal_badge: 1]
 
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.ItemDependency
@@ -30,8 +31,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   alias PhoenixKitWeb.Components.TreePicker
 
   attr(:draft, DependencyDraft, required: true)
-  attr(:item_uuid, :string, default: nil)
-  attr(:place_tree, :list, default: nil, doc: "The open place picker's tree; nil while closed.")
+  attr(:place_tree, :list, default: nil, doc: "The open picker's tree; nil while closed.")
   attr(:class, :any, default: nil)
 
   def dependencies_panel(assigns) do
@@ -148,41 +148,41 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
 
         <div class="divider my-0"></div>
 
-        <div class="flex flex-col gap-3">
-          <div class="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              id="dependency-add-place"
-              phx-click="dependency_open_places"
-              class={["btn btn-sm", if(@place_tree, do: "btn-active", else: "btn-outline")]}
-            >
-              <.icon name="hero-plus" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a catalogue or category")}
-            </button>
-
-            <div class="flex-1 min-w-64">
-              <.item_picker
-                id="dependency-item-picker"
-                include_internal
-                clear_on_select
-                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add an item: search by name or SKU…")}
-                excluded_uuids={List.wrap(@item_uuid)}
-                show_sku
-              />
-            </div>
-          </div>
-
-          <div :if={@place_tree} id="dependency-place-picker-panel" class="border border-base-300 rounded-box p-3">
-            <.live_component
-              module={TreePicker}
-              id="dependency-place-picker"
-              tree={@place_tree}
-              value={nil}
-              pickable={[:catalogue, :category]}
-              path_skip={[:folder]}
-            />
-          </div>
+        <div>
+          <button
+            type="button"
+            id="dependency-add"
+            phx-click="dependency_open_picker"
+            class="btn btn-sm btn-outline"
+          >
+            <.icon name="hero-plus" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
+          </button>
         </div>
+
+        <%!-- Like the Location chooser: one tree, folders › catalogues ›
+             categories › items. Picking a row stages it and closes. --%>
+        <.modal
+          :if={@place_tree}
+          id="dependency-picker"
+          show
+          on_close="dependency_close_picker"
+          max_width="lg"
+        >
+          <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a dependency")}</:title>
+
+          <.live_component
+            module={TreePicker}
+            id="dependency-place-picker"
+            tree={@place_tree}
+            value={nil}
+            pickable={[:catalogue, :category, :item]}
+            path_skip={[:folder]}
+            search_placeholder={
+              Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search catalogues, categories and items…")
+            }
+          />
+        </.modal>
       </div>
     </div>
     """
