@@ -30,7 +30,7 @@ defmodule PhoenixKitCatalogue.API.DeleteCategories do
   # The tree the write cascades through: every category of the catalogue, trashed ones too
   # (`Tree.subtree_uuids/1` passes through them, and a live category can sit below a trashed
   # one). `parents`: uuid => parent uuid; `children`: uuid => child uuids; `live`: the uuids of
-  # the categories that are not in the trash; `items`: uuid => the live items directly in it.
+  # the categories that are not in the trash.
   defp tree(catalogue) do
     # `mode: :deleted` is "every status" for the categories.
     categories = Catalogue.list_categories_metadata_for_catalogue(catalogue.uuid, mode: :deleted)
@@ -38,8 +38,7 @@ defmodule PhoenixKitCatalogue.API.DeleteCategories do
     %{
       parents: Map.new(categories, &{&1.uuid, &1.parent_uuid}),
       children: Enum.group_by(categories, & &1.parent_uuid, & &1.uuid),
-      live: for(c <- categories, c.status != "deleted", into: MapSet.new(), do: c.uuid),
-      items: Catalogue.live_item_uuids_by_category_for_catalogue(catalogue.uuid)
+      live: for(c <- categories, c.status != "deleted", into: MapSet.new(), do: c.uuid)
     }
   end
 
@@ -65,17 +64,15 @@ defmodule PhoenixKitCatalogue.API.DeleteCategories do
       else: subtree(Map.get(tree.children, uuid, []) ++ rest, tree, MapSet.put(seen, uuid))
   end
 
-  # What a trash of `uuid` takes: the live subcategories and the live items of its subtree,
-  # as sorted uuids. The write trashes exactly these (the rest of the subtree is in the trash
-  # already and keeps its own stamp).
-  defp taken_by(uuid, tree) do
-    subtree = subtree(uuid, tree)
-
+  # What a trash of `uuid` takes, given its `subtree` and `items` (uuid => the live items
+  # directly in it): the live subcategories and the live items of the subtree, as sorted uuids.
+  # The write trashes exactly these (the rest of the subtree is in the trash already and keeps
+  # its own stamp).
+  defp taken_by(uuid, subtree, items, tree) do
     categories =
       for sub <- subtree, sub != uuid, MapSet.member?(tree.live, sub), do: sub
 
-    items = Enum.flat_map(subtree, &Map.get(tree.items, &1, []))
-    {Enum.sort(categories), Enum.sort(items)}
+    {Enum.sort(categories), subtree |> Enum.flat_map(&Map.get(items, &1, [])) |> Enum.sort()}
   end
 
   # --- dry run -------------------------------------------------------------------------
@@ -85,25 +82,46 @@ defmodule PhoenixKitCatalogue.API.DeleteCategories do
   defp preview(plan, tree) do
     taken = removable(plan)
 
-    entries =
+    classified =
       Enum.map(plan, fn
         {:remove, ref, category} ->
           if covered?(category, taken, tree),
-            do: {Common.row_ok(ref, "unchanged", category.uuid), nil},
-            else: preview_row(ref, category, tree)
+            do: {:covered, ref, category},
+            else: {:taken, ref, category, subtree(category.uuid, tree)}
+
+        other ->
+          other
+      end)
+
+    # Only the subtrees the write takes are read, by the write's own predicate.
+    items =
+      for({:taken, _ref, _category, subtree} <- classified, uuid <- subtree, uniq: true, do: uuid)
+      |> Catalogue.live_item_uuids_by_category()
+
+    entries =
+      Enum.map(classified, fn
+        {:covered, ref, category} ->
+          {Common.row_ok(ref, "unchanged", category.uuid), nil}
+
+        {:taken, ref, category, subtree} ->
+          preview_row(ref, category, taken_by(category.uuid, subtree, items, tree))
 
         other ->
           {Common.removal_row(other), nil}
       end)
 
     rows = Enum.map(entries, &elem(&1, 0))
-    {:preview, body, _fingerprint} = Common.preview(rows, %{"requires_confirmation" => true})
+
+    body = %{
+      "requires_confirmation" => true,
+      "rows" => rows,
+      "summary" => Common.summary(rows)
+    }
+
     {:preview, body, Common.fingerprint({rows, Enum.map(entries, &elem(&1, 1))})}
   end
 
-  defp preview_row(ref, category, tree) do
-    {categories, items} = taken_by(category.uuid, tree)
-
+  defp preview_row(ref, category, {categories, items}) do
     row =
       Common.row_ok(ref, "removed", category.uuid, %{
         "name" => category.name,
