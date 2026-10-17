@@ -25,7 +25,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
     :status,
     :markup_percentage,
     :discount_percentage,
-    :description
+    :internal,
+    :description,
+    :ai_notes
   ]
 
   # Auto-assigns a position to a new catalogue when the caller hasn't
@@ -60,6 +62,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
       catalogues. When omitted, returns catalogues in any folder. Note this is a
       strict DB filter and does NOT orphan-promote catalogues whose folder is
       trashed — the tree view groups in-memory against the active folder set.
+    * `:internal` — `false` leaves out `internal` catalogues (what a page
+      facing non-admin users wants), `true` returns only them. When omitted,
+      returns both — the flag hides a catalogue from the module's pop-ups,
+      it does not restrict who may read it.
 
   ## Examples
 
@@ -80,28 +86,31 @@ defmodule PhoenixKitCatalogue.Catalogue.Catalogues do
         order_by: [asc: c.position, asc: fragment("lower(?)", c.name), asc: c.uuid]
       )
 
-    query =
-      case Keyword.get(opts, :status) do
-        nil -> where(query, [c], c.status != "deleted")
-        status -> where(query, [c], c.status == ^status)
-      end
-
-    query =
-      case Keyword.get(opts, :kind) do
-        nil -> query
-        kind -> where(query, [c], c.kind == ^to_string(kind))
-      end
-
-    query =
-      case Keyword.get(opts, :folder_uuid, :any) do
-        :any -> query
-        :unfiled -> where(query, [c], is_nil(c.folder_uuid))
-        nil -> where(query, [c], is_nil(c.folder_uuid))
-        uuid -> where(query, [c], c.folder_uuid == ^uuid)
-      end
-
-    repo().all(query)
+    query
+    |> filter_status(Keyword.get(opts, :status))
+    |> filter_kind(Keyword.get(opts, :kind))
+    |> filter_folder(Keyword.get(opts, :folder_uuid, :any))
+    |> filter_internal(Keyword.get(opts, :internal))
+    |> repo().all()
   end
+
+  defp filter_status(query, nil), do: where(query, [c], c.status != "deleted")
+  defp filter_status(query, status), do: where(query, [c], c.status == ^status)
+
+  defp filter_kind(query, nil), do: query
+  defp filter_kind(query, kind), do: where(query, [c], c.kind == ^to_string(kind))
+
+  defp filter_folder(query, :any), do: query
+
+  defp filter_folder(query, folder) when folder in [:unfiled, nil],
+    do: where(query, [c], is_nil(c.folder_uuid))
+
+  defp filter_folder(query, uuid), do: where(query, [c], c.folder_uuid == ^uuid)
+
+  defp filter_internal(query, nil), do: query
+
+  defp filter_internal(query, internal) when is_boolean(internal),
+    do: where(query, [c], c.internal == ^internal)
 
   @doc """
   Lists catalogues whose name starts with `prefix`, case-insensitive.

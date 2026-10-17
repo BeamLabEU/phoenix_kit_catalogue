@@ -40,7 +40,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
     :status,
     :default_value,
     :default_unit,
-    :description
+    :description,
+    :ai_notes
   ]
 
   # Slug projection tables read by `get_item_by_slug/3` / `get_category_by_slug/3`

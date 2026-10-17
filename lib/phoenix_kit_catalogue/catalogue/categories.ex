@@ -18,7 +18,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
-  @category_logged_fields [:name, :status, :description]
+  @category_logged_fields [:name, :status, :description, :ai_notes]
 
   @category_slugs_table "phoenix_kit_cat_category_slugs"
 
@@ -902,25 +902,34 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
   @doc """
   What `permanently_delete_category/2` would remove, without removing it:
-  `%{subcategories: n, items: m}`, the categories below the given one and
-  the items in all of them. For a trashed category this includes rows that
+  `%{subcategories: n, items: m, dependents: d}`, the categories below the
+  given one, the items in all of them, and how many other items list one
+  of those as a dependency (those rows go with the delete — see
+  `Catalogue.count_outside_dependents/1`). For a trashed category this includes rows that
   were trashed on their own before it, which its Restore does not bring
   back and its card does not count, so a Delete Forever confirmation can
   say what is really destroyed.
   """
   @spec permanent_delete_scope(Category.t()) :: %{
           subcategories: non_neg_integer(),
-          items: non_neg_integer()
+          items: non_neg_integer(),
+          dependents: non_neg_integer()
         }
   def permanent_delete_scope(%Category{} = category) do
     case repo().get(Category, category.uuid) do
       nil ->
-        %{subcategories: 0, items: 0}
+        %{subcategories: 0, items: 0, dependents: 0}
 
       fresh ->
         {doomed, _kept} = permanent_delete_split(fresh, Tree.subtree_uuids(fresh.uuid))
         items = from(i in Item, where: i.category_uuid in ^doomed) |> repo().aggregate(:count)
-        %{subcategories: max(length(doomed) - 1, 0), items: items}
+
+        %{
+          subcategories: max(length(doomed) - 1, 0),
+          items: items,
+          dependents:
+            PhoenixKitCatalogue.Catalogue.count_outside_dependents({:categories, doomed})
+        }
     end
   end
 
