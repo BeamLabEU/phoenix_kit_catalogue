@@ -139,6 +139,32 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemDependenciesTest do
       assert_receive {:catalogue_data_changed, :item, ^susan_uuid, _}
     end
 
+    test "expected: refuses to overwrite a list someone else changed since it was read", ctx do
+      read = Catalogue.list_item_dependencies(ctx.susan)
+      put!(ctx.susan, [%{target: {:item, ctx.screw.uuid}, quantity: 8}])
+
+      assert {:error, :dependencies_changed} =
+               Catalogue.put_item_dependencies(
+                 ctx.susan,
+                 [%{target: {:catalogue, ctx.screws.uuid}, quantity: 1}],
+                 expected: read
+               )
+
+      # The other save stands.
+      assert [%{target_item_uuid: screw}] = Catalogue.list_item_dependencies(ctx.susan)
+      assert screw == ctx.screw.uuid
+
+      # Read again, the same write goes through.
+      fresh = Catalogue.list_item_dependencies(ctx.susan)
+
+      assert {:ok, [%{target_catalogue_uuid: _}]} =
+               Catalogue.put_item_dependencies(
+                 ctx.susan,
+                 [%{target: {:catalogue, ctx.screws.uuid}, quantity: 1}],
+                 expected: fresh
+               )
+    end
+
     test "a bad row refuses the whole list and writes nothing", ctx do
       put!(ctx.susan, [%{target: {:item, ctx.screw.uuid}, quantity: 8}])
 

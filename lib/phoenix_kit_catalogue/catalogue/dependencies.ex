@@ -62,6 +62,146 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
   end
 
   @doc """
+  Finds the live target an import names — `%{type, uuid, sku, name,
+  catalogue}` as `Import.DependencyCell` reads it — and answers
+  `{:ok, {kind, uuid}}` or `:error`.
+
+  The uuid wins when it names a live row of that kind (an export imported
+  back into the same database). Otherwise an item is found by its exact
+  SKU, a catalogue by its exact name, and a category by its exact name in
+  the catalogue the reference names. A match must be unique; when several
+  items share a SKU, the one in `:catalogue_uuid` (the catalogue being
+  imported into) is taken if it is the only one there. Trashed rows and
+  rows of trashed catalogues are never matched.
+  """
+  @spec resolve_import_ref(map(), keyword()) ::
+          {:ok, {ItemDependency.kind(), Ecto.UUID.t()}} | :error
+  def resolve_import_ref(%{type: type} = ref, opts \\ []) do
+    kind = String.to_existing_atom(type)
+
+    case by_uuid(kind, ref[:uuid]) do
+      nil ->
+        case by_name(kind, ref, opts[:catalogue_uuid]) do
+          {:ok, uuid} -> {:ok, {kind, uuid}}
+          :error -> :error
+        end
+
+      uuid ->
+        {:ok, {kind, uuid}}
+    end
+  rescue
+    ArgumentError -> :error
+  end
+
+  defp by_uuid(_kind, uuid) when not is_binary(uuid), do: nil
+
+  defp by_uuid(kind, uuid) do
+    if Helpers.uuid?(uuid) do
+      kind |> live_query() |> where([r], r.uuid == ^uuid) |> select([r], r.uuid) |> repo().one()
+    end
+  end
+
+  defp by_name(:item, %{sku: sku}, preferred) when is_binary(sku) do
+    :item
+    |> live_query()
+    |> where([r], r.sku == ^sku)
+    |> select([r], {r.uuid, r.catalogue_uuid})
+    |> repo().all()
+    |> pick_unique(preferred)
+  end
+
+  defp by_name(:catalogue, %{name: name}, _preferred) when is_binary(name) do
+    :catalogue
+    |> live_query()
+    |> where([r], r.name == ^name)
+    |> select([r], {r.uuid, r.uuid})
+    |> repo().all()
+    |> pick_unique(nil)
+  end
+
+  defp by_name(:category, %{name: name} = ref, preferred) when is_binary(name) do
+    query =
+      :category
+      |> live_query()
+      |> where([r], r.name == ^name)
+      |> select([r], {r.uuid, r.catalogue_uuid})
+
+    query =
+      case ref[:catalogue] do
+        catalogue when is_binary(catalogue) ->
+          join(query, :inner, [r], c in Catalogue,
+            on: c.uuid == r.catalogue_uuid and c.name == ^catalogue
+          )
+
+        _ when is_binary(preferred) ->
+          where(query, [r], r.catalogue_uuid == ^preferred)
+
+        _ ->
+          query
+      end
+
+    query |> repo().all() |> pick_unique(nil)
+  end
+
+  defp by_name(_kind, _ref, _preferred), do: :error
+
+  defp pick_unique([{uuid, _}], _preferred), do: {:ok, uuid}
+
+  defp pick_unique(matches, preferred) when is_binary(preferred) do
+    case Enum.filter(matches, fn {_uuid, catalogue} -> catalogue == preferred end) do
+      [{uuid, _}] -> {:ok, uuid}
+      _ -> :error
+    end
+  end
+
+  defp pick_unique(_matches, _preferred), do: :error
+
+  # Live rows of a kind, in live catalogues.
+  defp live_query(:catalogue), do: from(r in Catalogue, where: r.status != "deleted")
+
+  defp live_query(:category) do
+    from(r in Category,
+      join: c in Catalogue,
+      on: c.uuid == r.catalogue_uuid,
+      where: r.status != "deleted" and c.status != "deleted"
+    )
+  end
+
+  defp live_query(:item) do
+    from(r in Item,
+      join: c in Catalogue,
+      on: c.uuid == r.catalogue_uuid,
+      where: r.status != "deleted" and c.status != "deleted"
+    )
+  end
+
+  @doc """
+  The dependencies of many items at once, as `%{item_uuid => rows}` with
+  the same preloads as `list_item_dependencies/1` — one query, for an
+  export. Items with none are absent from the map.
+  """
+  @spec dependencies_by_item([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => [ItemDependency.t()]}
+  def dependencies_by_item(item_uuids) when is_list(item_uuids) do
+    case Enum.filter(item_uuids, &Helpers.uuid?/1) do
+      [] ->
+        %{}
+
+      uuids ->
+        from(d in ItemDependency,
+          where: d.item_uuid in ^uuids,
+          order_by: [asc: d.item_uuid, asc: d.position, asc: d.inserted_at],
+          preload: [
+            :target_catalogue,
+            target_category: :catalogue,
+            target_item: [:catalogue, :category]
+          ]
+        )
+        |> repo().all()
+        |> Enum.group_by(& &1.item_uuid)
+    end
+  end
+
+  @doc """
   Replaces an item's dependencies with `specs`, in that order.
 
   Writes nothing — no activity row, no broadcast — when the list already
@@ -70,12 +210,20 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
   transaction, one `item.dependencies_synced` activity row records the
   counts, and the item is broadcast as changed.
 
-  Returns `{:ok, rows}` (as `list_item_dependencies/1` reads them) or
-  `{:error, changeset}` for the first row that does not validate — no row
-  is written then.
+  Pass `expected:` — the rows the caller read and showed (from
+  `list_item_dependencies/1`) — to refuse the write when someone else has
+  changed the list since: `{:error, :dependencies_changed}`, nothing
+  written. The check and the write run under a lock on the item row, so
+  two saves of one item take turns.
+
+  Returns `{:ok, rows}` (as `list_item_dependencies/1` reads them),
+  `{:error, changeset}` for the first row that does not validate, or
+  `{:error, :dependencies_changed}` — no row is written in either error.
   """
   @spec put_item_dependencies(Item.t(), [spec()], keyword()) ::
-          {:ok, [ItemDependency.t()]} | {:error, Ecto.Changeset.t(ItemDependency.t())}
+          {:ok, [ItemDependency.t()]}
+          | {:error, Ecto.Changeset.t(ItemDependency.t())}
+          | {:error, :dependencies_changed}
   def put_item_dependencies(%Item{} = item, specs, opts \\ []) when is_list(specs) do
     changesets =
       specs
@@ -84,29 +232,20 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
         ItemDependency.changeset(%ItemDependency{}, spec_attrs(spec, item.uuid, index))
       end)
 
-    existing = list_item_dependencies(item)
-
-    cond do
-      bad = Enum.find(changesets, &(not &1.valid?)) ->
-        {:error, %{bad | action: :insert}}
-
-      Enum.map(existing, &comparable/1) == Enum.map(changesets, &comparable/1) ->
-        {:ok, existing}
-
-      true ->
-        write_dependencies(item, existing, changesets, opts)
+    case Enum.find(changesets, &(not &1.valid?)) do
+      nil -> write_if_changed(item, changesets, opts)
+      bad -> {:error, %{bad | action: :insert}}
     end
   end
 
-  defp write_dependencies(item, existing, changesets, opts) do
-    replace = fn ->
-      from(d in ItemDependency, where: d.item_uuid == ^item.uuid) |> repo().delete_all()
+  defp write_if_changed(item, changesets, opts) do
+    expected = Keyword.get(opts, :expected)
 
-      Enum.each(changesets, &insert_or_rollback/1)
-    end
+    case repo().transaction(fn -> decide_and_write(item, changesets, expected) end) do
+      {:ok, {:unchanged, existing}} ->
+        {:ok, existing}
 
-    case repo().transaction(replace) do
-      {:ok, _} ->
+      {:ok, {:written, before}} ->
         ActivityLog.log(%{
           action: "item.dependencies_synced",
           mode: "manual",
@@ -115,7 +254,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
           resource_uuid: item.uuid,
           metadata: %{
             "name" => item_name(item),
-            "before" => length(existing),
+            "before" => before,
             "total" => length(changesets)
           }
         })
@@ -125,9 +264,40 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
 
         {:ok, list_item_dependencies(item)}
 
+      {:error, :dependencies_changed} ->
+        {:error, :dependencies_changed}
+
       {:error, %Ecto.Changeset{} = changeset} ->
         {:error, changeset}
     end
+  end
+
+  # Under the item lock: refuse a stale `expected`, skip an unchanged list,
+  # else replace it.
+  defp decide_and_write(item, changesets, expected) do
+    lock_item!(item)
+    existing = list_item_dependencies(item)
+    current = Enum.map(existing, &comparable/1)
+
+    cond do
+      is_list(expected) and Enum.map(expected, &comparable/1) != current ->
+        repo().rollback(:dependencies_changed)
+
+      current == Enum.map(changesets, &comparable/1) ->
+        {:unchanged, existing}
+
+      true ->
+        from(d in ItemDependency, where: d.item_uuid == ^item.uuid) |> repo().delete_all()
+        Enum.each(changesets, &insert_or_rollback/1)
+        {:written, length(existing)}
+    end
+  end
+
+  # Two saves of one item's list take turns: the second reads what the
+  # first wrote before it decides anything.
+  defp lock_item!(%Item{uuid: uuid}) do
+    from(i in Item, where: i.uuid == ^uuid, lock: "FOR UPDATE", select: i.uuid)
+    |> repo().one()
   end
 
   defp insert_or_rollback(changeset) do

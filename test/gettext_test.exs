@@ -1371,7 +1371,11 @@ defmodule PhoenixKitCatalogue.GettextTest do
     "A dependency could not be saved. Check the Dependencies tab.",
     "%{quantity} × %{name}",
     "Needs",
-    "This no longer exists. Remove the line to save."
+    "This no longer exists. Remove the line to save.",
+    "Dependencies linked",
+    "Row %{row}: nothing found for “%{ref}”, so that dependency was left out.",
+    "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again.",
+    "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
   ]
 
   test "the V5 strings are in every locale, translated outside English" do

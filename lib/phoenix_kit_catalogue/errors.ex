@@ -332,6 +332,13 @@ defmodule PhoenixKitCatalogue.Errors do
   def message(:invalid_value),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Invalid value.")
 
+  def message(:dependencies_changed),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
+      )
+
   # Tagged tuples — atoms that carry a single parameter.
 
   def message({:referenced_by_smart_items, count}) when is_integer(count) do
@@ -362,6 +369,14 @@ defmodule PhoenixKitCatalogue.Errors do
       Gettext.gettext(
         PhoenixKitCatalogue.Gettext,
         "Invalid markup: %{raw}",
+        raw: truncate(raw)
+      )
+
+  def message({:invalid_dependencies, raw}),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons.",
         raw: truncate(raw)
       )
 

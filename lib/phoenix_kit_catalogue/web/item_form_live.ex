@@ -306,11 +306,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       supplier_draft: SupplierDraft.new(),
       # The Dependencies tab, staged until Save like the supplier rows —
       # see DependencyDraft. The place picker loads its tree when opened.
-      dependency_draft:
-        DependencyDraft.new(
-          load_dependencies(action, item),
-          dependency_name_fun(socket.assigns[:current_locale])
-        ),
       dependency_place_tree: nil,
       supplier_company_links: %{},
       supplier_comment_threads: %{},
@@ -346,6 +341,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       pdf_tab_opened: false,
       extensions: Extensions.sections(:item)
     )
+    |> assign_dependencies(load_dependencies(action, item))
     |> mount_supplier_rows(action, item)
     |> assign_location(item)
     |> Attachments.mount_attachments(item)
@@ -1443,22 +1439,30 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp dependency_target_exists?(:category, uuid), do: Catalogue.get_category(uuid) != nil
   defp dependency_target_exists?(:item, uuid), do: Catalogue.get_item(uuid) != nil
 
+  # An edit passes the rows the form loaded, so a list another admin saved
+  # meanwhile is not overwritten (`{:error, :dependencies_changed}`); a new
+  # item has nothing anyone else could have changed.
   defp put_dependencies(socket, item) do
+    expected =
+      if socket.assigns.action == :edit, do: [expected: socket.assigns.dependency_base], else: []
+
     Catalogue.put_item_dependencies(
       item,
       DependencyDraft.to_specs(socket.assigns.dependency_draft),
-      actor_opts(socket)
+      actor_opts(socket) ++ expected
     )
   end
 
-  defp reload_dependencies(socket, item) do
-    assign(
-      socket,
-      :dependency_draft,
-      DependencyDraft.new(
-        Catalogue.list_item_dependencies(item),
-        dependency_name_fun(socket.assigns[:current_locale])
-      )
+  defp reload_dependencies(socket, item),
+    do: assign_dependencies(socket, Catalogue.list_item_dependencies(item))
+
+  # The rows as read — kept as the base a Save compares against — and the
+  # draft the tab edits.
+  defp assign_dependencies(socket, rows) do
+    assign(socket,
+      dependency_base: rows,
+      dependency_draft:
+        DependencyDraft.new(rows, dependency_name_fun(socket.assigns[:current_locale]))
     )
   end
 
@@ -2221,7 +2225,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         %{assigns: %{item: %{uuid: item_uuid}}} = socket
       )
       when is_binary(uuid) and uuid == item_uuid do
-    {:noreply, Attachments.refresh_files(socket)}
+    socket = Attachments.refresh_files(socket)
+
+    # A dependency list saved in another tab replaces an untouched draft;
+    # one the admin has edited is left alone (Save then refuses to
+    # overwrite the other save and says so).
+    socket =
+      if socket.assigns.dependency_draft.dirty,
+        do: socket,
+        else: reload_dependencies(socket, socket.assigns.item)
+
+    {:noreply, socket}
   end
 
   # A category changed somewhere: a rename shows in the Location path.
@@ -2428,6 +2442,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       apply_attribute_assignment(socket, item)
       finish_edit_save(socket, item, mode)
     else
+      # Another admin saved this item's dependencies since the form loaded
+      # them: theirs are loaded, ours are not written.
+      {:error, :dependencies_changed} ->
+        {:noreply,
+         socket
+         |> refresh_after_edit(
+           Catalogue.get_item(socket.assigns.item.uuid) || socket.assigns.item
+         )
+         |> reload_dependencies(socket.assigns.item)
+         |> assign(:current_tab, :dependencies)
+         |> put_flash(:error, Errors.message(:dependencies_changed))}
+
       # Before the item clause: a dependency row's changeset is not the
       # item form's.
       # The item's own fields saved before the dependency write failed: the

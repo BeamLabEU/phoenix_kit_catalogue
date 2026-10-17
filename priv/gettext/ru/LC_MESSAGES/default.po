@@ -3906,3 +3906,15 @@ msgstr[2] "%{count} других позиций указывают что-то �
 
 msgid "%{quantity} × %{name}"
 msgstr "%{quantity} × %{name}"
+
+msgid "Dependencies linked"
+msgstr "Связано зависимостей"
+
+msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
+msgstr "Строка %{row}: «%{ref}» не найдено, эта зависимость пропущена."
+
+msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
+msgstr "Кто-то другой изменил зависимости этой позиции, пока вы редактировали. Теперь показан его список; внесите свои изменения заново."
+
+msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
+msgstr "Нечитаемая зависимость: %{raw}. Пишите каждую как «8 × SKU», через точку с запятой."

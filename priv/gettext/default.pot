@@ -3898,3 +3898,15 @@ msgstr[1] ""
 
 msgid "%{quantity} × %{name}"
 msgstr ""
+
+msgid "Dependencies linked"
+msgstr ""
+
+msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
+msgstr ""
+
+msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
+msgstr ""
+
+msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
+msgstr ""

@@ -430,6 +430,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defdelegate list_item_dependencies(item_or_uuid), to: Dependencies
 
+  defdelegate dependencies_by_item(item_uuids), to: Dependencies
+
+  defdelegate resolve_import_ref(ref, opts \\ []), to: Dependencies
+
   defdelegate put_item_dependencies(item, specs, opts \\ []), to: Dependencies
 
   defdelegate list_item_dependents(target), to: Dependencies

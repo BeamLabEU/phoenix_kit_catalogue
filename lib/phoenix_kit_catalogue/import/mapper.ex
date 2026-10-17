@@ -5,6 +5,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   """
 
   alias PhoenixKit.Utils.Multilang
+  alias PhoenixKitCatalogue.Import.DependencyCell
 
   @type target ::
           :name
@@ -14,6 +15,8 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
           | :markup_percentage
           | :unit
           | :item_type
+          | :ai_notes
+          | :dependencies
           | :category
           | :manufacturer
           | :supplier
@@ -131,6 +134,8 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     # Specific on purpose: headers are matched by substring, so a bare
     # "type" would claim "Unit type" before :unit is tried.
     item_type: ["item_type", "item type", "itemtype", "liik"],
+    ai_notes: ["ai_notes", "ai notes", "notes for ai"],
+    dependencies: ["dependencies", "dependency", "soltuvused"],
     manufacturer:
       ~w(manufacturer hersteller tootja brand bra_nd vendor maker producer firma manufacturer_name),
     supplier: ~w(supplier tarnija lieferant distributor reseller wholesaler supplier_name)
@@ -152,6 +157,8 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       {:markup_percentage, "Markup override (%)"},
       {:unit, "Unit of measure"},
       {:item_type, "Item type"},
+      {:ai_notes, "Notes for AI"},
+      {:dependencies, "Dependencies"},
       {:category, "Create categories"},
       {:manufacturer, "Manufacturer"},
       {:supplier, "Supplier"}
@@ -608,6 +615,24 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     end
   end
 
+  defp apply_mapping(acc, :ai_notes, value, _unit_map) do
+    case String.trim(value) do
+      "" -> acc
+      notes -> Map.put(acc, :ai_notes, notes)
+    end
+  end
+
+  # Read here, resolved after the rows exist (`Import.Executor`), so an
+  # item may depend on another row of the same file. An unreadable cell
+  # rejects the row, like an unreadable price.
+  defp apply_mapping(acc, :dependencies, value, _unit_map) do
+    case DependencyCell.parse(value) do
+      {:ok, []} -> acc
+      {:ok, refs} -> Map.put(acc, :_dependencies, refs)
+      {:error, entry} -> Map.put(acc, :_dependencies_error, entry)
+    end
+  end
+
   defp apply_mapping(acc, :category, value, _unit_map),
     do: Map.put(acc, :_category_name, String.trim(value))
 
@@ -646,8 +671,11 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       Map.has_key?(attrs, :_markup_error) ->
         {:error, {:invalid_markup, attrs[:_markup_error]}}
 
+      Map.has_key?(attrs, :_dependencies_error) ->
+        {:error, {:invalid_dependencies, attrs[:_dependencies_error]}}
+
       true ->
-        {:ok, Map.drop(attrs, [:_price_error, :_markup_error])}
+        {:ok, Map.drop(attrs, [:_price_error, :_markup_error, :_dependencies_error])}
     end
   end
 

@@ -248,6 +248,39 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       )
     end
 
+    test "two admins: the second Save does not overwrite the first, and says so",
+         %{conn: conn} = ctx do
+      first = open_tab(conn, ctx.susan)
+      second = open_tab(conn, ctx.susan)
+
+      pick_item(first, ctx.screw)
+      pick_place(second, "catalogue:" <> ctx.screws.uuid)
+
+      save(first)
+
+      html =
+        second
+        |> form(form_selector(), %{"item" => %{"name" => "Lazy susan"}})
+        |> render_submit()
+
+      assert html =~ "Someone else changed this item&#39;s dependencies"
+      # The first admin's list stands, and the second form now shows it.
+      assert [%{target_item_uuid: screw}] = Catalogue.list_item_dependencies(ctx.susan)
+      assert screw == ctx.screw.uuid
+      assert has_element?(second, "[data-dependency-kind=item]", "Screw 4x30")
+      refute has_element?(second, "[data-dependency-kind=catalogue]")
+    end
+
+    test "an untouched tab picks up a list saved in another tab", %{conn: conn} = ctx do
+      watcher = open_tab(conn, ctx.susan)
+      editor = open_tab(conn, ctx.susan)
+
+      pick_item(editor, ctx.screw)
+      save(editor)
+
+      eventually(fn -> has_element?(watcher, "[data-dependency-kind=item]", "Screw 4x30") end)
+    end
+
     test "an untouched tab writes no activity row on save", %{conn: conn} = ctx do
       view = open_tab(conn, ctx.susan)
       save(view)
@@ -340,6 +373,14 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
         render_click(view, "show_delete_confirm", %{"uuid" => ctx.screw.uuid, "type" => "item"})
 
       assert html =~ "1 other item lists something this removes as a dependency."
+    end
+  end
+
+  defp eventually(fun, tries \\ 60) do
+    cond do
+      fun.() -> :ok
+      tries == 0 -> flunk("condition never became true")
+      true -> Process.sleep(50) && eventually(fun, tries - 1)
     end
   end
 end

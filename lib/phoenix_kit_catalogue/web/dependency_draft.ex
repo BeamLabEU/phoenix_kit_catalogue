@@ -15,7 +15,9 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
   alias PhoenixKit.Utils.Number
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item, ItemDependency}
 
-  defstruct rows: [], next_key: 1
+  # `dirty` — the admin changed something since the list was loaded; a
+  # clean draft may be replaced by a fresher read without losing anything.
+  defstruct rows: [], next_key: 1, dirty: false
 
   @type kind :: ItemDependency.kind()
 
@@ -33,7 +35,7 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
           error: String.t() | nil
         }
 
-  @type t :: %__MODULE__{rows: [row()], next_key: pos_integer()}
+  @type t :: %__MODULE__{rows: [row()], next_key: pos_integer(), dirty: boolean()}
 
   @doc """
   A draft holding the item's saved dependencies (`list_item_dependencies/1`
@@ -64,13 +66,19 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
   @spec add(t(), kind(), struct(), (struct() -> String.t() | nil)) :: t()
   def add(%__MODULE__{} = draft, kind, record, name_of \\ &default_name/1)
       when kind in [:catalogue, :category, :item] do
-    put_row(draft, kind, record, name_of, quantity: "1", note: "")
+    draft
+    |> put_row(kind, record, name_of, quantity: "1", note: "")
+    |> Map.put(:dirty, true)
   end
 
   @doc "Drops the row with `key`."
   @spec remove(t(), String.t()) :: t()
-  def remove(%__MODULE__{} = draft, key),
-    do: %{draft | rows: Enum.reject(draft.rows, &(&1.key == key))}
+  def remove(%__MODULE__{} = draft, key) do
+    case Enum.reject(draft.rows, &(&1.key == key)) do
+      same when length(same) == length(draft.rows) -> draft
+      rows -> %{draft | rows: rows, dirty: true}
+    end
+  end
 
   @doc "Moves the row with `key` one place up or down; at an end, nothing."
   @spec move(t(), String.t(), :up | :down) :: t()
@@ -87,7 +95,8 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
         else
           a = Enum.at(rows, index)
           b = Enum.at(rows, other)
-          %{draft | rows: rows |> List.replace_at(index, b) |> List.replace_at(other, a)}
+          rows = rows |> List.replace_at(index, b) |> List.replace_at(other, a)
+          %{draft | rows: rows, dirty: true}
         end
     end
   end
@@ -99,7 +108,8 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
   """
   @spec put_values(t(), map()) :: t()
   def put_values(%__MODULE__{} = draft, values) when is_map(values) do
-    %{draft | rows: Enum.map(draft.rows, &put_typed(&1, Map.get(values, &1.key)))}
+    rows = Enum.map(draft.rows, &put_typed(&1, Map.get(values, &1.key)))
+    %{draft | rows: rows, dirty: draft.dirty or rows != draft.rows}
   end
 
   defp put_typed(row, %{} = typed) do

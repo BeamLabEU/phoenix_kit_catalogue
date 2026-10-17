@@ -21,7 +21,9 @@ defmodule PhoenixKitCatalogue.Import.Executor do
           categories_created: non_neg_integer(),
           manufacturers_created: non_neg_integer(),
           suppliers_created: non_neg_integer(),
-          manufacturer_supplier_links_created: non_neg_integer()
+          manufacturer_supplier_links_created: non_neg_integer(),
+          dependencies_linked: non_neg_integer(),
+          dependencies_unresolved: [{non_neg_integer(), String.t()}]
         }
 
   @doc """
@@ -128,12 +130,12 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     # Phase 2: Create items, accumulating M:N link pairs along the way
     supplier_names = supplier_names(supplier_lookup, fixed_supplier_uuid)
     total = length(import_plan.items)
-    initial_acc = {0, [], MapSet.new(), MapSet.new()}
+    initial_acc = {{0, [], MapSet.new(), MapSet.new()}, []}
 
-    {created, errors, link_pairs, manufacturers_touched} =
+    {{created, errors, link_pairs, manufacturers_touched}, pending_dependencies} =
       import_plan.items
       |> Enum.with_index(1)
-      |> Enum.reduce(initial_acc, fn {item_attrs, idx}, {cr, errs, pairs, mfrs} ->
+      |> Enum.reduce(initial_acc, fn {item_attrs, idx}, {{cr, errs, pairs, mfrs}, pending} ->
         {mfr_ref, attrs} =
           item_attrs
           |> resolve_manufacturer(manufacturer_lookup, fixed_manufacturer_uuid)
@@ -147,6 +149,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
           |> resolve_category(category_lookup, fixed_category_uuid)
           |> apply_language(language)
 
+        {dependency_refs, attrs} = Map.pop(attrs, :_dependencies, [])
         result = insert_item(attrs, activity_opts)
 
         # A supplier column means "this item is supplied by X", so it
@@ -156,7 +159,13 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
         maybe_notify(notify_pid, {:import_progress, idx, total})
 
-        accumulate_item_result(result, {cr, errs, pairs, mfrs}, idx, mfr_ref, sup_ref)
+        pending =
+          case {result, dependency_refs} do
+            {{:ok, item}, [_ | _]} -> [{idx, item, dependency_refs} | pending]
+            _ -> pending
+          end
+
+        {accumulate_item_result(result, {cr, errs, pairs, mfrs}, idx, mfr_ref, sup_ref), pending}
       end)
 
     # Phase 3: M:N links. A fixed supplier (existing/create mode) gets
@@ -165,13 +174,20 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     pairs_to_link = expand_supplier_links(link_pairs, manufacturers_touched, fixed_supplier_uuid)
     links_created = create_manufacturer_supplier_links(pairs_to_link)
 
+    # Phase 4: dependencies, once every row exists — an item may name
+    # another row of the same file.
+    {dependencies_linked, dependencies_unresolved} =
+      link_dependencies(Enum.reverse(pending_dependencies), catalogue_uuid, activity_opts)
+
     result = %{
       created: created,
       errors: Enum.reverse(errors),
       categories_created: categories_created,
       manufacturers_created: manufacturers_created,
       suppliers_created: suppliers_created,
-      manufacturer_supplier_links_created: links_created
+      manufacturer_supplier_links_created: links_created,
+      dependencies_linked: dependencies_linked,
+      dependencies_unresolved: dependencies_unresolved
     }
 
     # Roll-up broadcast: per-row events were suppressed via
@@ -191,6 +207,47 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
     result
   end
+
+  # Each reference is looked up (`Catalogue.resolve_import_ref/2`); a line
+  # whose target cannot be found, or would be the item itself, is left out
+  # and reported by its row — the item is imported either way.
+  defp link_dependencies(pending, catalogue_uuid, activity_opts) do
+    Enum.reduce(pending, {0, []}, fn {idx, item, refs}, {linked, unresolved} ->
+      {specs, missing} = resolve_refs(item, refs, catalogue_uuid)
+      written = write_dependencies(item, specs, activity_opts)
+      {linked + written, unresolved ++ Enum.map(missing, &{idx, &1})}
+    end)
+  end
+
+  # `{specs, missing_labels}`, both in the file's order.
+  defp resolve_refs(item, refs, catalogue_uuid) do
+    {specs, missing} =
+      Enum.reduce(refs, {[], []}, fn ref, {specs, missing} ->
+        case Catalogue.resolve_import_ref(ref, catalogue_uuid: catalogue_uuid) do
+          {:ok, {:item, uuid}} when uuid == item.uuid ->
+            {specs, [describe_ref(ref) | missing]}
+
+          {:ok, target} ->
+            {[%{target: target, quantity: ref.quantity, note: ref.note} | specs], missing}
+
+          :error ->
+            {specs, [describe_ref(ref) | missing]}
+        end
+      end)
+
+    {Enum.reverse(specs), Enum.reverse(missing)}
+  end
+
+  defp write_dependencies(_item, [], _activity_opts), do: 0
+
+  defp write_dependencies(item, specs, activity_opts) do
+    case Catalogue.put_item_dependencies(item, specs, [broadcast: false] ++ activity_opts) do
+      {:ok, rows} -> length(rows)
+      {:error, _reason} -> 0
+    end
+  end
+
+  defp describe_ref(ref), do: ref[:sku] || ref[:name] || ref[:uuid] || ref.type
 
   defp maybe_notify(nil, _message), do: :ok
   defp maybe_notify(pid, message) when is_pid(pid), do: send(pid, message)

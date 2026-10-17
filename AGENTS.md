@@ -525,21 +525,34 @@ Pointers, not docs — the moduledocs are the contract.
   flag. Never shrink a scope's `catalogue_uuids` to apply it — an emptied
   list means every catalogue; the fetch layer's `exclude_internal` does the
   filtering. Pinned by `test/web/internal_catalogue_popups_test.exs`.
+  `CatalogueBrowse` is live through `Web.ComponentRelay` like the modal,
+  so a catalogue becoming internal leaves an open embed too.
 - **Notes for AI** — `ai_notes` on catalogues, categories and items: one
   language, never shown by the pop-ups, never machine-translated, logged
   only as "changed". `Catalogue.ai_notes_for_item/1` gathers an item's with
-  its catalogue's and categories', general first.
+  its catalogue's and categories', general first. The Universal JSON
+  export carries them (and the catalogue's `internal`), and "Notes for AI"
+  is an import column.
 - **Item dependencies** — the item form's Dependencies tab is staged in
   `Web.DependencyDraft` and written on Save by
   `Catalogue.put_item_dependencies/3` (replace-all; writes nothing when the
-  list is unchanged). Informational only: nothing prices or expands them.
+  list is unchanged). The form passes `expected:` — the rows it loaded —
+  so a list another admin saved meanwhile is never overwritten
+  (`:dependencies_changed`, their list is loaded); an untouched tab picks
+  up such a save live. Informational only: nothing prices or expands them.
   A soft trash leaves a row listed as "in trash"; a permanent delete of
   either end cascades it away, and the permanent-delete dialogs say how
   many other items lose a line (`count_outside_dependents/1`). Duplicating
   a category or catalogue points a target copied in the same operation at
   its copy. `list_item_dependents/1` answers "who lists this?" for internal
   callers; the modal's `show_dependencies` adds a "Needs" row to its item
-  details, leaving out targets the popup hides.
+  details, leaving out targets the popup hides. Import/export: the
+  Universal JSON names each target by uuid, SKU and names; a Dependencies
+  column (that JSON, or typed `8 × SKU; 2 × SKU`) is read by
+  `Import.DependencyCell` and linked after every row exists
+  (`Catalogue.resolve_import_ref/2`: the uuid while it names a live row,
+  else a unique SKU or name); a line with no match is reported by row and
+  the item imports anyway.
 - **Smart catalogues** — `Catalogue.put_catalogue_rules/3` (replace-all,
   transactional, one `smart_rules.synced` activity), `list_catalogue_rules/1`,
   `list_items_referencing_catalogue/1` (warn before deleting a referenced
