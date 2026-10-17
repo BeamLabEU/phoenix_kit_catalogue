@@ -317,7 +317,9 @@ Schemas (all `@primary_key {:uuid, UUIDv7, autogenerate: true}`):
 - `ItemDependency` — one line of what an item needs: exactly one target
   catalogue, category or item (a `num_nonnulls` CHECK), a positive
   `quantity`, an optional `note`. Every reference is a foreign key with
-  `ON DELETE CASCADE`. The same target may appear twice.
+  `ON DELETE CASCADE`. The table accepts the same target twice; the item
+  form never offers a listed target, nor anything under a listed
+  catalogue or category.
 - Attribute schemas: `AttributeGroup`, `Attribute`, `AttributeValue`,
   `ItemAttributeGroup`, `ItemAttributeSet`.
 - PDF library tables (`Pdf`, `PdfExtraction`, `PdfPage`, `PdfPageContent`) layer

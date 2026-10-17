@@ -3867,8 +3867,8 @@ msgstr "Ausgewählt"
 msgid "Nothing selected yet."
 msgstr "Noch nichts ausgewählt."
 
-msgid "Already on the list. Adding it again makes a second line."
-msgstr "Steht schon auf der Liste. Erneutes Hinzufügen ergibt eine zweite Zeile."
+msgid "What is already on the list, and anything inside it, is not offered."
+msgstr "Was schon auf der Liste steht, und alles darin, wird nicht angeboten."
 
 msgid "Any item in %{place}"
 msgstr "Beliebiger Artikel aus %{place}"

@@ -187,6 +187,17 @@ defmodule PhoenixKitCatalogue.Web.PlacePickerTest do
       refute PlaceTree.find(pruned, oak)
       assert PlaceTree.find(pruned, "catalogue:" <> ctx.kitchen.uuid)
 
+      # prune_and_tidy also drops a folder left leading nowhere.
+      assert PlaceTree.find(
+               PlaceTree.prune(tree, ["catalogue:" <> ctx.kitchen.uuid]),
+               "folder:" <> ctx.rooms.uuid
+             )
+
+      refute PlaceTree.find(
+               PlaceTree.prune_and_tidy(tree, ["catalogue:" <> ctx.kitchen.uuid]),
+               "folder:" <> ctx.rooms.uuid
+             )
+
       assert PlaceTree.ids_of(tree, [:catalogue]) == ["catalogue:" <> ctx.kitchen.uuid]
       assert PlaceTree.uuid(oak) == ctx.oak.uuid
       assert PlaceTree.uuid("root") == nil

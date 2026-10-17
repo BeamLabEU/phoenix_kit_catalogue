@@ -259,6 +259,26 @@ defmodule PhoenixKitCatalogue.Web.PlaceTree do
   @spec prune([tree_node()], [String.t()]) :: [tree_node()]
   defdelegate prune(tree, ids), to: Tree
 
+  @doc """
+  `prune/2`, then drops every folder the pruning left without a row to
+  open — a picker should not offer a folder that leads nowhere.
+  """
+  @spec prune_and_tidy([tree_node()], [String.t()]) :: [tree_node()]
+  def prune_and_tidy(tree, ids), do: tree |> Tree.prune(ids) |> drop_empty_folders()
+
+  defp drop_empty_folders(nodes) do
+    Enum.flat_map(nodes, fn
+      %{type: :folder} = node ->
+        case drop_empty_folders(node.children) do
+          [] -> []
+          children -> [%{node | children: children}]
+        end
+
+      node ->
+        [node]
+    end)
+  end
+
   @doc "See `PhoenixKit.Utils.Tree.find/2`."
   @spec find([tree_node()], term()) :: tree_node() | nil
   defdelegate find(tree, id), to: Tree

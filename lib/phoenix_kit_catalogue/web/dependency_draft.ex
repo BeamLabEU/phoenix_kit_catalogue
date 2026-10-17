@@ -9,7 +9,8 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
   admin typed, as typed (`quantity` stays the string until `validate/1`
   reads it, so "2,5" or a half-typed "1." is never rewritten under the
   cursor). Rows are keyed by a draft-local `key`, never by the target: the
-  same target may be listed twice, for different reasons.
+  form offers a target once, but a list saved before that rule (or written
+  by an import) may still hold one twice.
   """
 
   alias PhoenixKit.Utils.Number
