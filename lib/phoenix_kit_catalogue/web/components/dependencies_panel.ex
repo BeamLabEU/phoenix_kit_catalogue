@@ -216,10 +216,12 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
                 <p :if={is_nil(@picker.value)} class="text-sm text-base-content/50">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing selected yet.")}
                 </p>
-                <div :if={@picker.value} class="flex items-center gap-2 min-w-0">
+                <div :if={@picker.value} class="flex items-start gap-2 min-w-0">
                   <.icon name={kind_icon(@picker.kind)} class="w-5 h-5 shrink-0 text-base-content/60" />
-                  <span class="font-medium truncate">{Enum.join(@picker.path, " › ")}</span>
-                  <span class="badge badge-ghost badge-xs shrink-0">{kind_label(@picker.kind)}</span>
+                  <span class="font-medium min-w-0 break-words">
+                    {Enum.join(@picker.path, " › ")}
+                  </span>
+                  <span class="badge badge-ghost badge-xs shrink-0 mt-1">{kind_label(@picker.kind)}</span>
                 </div>
                 <p
                   :if={listed?(@draft, @picker.value)}
