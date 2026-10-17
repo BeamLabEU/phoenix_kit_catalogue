@@ -25,22 +25,25 @@ defmodule PhoenixKitCatalogue.API.DeleteCategories do
     end
   end
 
-  # --- the live tree (reads only) -------------------------------------------------------
+  # --- the category tree (reads only) ----------------------------------------------------
 
-  # `parents`: uuid => parent uuid; `children`: uuid => child uuids; `items`: uuid => the live
-  # items directly in the category.
+  # The tree the write cascades through: every category of the catalogue, trashed ones too
+  # (`Tree.subtree_uuids/1` passes through them, and a live category can sit below a trashed
+  # one). `parents`: uuid => parent uuid; `children`: uuid => child uuids; `live`: the uuids of
+  # the categories that are not in the trash; `items`: uuid => the live items directly in it.
   defp tree(catalogue) do
-    %{categories: categories, item_counts: items} =
-      Catalogue.category_summary_for_catalogue(catalogue.uuid)
+    # `mode: :deleted` is "every status" for the categories.
+    categories = Catalogue.list_categories_metadata_for_catalogue(catalogue.uuid, mode: :deleted)
 
     %{
       parents: Map.new(categories, &{&1.uuid, &1.parent_uuid}),
       children: Enum.group_by(categories, & &1.parent_uuid, & &1.uuid),
-      items: items
+      live: for(c <- categories, c.status != "deleted", into: MapSet.new(), do: c.uuid),
+      items: Catalogue.live_item_uuids_by_category_for_catalogue(catalogue.uuid)
     }
   end
 
-  # The live categories above `uuid`, root first. `acc` stops a corrupt cycle.
+  # The categories above `uuid`, root first. `acc` stops a corrupt cycle.
   defp ancestors(uuid, tree), do: ancestors(Map.get(tree.parents, uuid), tree, [])
 
   defp ancestors(nil, _tree, acc), do: acc
@@ -51,44 +54,65 @@ defmodule PhoenixKitCatalogue.API.DeleteCategories do
       else: ancestors(Map.get(tree.parents, uuid), tree, [uuid | acc])
   end
 
-  # `uuid` and everything live below it.
-  defp subtree(uuid, tree), do: subtree([uuid], tree, [])
+  # `uuid` and everything below it, in any state.
+  defp subtree(uuid, tree), do: subtree([uuid], tree, MapSet.new())
 
-  defp subtree([], _tree, acc), do: acc
+  defp subtree([], _tree, seen), do: MapSet.to_list(seen)
 
-  defp subtree([uuid | rest], tree, acc) do
-    if uuid in acc,
-      do: subtree(rest, tree, acc),
-      else: subtree(Map.get(tree.children, uuid, []) ++ rest, tree, [uuid | acc])
+  defp subtree([uuid | rest], tree, seen) do
+    if MapSet.member?(seen, uuid),
+      do: subtree(rest, tree, seen),
+      else: subtree(Map.get(tree.children, uuid, []) ++ rest, tree, MapSet.put(seen, uuid))
+  end
+
+  # What a trash of `uuid` takes: the live subcategories and the live items of its subtree,
+  # as sorted uuids. The write trashes exactly these (the rest of the subtree is in the trash
+  # already and keeps its own stamp).
+  defp taken_by(uuid, tree) do
+    subtree = subtree(uuid, tree)
+
+    categories =
+      for sub <- subtree, sub != uuid, MapSet.member?(tree.live, sub), do: sub
+
+    items = Enum.flat_map(subtree, &Map.get(tree.items, &1, []))
+    {Enum.sort(categories), Enum.sort(items)}
   end
 
   # --- dry run -------------------------------------------------------------------------
 
+  # The fingerprint follows the rows and WHICH categories and items would go, not only how many,
+  # so a swap of equal size between the preview and the confirmation is caught too.
   defp preview(plan, tree) do
     taken = removable(plan)
 
-    plan
-    |> Enum.map(fn
-      {:remove, ref, category} ->
-        if covered?(category, taken, tree),
-          do: Common.row_ok(ref, "unchanged", category.uuid),
-          else: preview_row(ref, category, tree)
+    entries =
+      Enum.map(plan, fn
+        {:remove, ref, category} ->
+          if covered?(category, taken, tree),
+            do: {Common.row_ok(ref, "unchanged", category.uuid), nil},
+            else: preview_row(ref, category, tree)
 
-      other ->
-        Common.removal_row(other)
-    end)
-    |> Common.preview(%{"requires_confirmation" => true})
+        other ->
+          {Common.removal_row(other), nil}
+      end)
+
+    rows = Enum.map(entries, &elem(&1, 0))
+    {:preview, body, _fingerprint} = Common.preview(rows, %{"requires_confirmation" => true})
+    {:preview, body, Common.fingerprint({rows, Enum.map(entries, &elem(&1, 1))})}
   end
 
   defp preview_row(ref, category, tree) do
-    subtree = subtree(category.uuid, tree)
+    {categories, items} = taken_by(category.uuid, tree)
 
-    Common.row_ok(ref, "removed", category.uuid, %{
-      "name" => category.name,
-      "changes" => %{"status" => %{"from" => category.status, "to" => "deleted"}},
-      "subcategories" => length(subtree) - 1,
-      "items" => subtree |> Enum.map(&Map.get(tree.items, &1, 0)) |> Enum.sum()
-    })
+    row =
+      Common.row_ok(ref, "removed", category.uuid, %{
+        "name" => category.name,
+        "changes" => %{"status" => %{"from" => category.status, "to" => "deleted"}},
+        "subcategories" => length(categories),
+        "items" => length(items)
+      })
+
+    {row, {categories, items}}
   end
 
   defp removable(plan), do: MapSet.new(for {:remove, _ref, category} <- plan, do: category.uuid)

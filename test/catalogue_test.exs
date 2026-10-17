@@ -2797,6 +2797,23 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert counts == %{cat_a.uuid => 1}
     end
 
+    test "live_item_uuids_by_category_for_catalogue/1 lists the live items per category, sorted" do
+      cat = create_catalogue()
+      cat_a = create_category(cat, %{name: "A"})
+      cat_b = create_category(cat, %{name: "B"})
+      kept = for _ <- 1..2, do: create_item(%{name: "x", category_uuid: cat_a.uuid})
+      Catalogue.trash_item(create_item(%{name: "dead", category_uuid: cat_a.uuid}))
+      create_item(%{name: "loose", catalogue_uuid: cat.uuid})
+
+      assert Catalogue.live_item_uuids_by_category_for_catalogue(cat.uuid) ==
+               %{cat_a.uuid => kept |> Enum.map(& &1.uuid) |> Enum.sort()}
+
+      refute Map.has_key?(
+               Catalogue.live_item_uuids_by_category_for_catalogue(cat.uuid),
+               cat_b.uuid
+             )
+    end
+
     test "category_summary_for_catalogue/2 returns categories + counts + uncategorized in one shape" do
       cat = create_catalogue()
       cat_a = create_category(cat, %{name: "A", position: 1})
