@@ -1397,7 +1397,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
     "Pick a catalogue, a category or an item, then say how many.",
     "Selected",
     "Nothing selected yet.",
-    "Already on the list. Adding it again makes a second line.",
+    "What is already on the list, and anything inside it, is not offered.",
     "Any item in %{place}",
     "Anything in %{place}",
     "The note is too long (%{max} characters at most).",

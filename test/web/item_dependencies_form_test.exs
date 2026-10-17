@@ -11,6 +11,7 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
   use PhoenixKitCatalogue.LiveCase
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Web.PlaceTree
   alias PhoenixKitWeb.Components.TreePicker
 
   @base "/en/admin/catalogues"
@@ -46,6 +47,8 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
   defp confirm(view, values \\ %{}) do
     view |> form("#dependency-picker-form", %{"picker" => values}) |> render_submit()
   end
+
+  defp picker_tree(view), do: :sys.get_state(view.pid).socket.assigns.dependency_picker.tree
 
   defp cancel(view), do: view |> element("#dependency-picker-cancel") |> render_click()
 
@@ -101,14 +104,17 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       assert has_element?(view, ~s(input[value="by wood type"]))
     end
 
-    test "adds a catalogue, a category and an item, then saves them in order",
+    test "adds an item, a category and a catalogue, then saves them in the dragged order",
          %{conn: conn} = ctx do
       view = open_tab(conn, ctx.susan)
 
-      pick_place(view, "catalogue:" <> ctx.screws.uuid)
-      pick_place(view, "category:" <> ctx.wood.uuid)
+      # Child first: a listed parent would hide what is under it.
       pick_item(view, ctx.screw)
+      pick_place(view, "category:" <> ctx.wood.uuid)
+      pick_place(view, "catalogue:" <> ctx.screws.uuid)
 
+      [item_row, category_row, catalogue_row] = row_keys(view)
+      drag(view, [catalogue_row, category_row, item_row])
       [first, second, _third] = row_keys(view)
 
       view
@@ -265,21 +271,39 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       assert [_row] = row_keys(view)
     end
 
-    test "the pop-up says when the selection is already on the list", %{conn: conn} = ctx do
+    test "what is on the list, and everything under it, is not offered again",
+         %{conn: conn} = ctx do
+      plain = fixture_item(%{name: "Plain screw", catalogue_uuid: ctx.screws.uuid})
       view = open_tab(conn, ctx.susan)
-      open_picker(view)
-      select(view, "item:" <> ctx.screw.uuid)
-      refute has_element?(view, "#dependency-picker-listed")
-      confirm(view)
 
-      # Also for a line staged but not saved yet.
+      # A listed category takes its items with it; the rest stays.
+      pick_place(view, "category:" <> ctx.wood.uuid)
       open_picker(view)
-      select(view, "item:" <> ctx.screw.uuid)
-      assert has_element?(view, "#dependency-picker-listed")
+      refute PlaceTree.find(picker_tree(view), "category:" <> ctx.wood.uuid)
+      refute PlaceTree.find(picker_tree(view), "item:" <> ctx.screw.uuid)
+      assert PlaceTree.find(picker_tree(view), "item:" <> plain.uuid)
+      assert PlaceTree.find(picker_tree(view), "catalogue:" <> ctx.screws.uuid)
 
-      # Allowed all the same: the same target may be listed twice.
+      # A forged pick of a hidden row is refused like any row not offered.
+      select(view, "item:" <> ctx.screw.uuid)
+      assert has_element?(view, "#dependency-picker-confirm[disabled]")
       confirm(view)
-      assert length(row_keys(view)) == 2
+      assert length(row_keys(view)) == 1
+      cancel(view)
+
+      # A listed catalogue takes everything in it.
+      pick_place(view, "catalogue:" <> ctx.screws.uuid)
+      open_picker(view)
+      refute PlaceTree.find(picker_tree(view), "catalogue:" <> ctx.screws.uuid)
+      refute PlaceTree.find(picker_tree(view), "item:" <> plain.uuid)
+      assert PlaceTree.find(picker_tree(view), "catalogue:" <> ctx.furniture.uuid)
+
+      # Removing a line offers it again.
+      cancel(view)
+      [_wood_row, catalogue_row] = row_keys(view)
+      render_click(view, "dependency_remove", %{"key" => catalogue_row})
+      open_picker(view)
+      assert PlaceTree.find(picker_tree(view), "item:" <> plain.uuid)
     end
 
     test "the Add pop-up closes without adding anything", %{conn: conn} = ctx do

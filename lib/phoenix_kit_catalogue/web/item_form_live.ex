@@ -675,14 +675,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @impl true
   # The Add pop-up. Its tree is built on open, not at mount: it holds every
   # live item, and most edits never add a dependency. The item itself is
-  # left out. Picking a row only selects it; Add stages the row and closes.
+  # left out, and so is everything already on the list with all that is
+  # under it: a target is listed once, and a listed catalogue or category
+  # already covers what it holds. Picking a row only selects it; Add
+  # stages the row and closes.
   def handle_event("dependency_open_picker", _params, socket) do
+    listed = Enum.map(socket.assigns.dependency_draft.rows, &"#{&1.kind}:#{&1.uuid}")
+    self_id = List.wrap(socket.assigns.item.uuid && "item:" <> socket.assigns.item.uuid)
+
     tree =
       nil
       |> PlaceTree.places(items: true, locale: socket.assigns[:current_locale])
-      |> PlaceTree.prune(
-        List.wrap(socket.assigns.item.uuid && "item:" <> socket.assigns.item.uuid)
-      )
+      |> PlaceTree.prune_and_tidy(self_id ++ listed)
 
     {:noreply,
      assign(socket, :dependency_picker, %{

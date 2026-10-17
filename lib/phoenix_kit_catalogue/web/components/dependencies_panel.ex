@@ -214,6 +214,10 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
                 PhoenixKitCatalogue.Gettext,
                 "Pick a catalogue, a category or an item, then say how many."
               )}
+              {Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "What is already on the list, and anything inside it, is not offered."
+              )}
             </p>
 
             <.live_component
@@ -248,16 +252,6 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
                   </span>
                   <span class="badge badge-ghost badge-xs shrink-0 mt-1">{kind_label(@picker.kind)}</span>
                 </div>
-                <p
-                  :if={listed?(@draft, @picker.value)}
-                  id="dependency-picker-listed"
-                  class="text-xs text-warning"
-                >
-                  {Gettext.gettext(
-                    PhoenixKitCatalogue.Gettext,
-                    "Already on the list. Adding it again makes a second line."
-                  )}
-                </p>
               </div>
 
               <div class="flex flex-wrap items-start gap-3">
@@ -336,11 +330,6 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Anything in %{place}",
         place: Enum.join(path, " › ")
       )
-
-  defp listed?(_draft, nil), do: false
-
-  defp listed?(draft, value),
-    do: Enum.any?(draft.rows, &("#{&1.kind}:#{&1.uuid}" == value))
 
   defp kind_icon(:catalogue), do: "hero-rectangle-stack"
   defp kind_icon(:category), do: "hero-folder"

@@ -3880,8 +3880,8 @@ msgstr "Вибрано"
 msgid "Nothing selected yet."
 msgstr "Поки нічого не вибрано."
 
-msgid "Already on the list. Adding it again makes a second line."
-msgstr "Уже є в списку. Повторне додавання створить другий рядок."
+msgid "What is already on the list, and anything inside it, is not offered."
+msgstr "Те, що вже є в списку, і все, що всередині нього, тут не пропонується."
 
 msgid "Any item in %{place}"
 msgstr "Будь-яка позиція з %{place}"
