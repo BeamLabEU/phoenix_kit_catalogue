@@ -111,7 +111,9 @@ defmodule PhoenixKitCatalogue.API.Tools do
           "data, translations). A rename does not change the item's URL slug. Rows are independent; each " <>
           "answers updated, unchanged or error. A request over the confirmation threshold (50 rows by " <>
           "default) answers confirmation_required and runs when repeated with the confirm_token. " <>
-          "A sku and an external_id are stored and matched exactly as sent (not trimmed).",
+          "A sku and an external_id are stored and matched exactly as sent (not trimmed). A sku that " <>
+          "another live item of the catalogue already holds is refused for that row with sku_taken and " <>
+          "the holder's id (an item that keeps its own sku is not a conflict).",
       input_schema: Schemas.update_products(),
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.UpdateProducts, :call},

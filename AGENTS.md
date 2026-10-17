@@ -516,7 +516,8 @@ Pointers, not docs — the moduledocs are the contract.
   hard-deletes: it must only ever run under a core that enforces the
   confirmation gate. `API.Gate` keeps the tool out of the registry on a core
   that lacks the gate; raise the `phoenix_kit` floor in `mix.exs` to the first
-  release that ships the shop API.
+  release that ships the shop API. `update_products` refuses a sku another live
+  item of the catalogue holds (`sku_taken`; no DB index backs it).
   Guide: `dev_docs/guides/api-tools.md`; tests: `test/phoenix_kit_catalogue/api/`,
   through `Test.ApiCase`.
 - **Moves and copies** — a move lands only in a live catalogue (and
