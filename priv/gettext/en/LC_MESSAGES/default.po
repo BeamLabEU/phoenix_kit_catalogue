@@ -3864,6 +3864,18 @@ msgstr "Add a dependency"
 msgid "Search catalogues, categories and items…"
 msgstr "Search catalogues, categories and items…"
 
+msgid "Pick a catalogue, a category or an item, then say how many."
+msgstr "Pick a catalogue, a category or an item, then say how many."
+
+msgid "Selected"
+msgstr "Selected"
+
+msgid "Nothing selected yet."
+msgstr "Nothing selected yet."
+
+msgid "Already on the list. Adding it again makes a second line."
+msgstr "Already on the list. Adding it again makes a second line."
+
 msgid "The note is too long (%{max} characters at most)."
 msgstr "The note is too long (%{max} characters at most)."
 

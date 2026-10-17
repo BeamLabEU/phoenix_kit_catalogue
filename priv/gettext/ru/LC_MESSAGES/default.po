@@ -3877,6 +3877,18 @@ msgstr "Добавить зависимость"
 msgid "Search catalogues, categories and items…"
 msgstr "Поиск каталогов, категорий и позиций…"
 
+msgid "Pick a catalogue, a category or an item, then say how many."
+msgstr "Выберите каталог, категорию или позицию и укажите, сколько нужно."
+
+msgid "Selected"
+msgstr "Выбрано"
+
+msgid "Nothing selected yet."
+msgstr "Пока ничего не выбрано."
+
+msgid "Already on the list. Adding it again makes a second line."
+msgstr "Уже есть в списке. Повторное добавление создаст вторую строку."
+
 msgid "The note is too long (%{max} characters at most)."
 msgstr "Примечание слишком длинное (не более %{max} символов)."
 

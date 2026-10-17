@@ -69,16 +69,27 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
 
   @doc """
   Adds a row for `record` (a catalogue, a category with its `:catalogue`
-  loaded, or an item with its `:catalogue` and `:category` loaded) with a
-  quantity of 1.
+  loaded, or an item with its `:catalogue` and `:category` loaded).
+  `opts` takes the typed `:quantity` (default `"1"`) and `:note` (default
+  `""`), kept as typed like the rows' own fields.
   """
-  @spec add(t(), kind(), struct(), (struct() -> String.t() | nil)) :: t()
-  def add(%__MODULE__{} = draft, kind, record, name_of \\ &default_name/1)
+  @spec add(t(), kind(), struct(), (struct() -> String.t() | nil), keyword()) :: t()
+  def add(%__MODULE__{} = draft, kind, record, name_of \\ &default_name/1, opts \\ [])
       when kind in [:catalogue, :category, :item] do
     draft
-    |> put_row(kind, record, name_of, quantity: "1", note: "")
+    |> put_row(kind, record, name_of,
+      quantity: Keyword.get(opts, :quantity, "1"),
+      note: Keyword.get(opts, :note, "")
+    )
     |> Map.put(:dirty, true)
   end
+
+  @doc """
+  What is wrong with a typed quantity and note, by the rows' own rules:
+  `nil` when both would save, else `"quantity"` or `"note"`.
+  """
+  @spec values_error(String.t() | nil, String.t() | nil) :: String.t() | nil
+  def values_error(quantity, note), do: row_error(%{quantity: quantity, note: note || ""})
 
   @doc "Drops the row with `key`."
   @spec remove(t(), String.t()) :: t()

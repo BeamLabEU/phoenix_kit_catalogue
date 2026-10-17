@@ -35,11 +35,23 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
     view
   end
 
-  # Opens the Add pop-up and picks `id` the way its tree does.
-  defp pick_place(view, id) do
-    view |> element("#dependency-add") |> render_click()
+  defp open_picker(view), do: view |> element("#dependency-add") |> render_click()
+
+  # Selects `id` the way the pop-up's tree does.
+  defp select(view, id) do
     send(view.pid, {TreePicker, "dependency-place-picker", id})
     render(view)
+  end
+
+  defp confirm(view, values \\ %{}) do
+    view |> form("#dependency-picker-form", %{"picker" => values}) |> render_submit()
+  end
+
+  # Opens the Add pop-up, selects `id` and adds it with the defaults.
+  defp pick_place(view, id) do
+    open_picker(view)
+    select(view, id)
+    confirm(view)
   end
 
   defp pick_item(view, item), do: pick_place(view, "item:" <> item.uuid)
@@ -174,12 +186,66 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       search_picker(view, "Lazy")
       refute has_element?(view, ~s([data-tree-node="item:#{ctx.susan.uuid}"]))
 
+      # Nothing is chosen yet, so there is nothing to add.
+      assert has_element?(view, "#dependency-picker-selection", "Nothing selected yet.")
+      assert has_element?(view, "#dependency-picker-confirm[disabled]")
+
+      # Picking a row only selects it: the pop-up stays, showing the path.
       search_picker(view, "4x30")
       view |> element(~s([data-tree-node="item:#{ctx.screw.uuid}"])) |> render_click()
+
+      assert has_element?(view, "#dependency-picker")
+
+      assert has_element?(
+               view,
+               "#dependency-picker-selection",
+               "Screws › Wood screws › Screw 4x30"
+             )
+
+      refute has_element?(view, "#dependency-picker-confirm[disabled]")
+      assert row_keys(view) == []
+
+      confirm(view, %{"quantity" => "8", "note" => "by wood type"})
 
       refute has_element?(view, "#dependency-picker")
       assert has_element?(view, "[data-dependency-kind=item]", "Screw 4x30")
       assert has_element?(view, "#item-dependencies", "Screws › Wood screws")
+      [key] = row_keys(view)
+      assert has_element?(view, ~s(#dependency-#{key}-quantity[value="8"]))
+      assert has_element?(view, ~s(#dependency-#{key}-note[value="by wood type"]))
+    end
+
+    test "Add holds a bad quantity or note in the pop-up instead of staging it",
+         %{conn: conn} = ctx do
+      view = open_tab(conn, ctx.susan)
+      open_picker(view)
+      select(view, "item:" <> ctx.screw.uuid)
+
+      html = confirm(view, %{"quantity" => "0"})
+      assert html =~ "Enter a quantity above zero, with at most four decimal places."
+      assert has_element?(view, "#dependency-picker")
+      assert row_keys(view) == []
+
+      html = confirm(view, %{"quantity" => "2", "note" => String.duplicate("x", 501)})
+      assert html =~ "The note is too long"
+      assert row_keys(view) == []
+
+      confirm(view, %{"quantity" => "2.5", "note" => ""})
+      assert [_row] = row_keys(view)
+    end
+
+    test "the pop-up says when the selection is already on the list", %{conn: conn} = ctx do
+      view = open_tab(conn, ctx.susan)
+      pick_item(view, ctx.screw)
+
+      open_picker(view)
+      refute has_element?(view, "#dependency-picker-listed")
+      select(view, "item:" <> ctx.screw.uuid)
+      assert has_element?(view, "#dependency-picker-listed")
+
+      # Allowed all the same: the same target may be listed twice.
+      confirm(view)
+      assert length(row_keys(view)) == 2
     end
 
     test "the Add pop-up closes without adding anything", %{conn: conn} = ctx do
@@ -222,20 +288,26 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       assert [_row] = row_keys(view)
     end
 
-    test "the item itself cannot be added", %{conn: conn} = ctx do
+    test "the item itself cannot be selected", %{conn: conn} = ctx do
       view = open_tab(conn, ctx.susan)
-      html = pick_item(view, ctx.susan)
+      open_picker(view)
+      select(view, "item:" <> ctx.susan.uuid)
 
-      assert html =~ "An item cannot depend on itself."
+      # Not in the tree, so the selection is refused and Add stays off.
+      assert has_element?(view, "#dependency-picker-confirm[disabled]")
+      confirm(view)
       assert row_keys(view) == []
     end
 
-    test "a place trashed since the tree was drawn is refused", %{conn: conn} = ctx do
+    test "a target trashed since the tree was drawn is refused on Add", %{conn: conn} = ctx do
       view = open_tab(conn, ctx.susan)
+      open_picker(view)
+      select(view, "category:" <> ctx.wood.uuid)
       {:ok, _} = Catalogue.trash_category(ctx.wood)
 
-      html = pick_place(view, "category:" <> ctx.wood.uuid)
+      html = confirm(view)
       assert html =~ "That no longer exists. Choose another."
+      assert has_element?(view, "#dependency-picker")
       assert row_keys(view) == []
     end
 
