@@ -692,6 +692,27 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
       assert Catalogue.get_item!(c.uuid).sku == nil
     end
 
+    test "a sku one row clears can be taken by a later row", %{catalogue: catalogue} do
+      a = item(catalogue, "Alpha", %{sku: "S-CLEAR"})
+      b = item(catalogue, "Beta")
+
+      entries = [
+        entry(%{"id" => a.uuid}, %{"sku" => nil}),
+        entry(%{"id" => b.uuid}, %{"sku" => "S-CLEAR"})
+      ]
+
+      assert {:preview, %{"rows" => preview_rows}, _} =
+               run_update(catalogue, entries, %{dry_run?: true})
+
+      executed = rows(run_update(catalogue, entries))
+
+      for answered <- [preview_rows, executed],
+          do: assert(Enum.map(answered, & &1["action"]) == ["updated", "updated"])
+
+      assert {Catalogue.get_item!(a.uuid).sku, Catalogue.get_item!(b.uuid).sku} ==
+               {nil, "S-CLEAR"}
+    end
+
     test "answers the same in the preview as in the write", %{catalogue: catalogue} do
       holder = item(catalogue, "Holder", %{sku: "TAKEN"})
       a = item(catalogue, "Alpha")
