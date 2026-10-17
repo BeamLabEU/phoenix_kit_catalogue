@@ -366,7 +366,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate item_status_counts_for_category(category_uuid), to: Items
   defdelegate item_status_counts_for_uncategorized(catalogue_uuid), to: Items
   defdelegate item_counts_by_category_for_catalogue(catalogue_uuid, opts \\ []), to: Items
-  defdelegate live_item_uuids_by_category_for_catalogue(catalogue_uuid), to: Items
+  defdelegate live_item_uuids_by_category(category_uuids), to: Items
   defdelegate next_item_position(catalogue_uuid, category_uuid), to: Items
   defdelegate reorder_items(catalogue_uuid, category_uuid, ordered_uuids, opts \\ []), to: Items
 
