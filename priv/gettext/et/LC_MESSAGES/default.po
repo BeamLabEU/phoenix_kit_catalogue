@@ -3852,12 +3852,6 @@ msgstr "Märkus"
 msgid "e.g., pick by wood type"
 msgstr "nt. vali puiduliigi järgi"
 
-msgid "Move up"
-msgstr "Liiguta üles"
-
-msgid "Move down"
-msgstr "Liiguta alla"
-
 msgid "Add a dependency"
 msgstr "Lisa sõltuvus"
 
@@ -3875,9 +3869,6 @@ msgstr "Midagi pole veel valitud."
 
 msgid "Already on the list. Adding it again makes a second line."
 msgstr "See on juba nimekirjas. Uuesti lisamine teeb teise rea."
-
-msgid "Added %{quantity} × %{name}."
-msgstr "Lisatud %{quantity} × %{name}."
 
 msgid "Any item in %{place}"
 msgstr "Mis tahes toode kategooriast %{place}"

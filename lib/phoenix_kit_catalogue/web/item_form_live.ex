@@ -675,8 +675,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @impl true
   # The Add pop-up. Its tree is built on open, not at mount: it holds every
   # live item, and most edits never add a dependency. The item itself is
-  # left out. Picking a row only selects it; Add stages the row and keeps
-  # the pop-up (and its tree and search) for the next pick, until Done.
+  # left out. Picking a row only selects it; Add stages the row and closes.
   def handle_event("dependency_open_picker", _params, socket) do
     tree =
       nil
@@ -693,8 +692,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
        path: [],
        quantity: "1",
        note: "",
-       error: nil,
-       added: nil
+       error: nil
      })}
   end
 
@@ -727,15 +725,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     {:noreply, update(socket, :dependency_draft, &DependencyDraft.remove(&1, key))}
   end
 
-  def handle_event("dependency_move", %{"key" => key, "direction" => direction}, socket)
-      when is_binary(key) and direction in ["up", "down"] do
-    direction = if direction == "up", do: :up, else: :down
-    {:noreply, update(socket, :dependency_draft, &DependencyDraft.move(&1, key, direction))}
+  # The rows' drag-and-drop list reports the new order of row keys.
+  def handle_event("dependency_reorder", %{"ordered_ids" => keys}, socket) when is_list(keys) do
+    keys = Enum.filter(keys, &is_binary/1)
+    {:noreply, update(socket, :dependency_draft, &DependencyDraft.reorder(&1, keys))}
   end
 
-  # A malformed push (no key, an unknown direction) changes nothing.
+  # A malformed push (no key, no list) changes nothing.
   def handle_event(event, _params, socket)
-      when event in ["dependency_remove", "dependency_move"],
+      when event in ["dependency_remove", "dependency_reorder"],
       do: {:noreply, socket}
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
@@ -1480,16 +1478,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
         socket
         |> assign(:dependency_draft, draft)
-        |> assign(:dependency_picker, %{
-          picker
-          | value: nil,
-            kind: nil,
-            path: [],
-            quantity: "1",
-            note: "",
-            error: nil,
-            added: {quantity, List.last(draft.rows).name || "—"}
-        })
+        |> assign(:dependency_picker, nil)
     end
   end
 

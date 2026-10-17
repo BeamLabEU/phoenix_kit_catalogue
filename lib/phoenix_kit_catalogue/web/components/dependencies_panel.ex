@@ -5,16 +5,16 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   a pop-up like the Location chooser's — one tree of folders › catalogues ›
   categories › items (`PlaceTree.places/2` with `items: true`). Picking a
   row only selects it: the pop-up shows the selection the way the list
-  will read it, takes its quantity and note, and adds the row on Add. It
-  stays open for the next pick, keeping its search, until Done.
+  will read it, takes its quantity and note, and adds the row on Add,
+  which closes it. Rows reorder by dragging (core's `draggable_list`).
 
   Rendered OUTSIDE the item form: the rows are a small form of their own
   (`dependency_change`), and the picker brings its own search box. Nothing
   here writes — the item's Save does (`ItemFormLive`). The host
   LiveView handles `dependency_open_picker`, `dependency_close_picker`,
   `dependency_picker_change`, `dependency_picker_confirm`,
-  `dependency_change`, `dependency_remove` and `dependency_move`, plus the
-  tree's `{TreePicker, "dependency-place-picker", id}`.
+  `dependency_change`, `dependency_remove` and `dependency_reorder`, plus
+  the tree's `{TreePicker, "dependency-place-picker", id}`.
 
   Internal categories are offered here like any other: this is an admin
   page, and back-office stock is exactly what a dependency points at.
@@ -25,6 +25,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   alias Phoenix.LiveView.JS
 
   import PhoenixKitWeb.Components.Core.DecimalInput, only: [decimal_input: 1]
+  import PhoenixKitWeb.Components.Core.DraggableList, only: [draggable_list: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
@@ -40,10 +41,9 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   attr(:picker, :map,
     default: nil,
     doc: """
-    The open pop-up — `%{tree, value, kind, path, quantity, note, error,
-    added}`, where `value` is the selected row's id (`nil` before one is
-    picked), `error` names what stops Add and `added` is the last line Add
-    staged (`{quantity, name}`) — or nil while closed.
+    The open pop-up — `%{tree, value, kind, path, quantity, note, error}`,
+    where `value` is the selected row's id (`nil` before one is picked) and
+    `error` names what stops Add — or nil while closed.
     """
   )
 
@@ -71,94 +71,111 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
           phx-submit="dependency_change"
           class="flex flex-col divide-y divide-base-200"
         >
+          <%!-- The column names once, above the rows, so each row's name
+               lines up with its own fields. Hidden where the row wraps. --%>
           <div
-            :for={{row, index} <- Enum.with_index(@draft.rows)}
-            id={"dependency-row-#{row.key}"}
-            data-dependency-kind={row.kind}
-            class="flex flex-wrap items-start gap-3 py-3"
+            aria-hidden="true"
+            class="hidden md:flex items-center gap-3 pb-1 text-sm font-medium text-base-content/70"
           >
-            <.icon name={kind_icon(row.kind)} class="w-5 h-5 mt-2 shrink-0 text-base-content/60" />
-
-            <div class="flex-1 min-w-48 flex flex-col gap-0.5 pt-1.5">
-              <div class="flex items-center gap-2 min-w-0">
-                <.link
-                  navigate={target_path(row)}
-                  class="link link-hover font-medium truncate"
-                >
-                  {row.name || "—"}
-                </.link>
-                <span class="badge badge-ghost badge-xs shrink-0">{kind_label(row.kind)}</span>
-                <.internal_badge record={%{internal: row.internal?, uuid: row.uuid}} />
-                <span :if={row.trashed?} class="badge badge-warning badge-xs shrink-0">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "In trash")}
-                </span>
-              </div>
-              <span :if={row.place} class="text-xs text-base-content/50 truncate">{row.place}</span>
-            </div>
-
-            <.decimal_input
-              id={"dependency-#{row.key}-quantity"}
-              name={"dependencies[#{row.key}][quantity]"}
-              value={row.quantity}
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Quantity")}
-              errors={field_errors(row, "quantity")}
-              wrapper_class="w-32"
-              class="input-sm"
-              phx-debounce="300"
-            />
-
-            <.input
-              type="text"
-              id={"dependency-#{row.key}-note"}
-              name={"dependencies[#{row.key}][note]"}
-              value={row.note}
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Note")}
-              errors={field_errors(row, "note")}
-              wrapper_class="flex-1 min-w-48"
-              class="input-sm"
-              maxlength={ItemDependency.max_note_length()}
-              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., pick by wood type")}
-              phx-debounce="300"
-            />
-
-            <div class="flex items-center gap-1 pt-9">
-              <button
-                type="button"
-                phx-click="dependency_move"
-                phx-value-key={row.key}
-                phx-value-direction="up"
-                disabled={index == 0}
-                class="btn btn-ghost btn-xs btn-square"
-                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move up")}
-              >
-                <.icon name="hero-arrow-up" class="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                phx-click="dependency_move"
-                phx-value-key={row.key}
-                phx-value-direction="down"
-                disabled={index == length(@draft.rows) - 1}
-                class="btn btn-ghost btn-xs btn-square"
-                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move down")}
-              >
-                <.icon name="hero-arrow-down" class="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                phx-click="dependency_remove"
-                phx-value-key={row.key}
-                class="btn btn-ghost btn-xs btn-square text-error"
-                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
-              >
-                <.icon name="hero-x-mark" class="w-4 h-4" />
-              </button>
-            </div>
-
-            <p :if={row.error == "gone"} class="basis-full text-xs text-error pl-8">
-              {row_error_message(row.error)}
-            </p>
+            <span class="w-4 shrink-0"></span>
+            <span class="w-5 shrink-0"></span>
+            <span class="flex-1 min-w-48"></span>
+            <span class="w-32">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Quantity")}</span>
+            <span class="flex-1 min-w-48">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Note")}</span>
+            <span class="w-6 shrink-0"></span>
           </div>
+
+          <.draggable_list
+            id="dependency-rows"
+            items={@draft.rows}
+            item_id={& &1.key}
+            on_reorder="dependency_reorder"
+            layout={:list}
+            gap="gap-0"
+            class="divide-y divide-base-200"
+            draggable={length(@draft.rows) > 1}
+            sortable_handle=".pk-drag-handle"
+          >
+            <:item :let={row}>
+              <div
+                id={"dependency-row-#{row.key}"}
+                data-dependency-kind={row.kind}
+                class="flex flex-wrap items-center gap-3 py-3 bg-base-100"
+              >
+                <span
+                  class={[
+                    "w-4 shrink-0",
+                    length(@draft.rows) > 1 &&
+                      "pk-drag-handle cursor-grab text-base-content/30 hover:text-base-content/60"
+                  ]}
+                  title={
+                    length(@draft.rows) > 1 &&
+                      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder")
+                  }
+                >
+                  <.icon :if={length(@draft.rows) > 1} name="hero-bars-3" class="w-4 h-4" />
+                </span>
+
+                <.icon name={kind_icon(row.kind)} class="w-5 h-5 shrink-0 text-base-content/60" />
+
+                <div class="flex-1 min-w-48 flex flex-col gap-0.5">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <.link navigate={target_path(row)} class="link link-hover font-medium truncate">
+                      {row.name || "—"}
+                    </.link>
+                    <span class="badge badge-ghost badge-xs shrink-0">{kind_label(row.kind)}</span>
+                    <.internal_badge record={%{internal: row.internal?, uuid: row.uuid}} />
+                    <span :if={row.trashed?} class="badge badge-warning badge-xs shrink-0">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "In trash")}
+                    </span>
+                  </div>
+                  <span :if={row.place} class="text-xs text-base-content/50 truncate">
+                    {row.place}
+                  </span>
+                </div>
+
+                <.decimal_input
+                  id={"dependency-#{row.key}-quantity"}
+                  name={"dependencies[#{row.key}][quantity]"}
+                  value={row.quantity}
+                  aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Quantity")}
+                  placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Quantity")}
+                  errors={field_errors(row, "quantity")}
+                  wrapper_class="w-32"
+                  class="input-sm"
+                  phx-debounce="300"
+                />
+
+                <.input
+                  type="text"
+                  id={"dependency-#{row.key}-note"}
+                  name={"dependencies[#{row.key}][note]"}
+                  value={row.note}
+                  aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Note")}
+                  errors={field_errors(row, "note")}
+                  wrapper_class="flex-1 min-w-48"
+                  class="input-sm"
+                  maxlength={ItemDependency.max_note_length()}
+                  placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., pick by wood type")}
+                  phx-debounce="300"
+                />
+
+                <button
+                  type="button"
+                  phx-click="dependency_remove"
+                  phx-value-key={row.key}
+                  class="btn btn-ghost btn-xs btn-square text-error w-6 shrink-0"
+                  title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
+                >
+                  <.icon name="hero-x-mark" class="w-4 h-4" />
+                </button>
+
+                <p :if={row.error == "gone"} class="basis-full text-xs text-error pl-16">
+                  {row_error_message(row.error)}
+                </p>
+              </div>
+            </:item>
+          </.draggable_list>
         </form>
 
         <div class="divider my-0"></div>
@@ -178,7 +195,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
         <%!-- Like the Location chooser: one tree, folders › catalogues ›
              categories › items. Picking a row selects it; below, the
              selection reads as its line will, with its quantity and note;
-             Add stages the row and leaves the pop-up open for the next. --%>
+             Add stages the row and closes. --%>
         <.modal
           :if={@picker}
           id="dependency-picker"
@@ -211,25 +228,10 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
               }
             />
 
-            <p
-              :if={@picker.added}
-              id="dependency-picker-added"
-              class="flex items-center gap-2 text-sm text-success"
-            >
-              <.icon name="hero-check-circle" class="w-4 h-4 shrink-0" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Added %{quantity} × %{name}.",
-                quantity: elem(@picker.added, 0),
-                name: elem(@picker.added, 1)
-              )}
-            </p>
-
             <form
               id="dependency-picker-form"
               phx-change="dependency_picker_change"
-              phx-submit={
-                JS.push("dependency_picker_confirm")
-                |> JS.focus(to: "#dependency-place-picker-search")
-              }
+              phx-submit="dependency_picker_confirm"
               class="flex flex-col gap-3 border-t border-base-300 pt-4"
             >
               <div id="dependency-picker-selection" class="flex flex-col gap-1 min-w-0">
@@ -296,11 +298,11 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
           <:actions>
             <button
               type="button"
-              id="dependency-picker-done"
+              id="dependency-picker-cancel"
               phx-click="dependency_close_picker"
               class="btn btn-ghost btn-sm"
             >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Done")}
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
             </button>
             <button
               type="submit"

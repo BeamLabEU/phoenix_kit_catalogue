@@ -100,25 +100,18 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraft do
     end
   end
 
-  @doc "Moves the row with `key` one place up or down; at an end, nothing."
-  @spec move(t(), String.t(), :up | :down) :: t()
-  def move(%__MODULE__{rows: rows} = draft, key, direction) do
-    case Enum.find_index(rows, &(&1.key == key)) do
-      nil ->
-        draft
+  @doc """
+  Puts the rows in the order of `keys` (what a drag-and-drop list reports).
+  Keys it does not hold are ignored, and rows `keys` leaves out keep their
+  order after the named ones, so a stale or partial list loses nothing.
+  """
+  @spec reorder(t(), [String.t()]) :: t()
+  def reorder(%__MODULE__{rows: rows} = draft, keys) when is_list(keys) do
+    by_key = Map.new(rows, &{&1.key, &1})
+    named = keys |> Enum.uniq() |> Enum.flat_map(&List.wrap(by_key[&1]))
+    reordered = named ++ (rows -- named)
 
-      index ->
-        other = if direction == :up, do: index - 1, else: index + 1
-
-        if other < 0 or other >= length(rows) do
-          draft
-        else
-          a = Enum.at(rows, index)
-          b = Enum.at(rows, other)
-          rows = rows |> List.replace_at(index, b) |> List.replace_at(other, a)
-          %{draft | rows: rows, dirty: true}
-        end
-    end
+    if reordered == rows, do: draft, else: %{draft | rows: reordered, dirty: true}
   end
 
   @doc """
