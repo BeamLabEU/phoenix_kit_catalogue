@@ -37,7 +37,7 @@ defmodule PhoenixKitCatalogue.MigrationsV4DBTest do
     count
   end
 
-  test "replaying the chain twice is idempotent and stamps the current version" do
+  test "replaying the chain twice is idempotent and stamps the current marker" do
     replay_chain!()
     replay_chain!()
 

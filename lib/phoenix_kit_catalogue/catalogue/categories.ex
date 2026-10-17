@@ -18,7 +18,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
-  @category_logged_fields [:name, :status, :description, :ai_notes]
+  @category_logged_fields [
+    :name,
+    :status,
+    :description,
+    :parent_uuid,
+    :position,
+    :slug,
+    :ai_notes
+  ]
 
   @category_slugs_table "phoenix_kit_cat_category_slugs"
 
@@ -296,7 +304,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
             parent_catalogue_uuid: category.catalogue_uuid,
             metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
           },
-          Keyword.take(opts, [:broadcast, :mode])
+          Keyword.take(opts, [:broadcast, :mode, :log_metadata])
         )
 
         ok
@@ -313,11 +321,21 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
   caller only owns PART of `data` — e.g. a form that only rendered a
   subset of it. See `update_item/3`'s doc for the full rationale; the
   mechanism is identical.
+
+  Takes `:data_owned_paths`, `:logged_data_paths` and `:log_metadata` exactly as
+  `update_item/3` does (the row is read `FOR UPDATE`, the update applies to it,
+  only the named `data` paths are copied).
+
+  The logged `from` values are those of the row as it is stored when the update
+  runs (the locked row), not of the caller's copy: under `:data_owned_paths`
+  always, and without it when the parent changes.
   """
   @spec update_category(Category.t(), map(), keyword()) ::
           {:ok, Category.t()}
           | {:error, Ecto.Changeset.t(Category.t()) | :not_found | :catalogue_moved}
   def update_category(%Category{} = category, attrs, opts \\ []) do
+    paths = Shared.owned_paths!(opts)
+
     result =
       Trash.locked_transaction(fn ->
         # A new parent is checked for a cycle against the tree as committed:
@@ -331,22 +349,22 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
             do: Trash.lock_row_in_catalogue!(Category, category.uuid),
             else: category
 
-        attrs = Shared.narrow_data_ownership(Category, category.uuid, attrs, opts)
+        {attrs, base} = narrow_category_data(category, attrs, paths, opts)
 
         changeset =
-          category
+          base
           |> Category.changeset(attrs)
-          |> Shared.keep_trash_status(Category, category.uuid)
+          |> Shared.keep_trash_status(Category, base.uuid)
           |> validate_parent_in_same_catalogue()
 
         case repo().update(changeset) do
-          {:ok, updated} -> updated
+          {:ok, updated} -> {base, updated}
           {:error, changeset} -> repo().rollback(changeset)
         end
       end)
 
     case result do
-      {:ok, updated} ->
+      {:ok, {before, updated}} ->
         Shared.log_activity(
           %{
             action: "category.updated",
@@ -358,19 +376,33 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
             metadata:
               ActivityLog.with_changes(
                 %{"name" => updated.name},
-                category,
+                before,
                 updated,
-                @category_logged_fields
+                @category_logged_fields,
+                Keyword.get(opts, :logged_data_paths, [])
               )
           },
           opts
         )
 
-        MediaFolders.follow([{category, updated}], opts[:actor_uuid])
+        MediaFolders.follow([{before, updated}], opts[:actor_uuid])
         {:ok, updated}
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  defp narrow_category_data(%Category{} = category, attrs, paths, opts) do
+    case paths do
+      nil ->
+        {Shared.narrow_data_ownership(Category, category.uuid, attrs, opts), category}
+
+      paths ->
+        case Shared.lock_fresh(Category, category.uuid) do
+          nil -> repo().rollback(:not_found)
+          fresh -> {Shared.splice_owned_paths(fresh, attrs, paths), fresh}
+        end
     end
   end
 
@@ -515,6 +547,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
   Logs a single `category.trashed` activity on the root with
   `subtree_size`, `items_handled`, and `items_disposition` in metadata.
+  Options besides `:items`: `:actor_uuid`, `:mode`, `:broadcast` (`false`
+  sends no PubSub event) and `:log_metadata` (extra keys for the entry).
 
   ## Examples
 
@@ -530,6 +564,23 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
              | :move_target_in_subtree
              | term()}
   def trash_category(%Category{} = category, opts \\ []) do
+    with {:ok, _outcome, updated} <- trash_category_outcome(category, opts), do: {:ok, updated}
+  end
+
+  @doc """
+  `trash_category/2` that tells whether THIS call trashed anything:
+  `{:ok, :trashed, category}`, or `{:ok, :already_trashed, category}` when the
+  category was in the trash already with nothing live under it (a concurrent
+  trash that landed first); nothing is changed or logged then.
+  """
+  @spec trash_category_outcome(Category.t(), keyword()) ::
+          {:ok, :trashed | :already_trashed, Category.t()}
+          | {:error,
+             :move_target_not_found
+             | :cross_catalogue_move
+             | :move_target_in_subtree
+             | term()}
+  def trash_category_outcome(%Category{} = category, opts \\ []) do
     disposition = Keyword.get(opts, :items, :cascade)
 
     result =
@@ -569,7 +620,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
       # Already in the trash with nothing live under it: this call trashed
       # nothing, so it records nothing.
       {:ok, {updated, _subtree_size, _items_handled, false, _pairs}} ->
-        {:ok, updated}
+        {:ok, :already_trashed, updated}
 
       {:ok, {updated, subtree_size, items_handled, true, pairs}} ->
         MediaFolders.follow(pairs, opts[:actor_uuid])
@@ -592,10 +643,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
               "items_disposition" => disposition_to_metadata(disposition)
             }
           },
-          Keyword.take(opts, [:broadcast, :mode])
+          Keyword.take(opts, [:log_metadata, :broadcast, :mode])
         )
 
-        {:ok, updated}
+        {:ok, :trashed, updated}
 
       error ->
         error
@@ -717,6 +768,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
   A category that is not deleted is returned unchanged. Logs
   `category.restored` with `descendants_restored` and `items_restored`.
+
+  Refuses with `{:error, :external_id_taken}` when a live row has taken the
+  `external_id` of one of the rows coming back; nothing is restored.
+
+  Inside a caller's own transaction the collision is raised as the
+  `Postgrex.Error` instead, because the database has already aborted that
+  transaction.
 
   ## Examples
 
@@ -1137,7 +1195,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
   (`:kind_mismatch` — standard and smart items price differently), and
   a `parent_uuid:` that is missing, trashed or in another catalogue
   (`:parent_not_found`) or inside the moved subtree
-  (`:would_create_cycle`). Both catalogues are told about the move.
+  (`:would_create_cycle`), and a move that would give an item the
+  `external_id` a live item of the target already holds
+  (`:external_id_taken`; inside a caller's own transaction this is raised
+  as the `Postgrex.Error` instead, because the database has already
+  aborted that transaction). Both catalogues are told about the move.
 
   With `catalogue_uuid:`, a category that is no longer in that catalogue
   when its row is locked is refused (`:wrong_catalogue_scope`).
@@ -1891,6 +1953,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
     end
   end
 
+  @max_category_position 1_000_000
+
   @doc """
   Returns the next available position for a new category among its
   siblings. Position is scoped to `(catalogue_uuid, parent_uuid)` — the
@@ -1899,7 +1963,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
   ambiguous.
 
   `parent_uuid` defaults to `nil`, i.e. root-level siblings. Returns 0
-  if no siblings exist at that level, otherwise `max_position + 1`.
+  if no siblings exist at that level, otherwise `max_position + 1`, at most
+  `max_category_position/0` so that a stored huge position cannot push the
+  next one out of the column.
   """
   @spec next_category_position(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: non_neg_integer()
   def next_category_position(catalogue_uuid, parent_uuid \\ nil) do
@@ -1917,9 +1983,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
     case repo().one(query) do
       nil -> 0
-      max_pos -> max_pos + 1
+      max_pos -> min(max_pos + 1, @max_category_position)
     end
   end
+
+  @doc "The largest position a category is given or accepted with."
+  @spec max_category_position() :: pos_integer()
+  def max_category_position, do: @max_category_position
 
   @doc """
   Re-indexes a sibling group of categories from a list of UUIDs.
@@ -2418,6 +2488,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
     :ok
   end
+
+  @doc """
+  Announces that categories of a catalogue were trashed: the one event a
+  bulk trash sends per touched catalogue, for a caller that trashed with
+  `broadcast: false`.
+  """
+  @spec broadcast_categories_trashed(Ecto.UUID.t()) :: :ok
+  def broadcast_categories_trashed(catalogue_uuid),
+    do: PubSub.broadcast(:category, nil, catalogue_uuid)
 
   defp bulk_trash_category_step(uuid, disposition, opts, acc) do
     case Helpers.get_by_uuid(Category, uuid) do
