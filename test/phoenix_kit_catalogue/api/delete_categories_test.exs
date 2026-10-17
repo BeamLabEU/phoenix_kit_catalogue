@@ -336,17 +336,23 @@ defmodule PhoenixKitCatalogue.API.DeleteCategoriesTest do
   describe "a live category below a trashed one (restored on its own)" do
     # R (live) > A (trashed) > B (live, restored alone), with items in B.
     setup %{catalogue: catalogue} do
-      r = category(catalogue, "R")
-      a = category(catalogue, "A", %{parent_uuid: r.uuid})
-      b = category(catalogue, "B", %{parent_uuid: a.uuid})
+      {r, a, b} = trashed_middle_tree(catalogue, "")
+
+      items = for n <- 1..3, do: item(catalogue, "In B #{n}", %{category_uuid: b.uuid})
+      %{r: r, a: a, b: b, items: items}
+    end
+
+    defp trashed_middle_tree(catalogue, suffix) do
+      r = category(catalogue, "R#{suffix}")
+      a = category(catalogue, "A#{suffix}", %{parent_uuid: r.uuid})
+      b = category(catalogue, "B#{suffix}", %{parent_uuid: a.uuid})
 
       {:ok, _} = Catalogue.trash_category(Catalogue.get_category!(a.uuid))
       {:ok, _} = Catalogue.restore_category(Catalogue.get_category!(b.uuid))
       assert status(b) == "active"
       assert status(a) == "deleted"
 
-      items = for n <- 1..3, do: item(catalogue, "In B #{n}", %{category_uuid: b.uuid})
-      %{r: r, a: a, b: b, items: items}
+      {r, a, b}
     end
 
     test "the dry run counts what the write takes, and a new item below changes the fingerprint",
@@ -375,23 +381,49 @@ defmodule PhoenixKitCatalogue.API.DeleteCategoriesTest do
       assert Catalogue.list_items_for_category(b.uuid) == []
     end
 
-    test "listed with its root, in either order, it is taken by the root", %{
-      catalogue: catalogue,
-      r: r,
-      b: b
-    } do
-      refs = [%{"id" => b.uuid}, %{"id" => r.uuid}]
+    test "listed with its root, in either order, it is taken by the root", %{catalogue: catalogue} do
+      for {suffix, order} <- [{" 1", [:b, :r]}, {" 2", [:r, :b]}] do
+        {r, _a, b} = trashed_middle_tree(catalogue, suffix)
+        by_key = %{r: r, b: b}
+        refs = for key <- order, do: %{"id" => by_key[key].uuid}
+        expected = for key <- order, do: if(key == :r, do: "removed", else: "unchanged")
 
-      assert {:preview, %{"rows" => preview_rows}, _} = delete(catalogue, refs, %{dry_run?: true})
-      assert Enum.map(preview_rows, & &1["action"]) == ["unchanged", "removed"]
+        assert {:preview, %{"rows" => preview_rows}, _} =
+                 delete(catalogue, refs, %{dry_run?: true})
 
-      assert {:ok, %{"results" => written}} = delete(catalogue, refs)
-      assert Enum.map(written, & &1["action"]) == ["unchanged", "removed"]
+        assert Enum.map(preview_rows, & &1["action"]) == expected
 
-      stamp = Catalogue.get_category!(b.uuid).data["_trash"]
-      assert stamp["via"] == "category"
-      assert stamp["root"] == r.uuid
+        assert {:ok, %{"results" => written}} = delete(catalogue, refs)
+        assert Enum.map(written, & &1["action"]) == expected
+
+        stamp = Catalogue.get_category!(b.uuid).data["_trash"]
+        assert stamp["via"] == "category"
+        assert stamp["root"] == r.uuid
+      end
     end
+  end
+
+  test "an equal-size swap of the subcategories below a category changes the fingerprint", %{
+    catalogue: catalogue
+  } do
+    parent = category(catalogue, "Parent")
+    inside = category(catalogue, "Inside", %{parent_uuid: parent.uuid})
+    outside = category(catalogue, "Outside")
+    refs = [%{"id" => parent.uuid}]
+
+    assert {:preview, %{"rows" => [row]}, fingerprint} =
+             delete(catalogue, refs, %{dry_run?: true})
+
+    assert row["subcategories"] == 1
+
+    {:ok, _} = Catalogue.update_category(inside, %{parent_uuid: nil})
+    {:ok, _} = Catalogue.update_category(outside, %{parent_uuid: parent.uuid})
+
+    assert {:preview, %{"rows" => [same_size]}, other} =
+             delete(catalogue, refs, %{dry_run?: true})
+
+    assert same_size["subcategories"] == 1
+    assert other != fingerprint
   end
 
   test "an equal-size swap of the items below a category changes the fingerprint", %{
