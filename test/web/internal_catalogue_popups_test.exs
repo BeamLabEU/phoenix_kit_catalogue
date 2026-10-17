@@ -171,6 +171,24 @@ defmodule PhoenixKitCatalogue.Web.InternalCataloguePopupsTest do
       assert html =~ "Roofing nails"
     end
 
+    test "is live: a rename shows, and a catalogue becoming internal takes its chips and items",
+         ctx do
+      fixture_category(ctx.showroom, %{name: "Dining chairs"})
+      {:ok, view, html} = open(conn_of(ctx), "browse=true&c=#{ctx.showroom.uuid}")
+      assert html =~ "Oak chair"
+      assert html =~ "Dining chairs"
+
+      {:ok, _} = Catalogue.update_item(ctx.chair, %{name: "Oak chair, oiled"})
+      eventually(fn -> render(view) =~ "Oak chair, oiled" end)
+
+      {:ok, _} = Catalogue.update_catalogue(ctx.showroom, %{internal: true})
+
+      eventually(fn ->
+        html = render(view)
+        not (html =~ "Oak chair") and not (html =~ "Dining chairs")
+      end)
+    end
+
     test "leaves the internal catalogue's items out unless asked", ctx do
       {:ok, _view, html} =
         open(conn_of(ctx), "browse=true&c=#{ctx.showroom.uuid}&c2=#{ctx.nails.uuid}")

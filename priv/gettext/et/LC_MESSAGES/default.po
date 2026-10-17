@@ -3892,3 +3892,15 @@ msgstr[1] "%{count} muud toodet on lisanud midagi sellest sõltuvuseks. Need rea
 
 msgid "%{quantity} × %{name}"
 msgstr "%{quantity} × %{name}"
+
+msgid "Dependencies linked"
+msgstr "Lingitud sõltuvused"
+
+msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
+msgstr "Rida %{row}: „%{ref}” ei leitud, see sõltuvus jäeti välja."
+
+msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
+msgstr "Keegi teine muutis selle toote sõltuvusi sinu muutmise ajal. Nüüd on näha tema loend; tee oma muudatused uuesti."
+
+msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
+msgstr "Loetamatu sõltuvus: %{raw}. Kirjuta igaüks kujul „8 × SKU”, semikoolonitega eraldatult."

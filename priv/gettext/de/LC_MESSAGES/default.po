@@ -3892,3 +3892,15 @@ msgstr[1] "%{count} andere Artikel führen etwas davon als Abhängigkeit. Diese 
 
 msgid "%{quantity} × %{name}"
 msgstr "%{quantity} × %{name}"
+
+msgid "Dependencies linked"
+msgstr "Verknüpfte Abhängigkeiten"
+
+msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
+msgstr "Zeile %{row}: „%{ref}“ nicht gefunden, diese Abhängigkeit wurde ausgelassen."
+
+msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
+msgstr "Jemand anderes hat die Abhängigkeiten dieses Artikels während Ihrer Bearbeitung geändert. Jetzt wird dessen Liste angezeigt; nehmen Sie Ihre Änderungen erneut vor."
+
+msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
+msgstr "Unlesbare Abhängigkeit: %{raw}. Schreiben Sie jede als „8 × SKU“, getrennt durch Semikolons."

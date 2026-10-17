@@ -928,6 +928,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     :markup_percentage,
     :unit,
     :item_type,
+    :ai_notes,
+    :dependencies,
     :category,
     :manufacturer,
     :supplier
@@ -1515,7 +1517,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                  categories_created: 0,
                  manufacturers_created: 0,
                  suppliers_created: 0,
-                 manufacturer_supplier_links_created: 0
+                 manufacturer_supplier_links_created: 0,
+                 dependencies_linked: 0,
+                 dependencies_unresolved: []
                }}
             )
 
@@ -2709,6 +2713,23 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")}</div>
             <div class="stat-value text-secondary">{@import_result.categories_created}</div>
           </div>
+          <div :if={Map.get(@import_result, :dependencies_linked, 0) > 0} class="stat">
+            <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Dependencies linked")}</div>
+            <div class="stat-value text-secondary">{@import_result.dependencies_linked}</div>
+          </div>
+        </div>
+
+        <%!-- The items imported either way; only these lines are missing. --%>
+        <div
+          :if={@import_result && Map.get(@import_result, :dependencies_unresolved, []) != []}
+          id="import-unresolved-dependencies"
+          class="alert alert-warning max-w-md"
+        >
+          <div class="text-sm">
+            <p :for={{row_idx, ref} <- Enum.take(@import_result.dependencies_unresolved, 10)}>
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Row %{row}: nothing found for “%{ref}”, so that dependency was left out.", row: row_idx, ref: ref)}
+            </p>
+          </div>
         </div>
 
         <div :if={@import_result && @import_result.errors != []} class="alert alert-error max-w-md">
@@ -3052,6 +3073,12 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp translate_target("Item type"),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item type")
 
+  defp translate_target("Notes for AI"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Notes for AI")
+
+  defp translate_target("Dependencies"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Dependencies")
+
   defp translate_target("Manufacturer"),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer")
 
@@ -3146,6 +3173,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp target_to_string(:markup_percentage), do: "markup_percentage"
   defp target_to_string(:unit), do: "unit"
   defp target_to_string(:item_type), do: "item_type"
+  defp target_to_string(:ai_notes), do: "ai_notes"
+  defp target_to_string(:dependencies), do: "dependencies"
   defp target_to_string(:category), do: "category"
   defp target_to_string(:manufacturer), do: "manufacturer"
   defp target_to_string(:supplier), do: "supplier"
@@ -3173,6 +3202,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       :markup_percentage,
       :unit,
       :item_type,
+      :ai_notes,
+      :dependencies,
       :category
     ]
 
@@ -3209,6 +3240,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp parse_target("markup_percentage"), do: :markup_percentage
   defp parse_target("unit"), do: :unit
   defp parse_target("item_type"), do: :item_type
+  defp parse_target("ai_notes"), do: :ai_notes
+  defp parse_target("dependencies"), do: :dependencies
   defp parse_target("category"), do: :category
   defp parse_target("manufacturer"), do: :manufacturer
   defp parse_target("supplier"), do: :supplier
@@ -3298,6 +3331,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       "suppliers_created" => count_field(result, :suppliers_created),
       "manufacturer_supplier_links_created" =>
         count_field(result, :manufacturer_supplier_links_created),
+      "dependencies_linked" => count_field(result, :dependencies_linked),
+      "dependencies_unresolved" => length(result[:dependencies_unresolved] || []),
       "errors" => length(result[:errors] || [])
     })
   end

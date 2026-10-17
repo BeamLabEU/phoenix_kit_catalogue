@@ -3892,3 +3892,15 @@ msgstr[1] "%{count} other items list something this removes as a dependency. Tho
 
 msgid "%{quantity} × %{name}"
 msgstr "%{quantity} × %{name}"
+
+msgid "Dependencies linked"
+msgstr "Dependencies linked"
+
+msgid "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
+msgstr "Row %{row}: nothing found for “%{ref}”, so that dependency was left out."
+
+msgid "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
+msgstr "Someone else changed this item's dependencies while you were editing. Their list is shown now; make your changes again."
+
+msgid "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
+msgstr "Unreadable dependency: %{raw}. Write each as “8 × SKU”, separated by semicolons."
