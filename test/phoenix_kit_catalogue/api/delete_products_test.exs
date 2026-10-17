@@ -249,8 +249,12 @@ defmodule PhoenixKitCatalogue.API.DeleteProductsTest do
       a = item(catalogue, "Alpha")
       refs = [%{"id" => a.uuid}, %{"sku" => "NOPE"}]
 
-      assert {:preview, %{"rows" => [row, missing], "summary" => %{"removed" => 1, "error" => 1}},
-              fingerprint} =
+      assert {:preview,
+              %{
+                "requires_confirmation" => true,
+                "rows" => [row, missing],
+                "summary" => %{"removed" => 1, "error" => 1}
+              }, fingerprint} =
                delete(catalogue, refs, %{dry_run?: true})
 
       assert row["id"] == a.uuid
