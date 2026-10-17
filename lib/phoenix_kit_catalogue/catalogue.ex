@@ -461,6 +461,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate resolve_import_ref(ref, opts \\ []), to: Dependencies
 
   defdelegate put_item_dependencies(item, specs, opts \\ []), to: Dependencies
+  defdelegate dependencies_conflict?(item, specs, expected), to: Dependencies
 
   defdelegate list_item_dependents(target), to: Dependencies
 

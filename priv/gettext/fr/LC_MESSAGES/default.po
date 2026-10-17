@@ -2905,7 +2905,7 @@ msgid "Could not save the supplier."
 msgstr ""
 
 msgid "Done"
-msgstr ""
+msgstr "Terminé"
 
 msgid "Edit supplier"
 msgstr ""
@@ -3875,6 +3875,15 @@ msgstr "Rien n'est encore sélectionné."
 
 msgid "Already on the list. Adding it again makes a second line."
 msgstr "Déjà dans la liste. L'ajouter à nouveau crée une deuxième ligne."
+
+msgid "Added %{quantity} × %{name}."
+msgstr "Ajouté : %{quantity} × %{name}."
+
+msgid "Any item in %{place}"
+msgstr "N'importe quel article de %{place}"
+
+msgid "Anything in %{place}"
+msgstr "N'importe quoi dans %{place}"
 
 msgid "The note is too long (%{max} characters at most)."
 msgstr "La note est trop longue (%{max} caractères au maximum)."

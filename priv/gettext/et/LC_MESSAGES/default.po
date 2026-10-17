@@ -3876,6 +3876,15 @@ msgstr "Midagi pole veel valitud."
 msgid "Already on the list. Adding it again makes a second line."
 msgstr "See on juba nimekirjas. Uuesti lisamine teeb teise rea."
 
+msgid "Added %{quantity} × %{name}."
+msgstr "Lisatud %{quantity} × %{name}."
+
+msgid "Any item in %{place}"
+msgstr "Mis tahes toode kategooriast %{place}"
+
+msgid "Anything in %{place}"
+msgstr "Mis tahes asi kataloogist %{place}"
+
 msgid "The note is too long (%{max} characters at most)."
 msgstr "Märkus on liiga pikk (kõige rohkem %{max} märki)."
 

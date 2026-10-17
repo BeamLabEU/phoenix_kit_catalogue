@@ -47,11 +47,15 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
     view |> form("#dependency-picker-form", %{"picker" => values}) |> render_submit()
   end
 
-  # Opens the Add pop-up, selects `id` and adds it with the defaults.
+  defp done(view), do: view |> element("#dependency-picker-done") |> render_click()
+
+  # Opens the Add pop-up, selects `id`, adds it with the defaults and
+  # closes the pop-up.
   defp pick_place(view, id) do
     open_picker(view)
     select(view, id)
     confirm(view)
+    done(view)
   end
 
   defp pick_item(view, item), do: pick_place(view, "item:" <> item.uuid)
@@ -136,6 +140,13 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       render_click(view, "dependency_move", %{"key" => item_row, "direction" => "up"})
       assert row_keys(view) == [item_row, catalogue_row]
 
+      view
+      |> element(~s(#dependency-row-#{item_row} button[phx-value-direction="down"]))
+      |> render_click()
+
+      assert row_keys(view) == [catalogue_row, item_row]
+      render_click(view, "dependency_move", %{"key" => item_row, "direction" => "up"})
+
       render_click(view, "dependency_remove", %{"key" => catalogue_row})
       save(view)
 
@@ -207,10 +218,32 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
 
       confirm(view, %{"quantity" => "8", "note" => "by wood type"})
 
+      # Staged, and the pop-up stays for the next pick: the search is kept,
+      # the selection, quantity and note start over, and it says what landed.
+      assert has_element?(view, "#dependency-picker")
+      assert has_element?(view, "#dependency-picker-added", "Added 8 × Screw 4x30.")
+      assert has_element?(view, ~s(#dependency-place-picker-search[value="4x30"]))
+      assert has_element?(view, "#dependency-picker-selection", "Nothing selected yet.")
+      assert has_element?(view, ~s(#dependency-picker-quantity[value="1"]))
+      assert has_element?(view, "#dependency-picker-confirm[disabled]")
+
+      # A category reads as what its line means.
+      select(view, "category:" <> ctx.wood.uuid)
+
+      assert has_element?(
+               view,
+               "#dependency-picker-selection",
+               "Any item in Screws › Wood screws"
+             )
+
+      confirm(view, %{"quantity" => "2"})
+      assert has_element?(view, "#dependency-picker-added", "Added 2 × Wood screws.")
+
+      done(view)
       refute has_element?(view, "#dependency-picker")
       assert has_element?(view, "[data-dependency-kind=item]", "Screw 4x30")
       assert has_element?(view, "#item-dependencies", "Screws › Wood screws")
-      [key] = row_keys(view)
+      [key, _category_key] = row_keys(view)
       assert has_element?(view, ~s(#dependency-#{key}-quantity[value="8"]))
       assert has_element?(view, ~s(#dependency-#{key}-note[value="by wood type"]))
     end
@@ -236,10 +269,12 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
 
     test "the pop-up says when the selection is already on the list", %{conn: conn} = ctx do
       view = open_tab(conn, ctx.susan)
-      pick_item(view, ctx.screw)
-
       open_picker(view)
+      select(view, "item:" <> ctx.screw.uuid)
       refute has_element?(view, "#dependency-picker-listed")
+      confirm(view)
+
+      # Also for a line added in this same sitting.
       select(view, "item:" <> ctx.screw.uuid)
       assert has_element?(view, "#dependency-picker-listed")
 
@@ -251,7 +286,8 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
     test "the Add pop-up closes without adding anything", %{conn: conn} = ctx do
       view = open_tab(conn, ctx.susan)
       view |> element("#dependency-add") |> render_click()
-      render_click(view, "dependency_close_picker", %{})
+      select(view, "item:" <> ctx.screw.uuid)
+      done(view)
 
       refute has_element?(view, "#dependency-picker")
       assert row_keys(view) == []
@@ -366,10 +402,12 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
 
       html =
         second
-        |> form(form_selector(), %{"item" => %{"name" => "Lazy susan"}})
+        |> form(form_selector(), %{"item" => %{"name" => "Lazy susan, oiled"}})
         |> render_submit()
 
       assert html =~ "Someone else saved this item&#39;s dependencies"
+      # Found before anything was written: the rename did not land alone.
+      assert Catalogue.get_item(ctx.susan.uuid).name == "Lazy susan"
       # The first admin's list stands; the second keeps what they staged.
       assert [%{target_item_uuid: screw}] = Catalogue.list_item_dependencies(ctx.susan)
       assert screw == ctx.screw.uuid

@@ -242,6 +242,30 @@ defmodule PhoenixKitCatalogue.Catalogue.Dependencies do
     end
   end
 
+  @doc """
+  Whether `put_item_dependencies/3` with these `specs` and `expected:`
+  would answer `{:error, :dependencies_changed}` right now: the stored list
+  is neither what `specs` asks for nor what the caller read. A read-only
+  look, without the lock — for a form that must not write anything else
+  first. The write still decides under its lock.
+  """
+  @spec dependencies_conflict?(Item.t(), [spec()], [ItemDependency.t()]) :: boolean()
+  def dependencies_conflict?(%Item{} = item, specs, expected)
+      when is_list(specs) and is_list(expected) do
+    current = item |> list_item_dependencies() |> Enum.map(&comparable/1)
+
+    wanted =
+      specs
+      |> Enum.with_index()
+      |> Enum.map(fn {spec, index} ->
+        %ItemDependency{}
+        |> ItemDependency.changeset(spec_attrs(spec, item.uuid, index))
+        |> comparable()
+      end)
+
+    current != wanted and current != Enum.map(expected, &comparable/1)
+  end
+
   defp write_if_changed(item, changesets, opts) do
     expected = Keyword.get(opts, :expected)
 
