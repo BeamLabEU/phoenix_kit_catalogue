@@ -3864,6 +3864,18 @@ msgstr "Abhängigkeit hinzufügen"
 msgid "Search catalogues, categories and items…"
 msgstr "Kataloge, Kategorien und Artikel durchsuchen…"
 
+msgid "Pick a catalogue, a category or an item, then say how many."
+msgstr "Wählen Sie einen Katalog, eine Kategorie oder einen Artikel und geben Sie die Menge an."
+
+msgid "Selected"
+msgstr "Ausgewählt"
+
+msgid "Nothing selected yet."
+msgstr "Noch nichts ausgewählt."
+
+msgid "Already on the list. Adding it again makes a second line."
+msgstr "Steht schon auf der Liste. Erneutes Hinzufügen ergibt eine zweite Zeile."
+
 msgid "The note is too long (%{max} characters at most)."
 msgstr "Die Notiz ist zu lang (höchstens %{max} Zeichen)."
 

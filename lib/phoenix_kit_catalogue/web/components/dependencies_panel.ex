@@ -3,15 +3,17 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   The item form's Dependencies tab: the staged rows of a
   `PhoenixKitCatalogue.Web.DependencyDraft` and its Add button, which opens
   a pop-up like the Location chooser's — one tree of folders › catalogues ›
-  categories › items (`PlaceTree.places/2` with `items: true`) where any
-  catalogue, category or item is picked.
+  categories › items (`PlaceTree.places/2` with `items: true`). Picking a
+  row only selects it: the pop-up shows the selection's path, takes its
+  quantity and note, and adds the row on Add.
 
   Rendered OUTSIDE the item form: the rows are a small form of their own
   (`dependency_change`), and the picker brings its own search box. Nothing
   here writes — the item's Save does (`ItemFormLive`). The host
   LiveView handles `dependency_open_picker`, `dependency_close_picker`,
+  `dependency_picker_change`, `dependency_picker_confirm`,
   `dependency_change`, `dependency_remove` and `dependency_move`, plus the
-  picker's `{TreePicker, "dependency-place-picker", id}`.
+  tree's `{TreePicker, "dependency-place-picker", id}`.
 
   Internal categories are offered here like any other: this is an admin
   page, and back-office stock is exactly what a dependency points at.
@@ -31,7 +33,16 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   alias PhoenixKitWeb.Components.TreePicker
 
   attr(:draft, DependencyDraft, required: true)
-  attr(:place_tree, :list, default: nil, doc: "The open picker's tree; nil while closed.")
+
+  attr(:picker, :map,
+    default: nil,
+    doc: """
+    The open pop-up — `%{tree, value, kind, path, quantity, note, error}`,
+    where `value` is the selected row's id (`nil` before one is picked) and
+    `error` names what stops Add — or nil while closed.
+    """
+  )
+
   attr(:class, :any, default: nil)
 
   def dependencies_panel(assigns) do
@@ -161,9 +172,10 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
         </div>
 
         <%!-- Like the Location chooser: one tree, folders › catalogues ›
-             categories › items. Picking a row stages it and closes. --%>
+             categories › items. Picking a row selects it; the footer shows
+             the selection and takes its quantity; Add stages the row. --%>
         <.modal
-          :if={@place_tree}
+          :if={@picker}
           id="dependency-picker"
           show
           on_close="dependency_close_picker"
@@ -171,22 +183,114 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
         >
           <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a dependency")}</:title>
 
-          <.live_component
-            module={TreePicker}
-            id="dependency-place-picker"
-            tree={@place_tree}
-            value={nil}
-            pickable={[:catalogue, :category, :item]}
-            path_skip={[:folder]}
-            search_placeholder={
-              Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search catalogues, categories and items…")
-            }
-          />
+          <div class="flex flex-col gap-4">
+            <p class="text-sm text-base-content/60">
+              {Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Pick a catalogue, a category or an item, then say how many."
+              )}
+            </p>
+
+            <.live_component
+              module={TreePicker}
+              id="dependency-place-picker"
+              tree={@picker.tree}
+              value={@picker.value}
+              pickable={[:catalogue, :category, :item]}
+              path_skip={[:folder]}
+              search_placeholder={
+                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search catalogues, categories and items…")
+              }
+            />
+
+            <form
+              id="dependency-picker-form"
+              phx-change="dependency_picker_change"
+              phx-submit="dependency_picker_confirm"
+              class="flex flex-col gap-3 border-t border-base-300 pt-4"
+            >
+              <div id="dependency-picker-selection" class="flex flex-col gap-1 min-w-0">
+                <span class="text-xs font-medium text-base-content/60">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Selected")}
+                </span>
+                <p :if={is_nil(@picker.value)} class="text-sm text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing selected yet.")}
+                </p>
+                <div :if={@picker.value} class="flex items-center gap-2 min-w-0">
+                  <.icon name={kind_icon(@picker.kind)} class="w-5 h-5 shrink-0 text-base-content/60" />
+                  <span class="font-medium truncate">{Enum.join(@picker.path, " › ")}</span>
+                  <span class="badge badge-ghost badge-xs shrink-0">{kind_label(@picker.kind)}</span>
+                </div>
+                <p
+                  :if={listed?(@draft, @picker.value)}
+                  id="dependency-picker-listed"
+                  class="text-xs text-warning"
+                >
+                  {Gettext.gettext(
+                    PhoenixKitCatalogue.Gettext,
+                    "Already on the list. Adding it again makes a second line."
+                  )}
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-start gap-3">
+                <.decimal_input
+                  id="dependency-picker-quantity"
+                  name="picker[quantity]"
+                  value={@picker.quantity}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Quantity")}
+                  errors={if @picker.error == "quantity", do: [row_error_message("quantity")], else: []}
+                  wrapper_class="w-32"
+                  class="input-sm"
+                />
+                <.input
+                  type="text"
+                  id="dependency-picker-note"
+                  name="picker[note]"
+                  value={@picker.note}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Note")}
+                  errors={if @picker.error == "note", do: [row_error_message("note")], else: []}
+                  wrapper_class="flex-1 min-w-48"
+                  class="input-sm"
+                  maxlength={ItemDependency.max_note_length()}
+                  placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., pick by wood type")}
+                />
+              </div>
+
+              <p :if={@picker.error == "gone"} id="dependency-picker-error" class="text-sm text-error">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "That no longer exists. Choose another.")}
+              </p>
+              <p :if={@picker.error == "self"} id="dependency-picker-error" class="text-sm text-error">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "An item cannot depend on itself.")}
+              </p>
+            </form>
+          </div>
+
+          <:actions>
+            <button type="button" phx-click="dependency_close_picker" class="btn btn-ghost btn-sm">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+            </button>
+            <button
+              type="submit"
+              form="dependency-picker-form"
+              id="dependency-picker-confirm"
+              disabled={is_nil(@picker.value)}
+              class="btn btn-primary btn-sm"
+            >
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
+            </button>
+          </:actions>
         </.modal>
       </div>
     </div>
     """
   end
+
+  defp listed?(_draft, nil), do: false
+
+  defp listed?(draft, value),
+    do: Enum.any?(draft.rows, &("#{&1.kind}:#{&1.uuid}" == value))
 
   defp kind_icon(:catalogue), do: "hero-rectangle-stack"
   defp kind_icon(:category), do: "hero-folder"

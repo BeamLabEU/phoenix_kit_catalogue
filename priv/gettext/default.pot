@@ -3870,6 +3870,18 @@ msgstr ""
 msgid "Search catalogues, categories and items…"
 msgstr ""
 
+msgid "Pick a catalogue, a category or an item, then say how many."
+msgstr ""
+
+msgid "Selected"
+msgstr ""
+
+msgid "Nothing selected yet."
+msgstr ""
+
+msgid "Already on the list. Adding it again makes a second line."
+msgstr ""
+
 msgid "The note is too long (%{max} characters at most)."
 msgstr ""
 

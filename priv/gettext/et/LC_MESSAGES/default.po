@@ -3864,6 +3864,18 @@ msgstr "Lisa sõltuvus"
 msgid "Search catalogues, categories and items…"
 msgstr "Otsi katalooge, kategooriaid ja tooteid…"
 
+msgid "Pick a catalogue, a category or an item, then say how many."
+msgstr "Vali kataloog, kategooria või toode ja märgi, mitu on vaja."
+
+msgid "Selected"
+msgstr "Valitud"
+
+msgid "Nothing selected yet."
+msgstr "Midagi pole veel valitud."
+
+msgid "Already on the list. Adding it again makes a second line."
+msgstr "See on juba nimekirjas. Uuesti lisamine teeb teise rea."
+
 msgid "The note is too long (%{max} characters at most)."
 msgstr "Märkus on liiga pikk (kõige rohkem %{max} märki)."
 

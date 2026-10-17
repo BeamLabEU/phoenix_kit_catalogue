@@ -306,7 +306,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       supplier_draft: SupplierDraft.new(),
       # The Dependencies tab, staged until Save like the supplier rows —
       # see DependencyDraft. The place picker loads its tree when opened.
-      dependency_place_tree: nil,
+      dependency_picker: nil,
       supplier_company_links: %{},
       supplier_comment_threads: %{},
       # The row dialog (extra values only): nil = closed, else the row's
@@ -673,8 +673,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # AI-translate modal events handled by `use ...AITranslate.Embed`.
 
   @impl true
-  # Built on open, not at mount: it holds every live item, and most edits
-  # never add a dependency. The item itself is left out.
+  # The Add pop-up. Its tree is built on open, not at mount: it holds every
+  # live item, and most edits never add a dependency. The item itself is
+  # left out. Picking a row only selects it; Add stages the row.
   def handle_event("dependency_open_picker", _params, socket) do
     tree =
       nil
@@ -683,11 +684,35 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         List.wrap(socket.assigns.item.uuid && "item:" <> socket.assigns.item.uuid)
       )
 
-    {:noreply, assign(socket, :dependency_place_tree, tree)}
+    {:noreply,
+     assign(socket, :dependency_picker, %{
+       tree: tree,
+       value: nil,
+       kind: nil,
+       path: [],
+       quantity: "1",
+       note: "",
+       error: nil
+     })}
   end
 
   def handle_event("dependency_close_picker", _params, socket),
-    do: {:noreply, assign(socket, :dependency_place_tree, nil)}
+    do: {:noreply, assign(socket, :dependency_picker, nil)}
+
+  def handle_event("dependency_picker_change", params, socket),
+    do: {:noreply, put_picker_values(socket, params)}
+
+  def handle_event("dependency_picker_confirm", params, socket) do
+    socket = put_picker_values(socket, params)
+
+    case socket.assigns.dependency_picker do
+      %{value: value} = picker when is_binary(value) ->
+        {:noreply, confirm_dependency(socket, picker)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
 
   def handle_event("dependency_change", %{"dependencies" => values}, socket)
       when is_map(values) do
@@ -1403,6 +1428,65 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # A picked place (`"catalogue:<uuid>"` / `"category:<uuid>"`), read
   # again: the tree may be minutes old, and a row is only added for a
   # target that is still live.
+  defp put_picker_values(socket, %{"picker" => %{} = typed}) do
+    case socket.assigns.dependency_picker do
+      %{} = picker ->
+        assign(socket, :dependency_picker, %{
+          picker
+          | quantity: text_or(typed["quantity"], picker.quantity),
+            note: text_or(typed["note"], picker.note),
+            error: nil
+        })
+
+      nil ->
+        socket
+    end
+  end
+
+  defp put_picker_values(socket, _params), do: socket
+
+  defp text_or(text, _fallback) when is_binary(text), do: text
+  defp text_or(_text, fallback), do: fallback
+
+  # The selection is read again first — the tree may be minutes old — and
+  # the quantity and note are held to the rows' own rules, so a row that
+  # would not save is never staged.
+  defp confirm_dependency(socket, picker) do
+    case {DependencyDraft.values_error(picker.quantity, picker.note),
+          dependency_target_from_place(picker.value)} do
+      {error, _target} when is_binary(error) ->
+        picker_error(socket, error)
+
+      {nil, nil} ->
+        picker_error(socket, "gone")
+
+      {nil, {:item, %{uuid: uuid}}} when uuid == socket.assigns.item.uuid ->
+        picker_error(socket, "self")
+
+      {nil, {kind, record}} ->
+        socket
+        |> update(
+          :dependency_draft,
+          &DependencyDraft.add(
+            &1,
+            kind,
+            record,
+            dependency_name_fun(socket.assigns[:current_locale]),
+            quantity: String.trim(picker.quantity),
+            note: picker.note
+          )
+        )
+        |> assign(:dependency_picker, nil)
+    end
+  end
+
+  defp picker_error(socket, error),
+    do: update(socket, :dependency_picker, &%{&1 | error: error})
+
+  defp dependency_kind("catalogue:" <> _), do: :catalogue
+  defp dependency_kind("category:" <> _), do: :category
+  defp dependency_kind("item:" <> _), do: :item
+
   defp dependency_target_from_place("catalogue:" <> uuid) do
     case Catalogue.get_catalogue(uuid) do
       %{status: status} = catalogue when status != "deleted" -> {:catalogue, catalogue}
@@ -2089,39 +2173,24 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # tree may be minutes old.
   @impl true
   def handle_info({TreePicker, "dependency-place-picker", id}, socket) do
-    socket =
-      case dependency_target_from_place(id) do
-        {:item, %{uuid: uuid}} when uuid == socket.assigns.item.uuid ->
-          put_flash(
-            socket,
-            :error,
-            Gettext.gettext(PhoenixKitCatalogue.Gettext, "An item cannot depend on itself.")
-          )
+    case socket.assigns.dependency_picker do
+      %{tree: tree} = picker when is_binary(id) ->
+        if PlaceTree.member?(tree, id, [:catalogue, :category, :item]) do
+          {:noreply,
+           assign(socket, :dependency_picker, %{
+             picker
+             | value: id,
+               kind: dependency_kind(id),
+               path: PlaceTree.path_in(tree, id, [:folder]),
+               error: nil
+           })}
+        else
+          {:noreply, socket}
+        end
 
-        {kind, record} ->
-          update(
-            socket,
-            :dependency_draft,
-            &DependencyDraft.add(
-              &1,
-              kind,
-              record,
-              dependency_name_fun(socket.assigns[:current_locale])
-            )
-          )
-
-        nil ->
-          put_flash(
-            socket,
-            :error,
-            Gettext.gettext(
-              PhoenixKitCatalogue.Gettext,
-              "That no longer exists. Choose another."
-            )
-          )
-      end
-
-    {:noreply, assign(socket, :dependency_place_tree, nil)}
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   # ── Location picker ──────────────────────────────────────────────
@@ -3468,7 +3537,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
            the pickers bring their own inputs. Staged; Save writes them. --%>
       <.dependencies_panel
         draft={@dependency_draft}
-        place_tree={@dependency_place_tree}
+        picker={@dependency_picker}
         class={@current_tab != :dependencies && "hidden"}
       />
 
