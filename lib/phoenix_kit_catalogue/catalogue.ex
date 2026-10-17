@@ -277,6 +277,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate update_category(category, attrs, opts \\ []), to: Categories
   defdelegate delete_category(category, opts \\ []), to: Categories
   defdelegate trash_category(category, opts \\ []), to: Categories
+  defdelegate trash_category_outcome(category, opts \\ []), to: Categories
+  defdelegate broadcast_categories_trashed(catalogue_uuid), to: Categories
   defdelegate restore_category(category, opts \\ []), to: Categories
   defdelegate permanently_delete_category(category, opts \\ []), to: Categories
   defdelegate permanent_delete_scope(category), to: Categories

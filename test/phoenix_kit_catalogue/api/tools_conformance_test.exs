@@ -25,7 +25,8 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
     "catalogue.set_translations" => {"catalogue.products:write", false, 500},
     "catalogue.delete_products" => {"catalogue.products:delete", false, 500},
     "catalogue.list_categories" => {"catalogue.categories:read", true, nil},
-    "catalogue.upsert_categories" => {"catalogue.categories:write", false, 500}
+    "catalogue.upsert_categories" => {"catalogue.categories:write", false, 500},
+    "catalogue.delete_categories" => {"catalogue.categories:delete", false, 500}
   }
 
   @validator_keywords ~w(type enum required properties additionalProperties minimum maximum
@@ -33,7 +34,7 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
   @forbidden_properties ~w(base_price markup_percentage discount_percentage data cost_per_item
                            price compare_at_price price_modifiers)
 
-  test "exactly the eight tools, in the documented order" do
+  test "exactly the nine tools, in the documented order" do
     assert Enum.map(Tools.all(), & &1.name) == [
              "catalogue.list_products",
              "catalogue.get_products",
@@ -42,7 +43,8 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
              "catalogue.set_translations",
              "catalogue.delete_products",
              "catalogue.list_categories",
-             "catalogue.upsert_categories"
+             "catalogue.upsert_categories",
+             "catalogue.delete_categories"
            ]
   end
 
@@ -69,13 +71,13 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
     scopes = Tools.all() |> Enum.map(& &1.scope) |> Enum.uniq() |> Enum.sort()
 
     assert scopes ==
-             ~w(catalogue.categories:read catalogue.categories:write catalogue.products:delete
-                catalogue.products:read catalogue.products:write)
+             ~w(catalogue.categories:delete catalogue.categories:read catalogue.categories:write
+                catalogue.products:delete catalogue.products:read catalogue.products:write)
   end
 
-  test "only delete_products is dangerous and destructive" do
+  test "only the two delete tools are dangerous and destructive" do
     for tool <- Tools.all() do
-      if tool.name == "catalogue.delete_products" do
+      if tool.name in ["catalogue.delete_products", "catalogue.delete_categories"] do
         assert tool.danger == :always
         assert tool.annotations.destructive
       else
@@ -149,7 +151,7 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
     end
   end
 
-  test "api_tools/0 hands core the same tools when the core has the gate, and withholds delete_products when not" do
+  test "api_tools/0 hands core the same tools when the core has the gate, and withholds the delete tools when not" do
     # The stand and the forks pin core by git or path, so the gate is detected on the loaded code
     # (`API.Gate`), not on a version.
     assert Gate.available?(),
@@ -160,7 +162,10 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
 
     names = fn gate? -> Enum.map(PhoenixKitCatalogue.API.tools(gate?), & &1.name) end
     assert names.(true) == Enum.map(Tools.all(), & &1.name)
-    assert names.(false) == Enum.map(Tools.all(), & &1.name) -- ["catalogue.delete_products"]
+
+    assert names.(false) ==
+             Enum.map(Tools.all(), & &1.name) --
+               ["catalogue.delete_products", "catalogue.delete_categories"]
   end
 
   # The MCP layer (ToolLint, MCP names) may be absent from the core under test; a missing piece

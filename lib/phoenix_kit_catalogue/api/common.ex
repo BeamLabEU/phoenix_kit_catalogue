@@ -151,6 +151,75 @@ defmodule PhoenixKitCatalogue.API.Common do
   def with_warnings(body, []), do: body
   def with_warnings(body, warnings), do: Map.put(body, "warnings", warnings)
 
+  # --- removing records (the trash tools) ---------------------------------------------
+
+  @doc """
+  The plan of a trash tool, one entry per reference in order: `{:remove, ref, record}`,
+  `{:already, ref, record}` (a reference to a record already in the trash),
+  `{:rejected, ref, message}` (the same record twice) or `{:resolution_error, ref, reason}`.
+  `resolutions` came from `API.resolve_refs/2` for `kind` (`:item` or `:category`) inside `catalogue`.
+  """
+  @spec removal_plan([{term(), {:ok, struct()} | {:error, term()}}], struct(), :item | :category) ::
+          [tuple()]
+  def removal_plan(resolutions, catalogue, kind) do
+    trashed = trashed_by_ref(resolutions, catalogue, kind)
+
+    {planned, _seen} =
+      Enum.map_reduce(resolutions, MapSet.new(), fn
+        {ref, {:ok, record}}, seen ->
+          if MapSet.member?(seen, record.uuid),
+            do: {{:rejected, ref, "The same #{kind} appears twice in this request."}, seen},
+            else: {{:remove, ref, record}, MapSet.put(seen, record.uuid)}
+
+        {ref, {:error, :not_found}}, seen ->
+          case Map.fetch(trashed, ref) do
+            :error -> {{:resolution_error, ref, :not_found}, seen}
+            {:ok, record} -> {{:already, ref, record}, seen}
+          end
+
+        {ref, {:error, reason}}, seen ->
+          {{:resolution_error, ref, reason}, seen}
+      end)
+
+    planned
+  end
+
+  # A reference that matched no LIVE record may name one that is already in the
+  # trash, by any of its keys. A sku or external_id that several trashed records
+  # share names none of them (the lookup answers `ambiguous_ref`, which stays
+  # `not_found` here).
+  defp trashed_by_ref(resolutions, catalogue, kind) do
+    case for({ref, {:error, :not_found}} <- resolutions, do: ref) do
+      [] ->
+        %{}
+
+      refs ->
+        refs
+        |> PhoenixKitCatalogue.API.resolve_refs(
+          kind: kind,
+          catalogue_uuid: catalogue.uuid,
+          include_deleted: true
+        )
+        |> Enum.flat_map(fn
+          {ref, {:ok, %{status: "deleted"} = record}} -> [{ref, record}]
+          _other -> []
+        end)
+        |> Map.new()
+    end
+  end
+
+  @doc "The row of a plan entry that does not depend on the mode (anything but `:remove`)."
+  @spec removal_row(tuple()) :: map()
+  def removal_row({:already, ref, record}), do: row_ok(ref, "unchanged", record.uuid)
+
+  def removal_row({:rejected, ref, message}),
+    do:
+      row_error(ref, :validation_failed, message, %{
+        "errors" => [%{"path" => "refs", "message" => message}]
+      })
+
+  def removal_row({:resolution_error, ref, reason}), do: resolution_error(ref, reason)
+
   # --- categories -------------------------------------------------------------------------
 
   @doc """

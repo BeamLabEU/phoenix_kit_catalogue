@@ -1,6 +1,6 @@
 # Shop API tools
 
-The catalogue's part of the shop API: eight admin tools that core's API layer (keys, scopes, rate limits, JSON Schema validation, the confirmation flow for dangerous operations, the REST and MCP transports) serves. This module declares the tools and owns the data rules; it does no authentication of its own.
+The catalogue's part of the shop API: nine admin tools that core's API layer (keys, scopes, rate limits, JSON Schema validation, the confirmation flow for dangerous operations, the REST and MCP transports) serves. This module declares the tools and owns the data rules; it does no authentication of its own.
 
 ## The tools
 
@@ -14,8 +14,11 @@ The catalogue's part of the shop API: eight admin tools that core's API layer (k
 | `catalogue.delete_products` | `catalogue.products:delete` | To the trash, never hard delete; **always** needs confirmation |
 | `catalogue.list_categories` | `catalogue.categories:read` | The category tree |
 | `catalogue.upsert_categories` | `catalogue.categories:write` | Create or update by id or external_id, in order; an id with `external_id: null` clears the link |
+| `catalogue.delete_categories` | `catalogue.categories:delete` | By id or external_id, to the trash, never hard delete; takes the subtree with it; **always** needs confirmation |
 
 All need the role permission `catalogue` as well; core checks both on every request.
+
+A category is created `active` and listed on the public shop at once; `catalogue.delete_categories` is how an agent takes one back. It has its own `:delete` scope like `delete_products` (a key that may create and rename categories cannot trash them), so a key issued before the tool existed needs `catalogue.categories:delete` added.
 
 `update_products` can set `status` to `inactive` or `discontinued`, which e-commerce reads as archived (hidden from the shop), under the plain write scope and without a confirmation; moving an item to the trash needs the delete scope and a confirmation code.
 
@@ -29,7 +32,17 @@ All need the role permission `catalogue` as well; core checks both on every requ
 
 ## Confirmation
 
-`delete_products` always, and any write call with more than `api_confirm_batch_over` rows (default 50), answers `{"executed": false, "status": "confirmation_required", "preview": {...}, "confirm_token": ..., "expires_at": ..., "expires_in_seconds": ...}` (the code lives `api_confirm_ttl_seconds`, default 120 s); the same call plus `confirm_token` runs. `dry_run: true` on any write tool answers `{"executed": false, "dry_run": true, "preview": {...}}` and never creates a code. The preview of a tool that always needs a confirmation (`delete_products`) carries `"requires_confirmation": true`, so a dry run tells the caller that the real call will be held; the batch threshold is core's rule and no preview of a threshold tool says whether it would trip it. A key with `requires_approval` gets `status: "pending_approval"` and an `approval_id` instead (`system.get_approval`). A 500-row import therefore takes two calls with the default setting. The threshold is core's: the tools declare only `danger: :always` on `delete_products`.
+`delete_products` and `delete_categories` always, and any write call with more than `api_confirm_batch_over` rows (default 50), answers `{"executed": false, "status": "confirmation_required", "preview": {...}, "confirm_token": ..., "expires_at": ..., "expires_in_seconds": ...}` (the code lives `api_confirm_ttl_seconds`, default 120 s); the same call plus `confirm_token` runs. `dry_run: true` on any write tool answers `{"executed": false, "dry_run": true, "preview": {...}}` and never creates a code. The preview of a tool that always needs a confirmation (`delete_products`, `delete_categories`) carries `"requires_confirmation": true`, so a dry run tells the caller that the real call will be held; the batch threshold is core's rule and no preview of a threshold tool says whether it would trip it. A key with `requires_approval` gets `status: "pending_approval"` and an `approval_id` instead (`system.get_approval`). A 500-row import therefore takes two calls with the default setting. The threshold is core's: the tools declare only `danger: :always` on the two delete tools.
+
+## Trashing a category
+
+`delete_categories` takes what the admin's delete button takes by default (`items: :cascade`, the choice the admin's modal pre-selects and the one a restore undoes): the category, every subcategory below it and every live item in that subtree go to the trash together, each stamped as taken by this category, so `Catalogue.restore_category/2` brings back exactly that set (see `trash-and-restore.md`). The tool offers no other disposition (`uncategorize`, `move_to`) and invents no cascade of its own. An item trashed on its own earlier stays where it was after a restore.
+
+- The dry run of each row says how much goes with it: `subcategories` and `items` (live items in the subtree). They are part of the fingerprint, so a confirmation code is refused (`reason: changed`) when an item was added to or removed from the subtree after the preview.
+- A category listed together with its own descendant takes it, whatever the order of the request: the writes run ancestors first (like `bulk_trash_categories/3`), so the descendant is stamped as taken by the ancestor. The descendant's row answers `unchanged` (in the preview too); the answers stay in request order.
+- A reference to a category already in the trash answers `unchanged` (by `external_id` only while at most one trashed category carries it); one that names nothing in this catalogue is `not_found`. References are `{id}` or `{external_id}` (no sku). Rows are independent and nothing is hard-deleted.
+- `Catalogue.trash_category_outcome/2` tells whether this call trashed anything (`:trashed`) or found the category in the trash already (`:already_trashed`), so a concurrent trash is answered `unchanged`, not `removed`; `trash_category/2` is it without the tag. Both take `:log_metadata`, so the `category.trashed` entry carries `via: "api"`. The tool announces the batch once (`Catalogue.broadcast_categories_trashed/1`) after the last row.
+- A trashed category frees its `external_id` (V5 indexes cover live rows only): `upsert_categories` can create a new category under it, and restoring the old one is then refused with `external_id_taken`.
 
 ## What the tools never touch
 
@@ -39,7 +52,7 @@ All need the role permission `catalogue` as well; core checks both on every requ
 
 All are options of the ordinary context functions and are useful without the API:
 
-- `Catalogue.update_item/3` and `update_category/3`: `:data_owned_paths` (apply the update to the row locked `FOR UPDATE`; copy only these `data` paths), `:logged_data_paths` (these paths appear in the entry's `changes` as `data.a.b`), `:log_metadata` (merged into the entry's metadata; the entry's own keys win). `create_item/2`, `trash_item/2`, `restore_item/2`, `create_category/2`, `move_item_to_category/3` take `:log_metadata` too.
+- `Catalogue.update_item/3` and `update_category/3`: `:data_owned_paths` (apply the update to the row locked `FOR UPDATE`; copy only these `data` paths), `:logged_data_paths` (these paths appear in the entry's `changes` as `data.a.b`), `:log_metadata` (merged into the entry's metadata; the entry's own keys win). `create_item/2`, `trash_item/2`, `restore_item/2`, `create_category/2`, `trash_category/2`, `move_item_to_category/3` take `:log_metadata` too.
 - `slug` is a logged field: `changes` has `slug.<lang>` entries, so a changed slug leaves the old one in the log.
 - `Catalogue.update_items/2`: many rows, one transaction, rows independent (savepoints), one `Activity.log_many/2` insert, one `{:catalogue_bulk_change, catalogue, :updated, uuids, from}` broadcast; after the commit the media folders of the rows that changed follow their renames and moves in one pass (`MediaFolders.follow/2`), and a row that failed leaves its folder alone. Inside a caller's own transaction (the price, availability and image writes of the e-commerce API do this) the activity entries, their announcement and the bulk events go out before that transaction commits (`broadcast: false` holds back the catalogue events), and a failing activity insert or folder statement, which run without a savepoint, can abort the caller's transaction while the call still answers `{:ok, _}`.
 - `Catalogue.move_item_to_category_deferred/3` leaves the folder step to the caller: it returns the `{before, moved}` pair (`before` is the row the move locked), and the caller passes the pairs of all its moves to `Catalogue.follow_moved_items/2` once, which re-reads the moved rows first. `update_products` moves its items that way, so N moves are one folder pass, and it runs the pass in an `after`, so a row that raises does not leave the earlier moves' folders behind.

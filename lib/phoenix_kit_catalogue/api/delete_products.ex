@@ -21,50 +21,7 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
 
   # --- planning (reads only) ---------------------------------------------------------
 
-  # `{:remove, ref, item}`, `{:already, ref, item}` (a reference to an item already in the trash),
-  # `{:rejected, ref, message}` or `{:resolution_error, ref, reason}`.
-  defp plan(resolutions, catalogue) do
-    trashed = trashed_by_ref(resolutions, catalogue)
-
-    {planned, _seen} =
-      Enum.map_reduce(resolutions, MapSet.new(), fn
-        {ref, {:ok, item}}, seen ->
-          if MapSet.member?(seen, item.uuid),
-            do: {{:rejected, ref, "The same item appears twice in this request."}, seen},
-            else: {{:remove, ref, item}, MapSet.put(seen, item.uuid)}
-
-        {ref, {:error, :not_found}}, seen ->
-          case Map.fetch(trashed, ref) do
-            :error -> {{:resolution_error, ref, :not_found}, seen}
-            {:ok, item} -> {{:already, ref, item}, seen}
-          end
-
-        {ref, {:error, reason}}, seen ->
-          {{:resolution_error, ref, reason}, seen}
-      end)
-
-    planned
-  end
-
-  # A reference that matched no LIVE item may name one that is already in the
-  # trash, by any of the three keys. A sku or external_id that several trashed
-  # items share names none of them (the lookup answers `ambiguous_ref`, which
-  # stays `not_found` here).
-  defp trashed_by_ref(resolutions, catalogue) do
-    case for({ref, {:error, :not_found}} <- resolutions, do: ref) do
-      [] ->
-        %{}
-
-      refs ->
-        refs
-        |> API.resolve_refs(kind: :item, catalogue_uuid: catalogue.uuid, include_deleted: true)
-        |> Enum.flat_map(fn
-          {ref, {:ok, %{status: "deleted"} = item}} -> [{ref, item}]
-          _other -> []
-        end)
-        |> Map.new()
-    end
-  end
+  defp plan(resolutions, catalogue), do: Common.removal_plan(resolutions, catalogue, :item)
 
   # --- dry run -------------------------------------------------------------------------
 
@@ -78,7 +35,7 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
         })
 
       other ->
-        outcome_row(other)
+        Common.removal_row(other)
     end)
     |> Common.preview(%{"requires_confirmation" => true})
   end
@@ -91,7 +48,7 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
     rows =
       Enum.map(plan, fn
         {:remove, ref, item} -> trash(ref, item, opts)
-        other -> outcome_row(other)
+        other -> Common.removal_row(other)
       end)
 
     removed = for %{"action" => "removed", "id" => id} <- rows, do: id
@@ -116,15 +73,4 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
         Common.row_error(ref, :internal_error, "The item could not be moved to the trash.")
     end
   end
-
-  # Rows that do not depend on the mode.
-  defp outcome_row({:already, ref, item}), do: Common.row_ok(ref, "unchanged", item.uuid)
-
-  defp outcome_row({:rejected, ref, message}),
-    do:
-      Common.row_error(ref, :validation_failed, message, %{
-        "errors" => [%{"path" => "refs", "message" => message}]
-      })
-
-  defp outcome_row({:resolution_error, ref, reason}), do: Common.resolution_error(ref, reason)
 end

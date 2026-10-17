@@ -12,7 +12,9 @@ defmodule PhoenixKitCatalogue.API.ExecutorTest do
   # Runs only against a core that has the API (see test_helper.exs).
   @moduletag :core_api
 
-  import PhoenixKitCatalogue.LiveCase, only: [fixture_catalogue: 1, fixture_item: 1]
+  import PhoenixKitCatalogue.LiveCase,
+    only: [fixture_catalogue: 1, fixture_category: 2, fixture_item: 1]
+
   import Plug.Conn
 
   alias PhoenixKit.API.Auth
@@ -39,7 +41,12 @@ defmodule PhoenixKitCatalogue.API.ExecutorTest do
             ]}
 
   @registry_key {PhoenixKit, :registered_modules}
-  @scopes ["catalogue.products:read", "catalogue.products:write", "catalogue.products:delete"]
+  @scopes [
+    "catalogue.products:read",
+    "catalogue.products:write",
+    "catalogue.products:delete",
+    "catalogue.categories:delete"
+  ]
 
   setup do
     start_supervised!({PhoenixKit.Cache.Registry, []})
@@ -211,6 +218,109 @@ defmodule PhoenixKitCatalogue.API.ExecutorTest do
                )
 
       assert Catalogue.get_item!(a.uuid).status == "inactive"
+    end
+  end
+
+  describe "delete_categories" do
+    test "a key with the products delete scope only is refused with 403 and nothing is trashed",
+         %{catalogue: catalogue, user: user} do
+      a = fixture_category(catalogue, %{name: "Alpha"})
+      token = issue_token(user, ["catalogue.products:delete", "catalogue.categories:write"])
+
+      assert {403, %{"code" => "forbidden", "context" => %{"required_scope" => required}}, _} =
+               call_with(token, "catalogue.delete_categories", %{
+                 "catalogue_id" => catalogue.uuid,
+                 "refs" => [%{"id" => a.uuid}]
+               })
+
+      assert required == "catalogue.categories:delete"
+      assert Catalogue.get_category!(a.uuid).status == "active"
+    end
+
+    test "the first call previews and trashes nothing; the code trashes once", %{
+      catalogue: catalogue,
+      user: user
+    } do
+      a = fixture_category(catalogue, %{name: "Alpha"})
+      item(catalogue, "Inside", %{category_uuid: a.uuid})
+      token = issue_token(user, @scopes)
+      input = %{"catalogue_id" => catalogue.uuid, "refs" => [%{"id" => a.uuid}]}
+
+      assert {200,
+              %{
+                "executed" => false,
+                "status" => "confirmation_required",
+                "confirm_token" => code,
+                "preview" => %{
+                  "requires_confirmation" => true,
+                  "summary" => %{"removed" => 1},
+                  "rows" => [%{"items" => 1}]
+                }
+              }, _} = call_with(token, "catalogue.delete_categories", input)
+
+      assert Catalogue.get_category!(a.uuid).status == "active"
+
+      assert {200, %{"summary" => %{"removed" => 1}}, _} =
+               call_with(
+                 token,
+                 "catalogue.delete_categories",
+                 Map.put(input, "confirm_token", code)
+               )
+
+      assert Catalogue.get_category!(a.uuid).status == "deleted"
+
+      assert {409, %{"context" => %{"reason" => "used"}}, _} =
+               call_with(
+                 token,
+                 "catalogue.delete_categories",
+                 Map.put(input, "confirm_token", code)
+               )
+    end
+
+    test "a code is refused when something was put into the category since it was issued", %{
+      catalogue: catalogue,
+      user: user
+    } do
+      a = fixture_category(catalogue, %{name: "Alpha"})
+      token = issue_token(user, @scopes)
+      input = %{"catalogue_id" => catalogue.uuid, "refs" => [%{"id" => a.uuid}]}
+
+      assert {200, %{"confirm_token" => code}, _} =
+               call_with(token, "catalogue.delete_categories", input)
+
+      item(catalogue, "Late", %{category_uuid: a.uuid})
+
+      assert {409, %{"context" => %{"reason" => "changed"}}, _} =
+               call_with(
+                 token,
+                 "catalogue.delete_categories",
+                 Map.put(input, "confirm_token", code)
+               )
+
+      assert Catalogue.get_category!(a.uuid).status == "active"
+    end
+
+    test "dry_run previews, flags the confirmation and creates no code", %{
+      catalogue: catalogue,
+      user: user
+    } do
+      a = fixture_category(catalogue, %{name: "Alpha"})
+      token = issue_token(user, @scopes)
+
+      assert {200,
+              %{
+                "executed" => false,
+                "dry_run" => true,
+                "preview" => %{"requires_confirmation" => true}
+              } = body, _} =
+               call_with(token, "catalogue.delete_categories", %{
+                 "catalogue_id" => catalogue.uuid,
+                 "refs" => [%{"id" => a.uuid}],
+                 "dry_run" => true
+               })
+
+      refute Map.has_key?(body, "confirm_token")
+      assert Catalogue.get_category!(a.uuid).status == "active"
     end
   end
 

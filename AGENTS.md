@@ -48,7 +48,7 @@ conventions, contracts and non-obvious boundaries.
   `catalogue` permission with the module enabled (core's
   `require_module_access/2`): the admin plug alone passes for any role that
   reaches the admin area, and the file carries every item with its prices. The
-  one exception to "no JSON surface" is the shop API: eight `catalogue.*` tools
+  one exception to "no JSON surface" is the shop API: nine `catalogue.*` tools
   (`api_tools/0`, `PhoenixKitCatalogue.API`) that core's API layer serves
   behind its own keys, scopes and rate limits; this module declares them and
   adds no route.
@@ -500,8 +500,9 @@ Pointers, not docs — the moduledocs are the contract.
   `dev_docs/guides/trash-and-restore.md`.
 - **Shop API tools** — the handlers (`API.ListProducts`, `GetProducts`,
   `CreateProducts`, `UpdateProducts`, `SetTranslations`, `DeleteProducts`,
-  `ListCategories`, `UpsertCategories`; each `call/2`) run after core has checked
-  the key, its scope, its owner's `catalogue` permission and the input schema.
+  `ListCategories`, `UpsertCategories`, `DeleteCategories`; each `call/2`) run
+  after core has checked the key, its scope, its owner's `catalogue` permission
+  and the input schema.
   Rules: write only through the `Catalogue` facade, with `API.Common.write_opts/3`
   (key owner as actor, `mode: "auto"`, `via: "api"` metadata); never accept
   `base_price`, markup, discount or raw `data` (the conformance test walks every
@@ -512,12 +513,15 @@ Pointers, not docs — the moduledocs are the contract.
   one place besides the facade that calls `Catalogue.Slugs` and
   `Catalogue.Translations` directly (the handler builds the slug changeset
   itself), and `Catalogue.RefLookup` through the facade only.
-  `catalogue.delete_products` is `danger: :always` and trashes, never
-  hard-deletes: it must only ever run under a core that enforces the
-  confirmation gate. `API.Gate` keeps the tool out of the registry on a core
-  that lacks the gate; raise the `phoenix_kit` floor in `mix.exs` to the first
-  release that ships the shop API. `update_products` refuses a sku another live
-  item of the catalogue holds (`sku_taken`; no DB index backs it).
+  `catalogue.delete_products` and `catalogue.delete_categories` are
+  `danger: :always` and trash, never hard-delete: they must only ever run under
+  a core that enforces the confirmation gate. A category goes with its subtree
+  (`items: :cascade`, the admin's default), and the dry run of an always-confirm
+  tool carries `requires_confirmation: true` (`Common.preview/2`). `API.Gate`
+  keeps those tools out of the registry on a core that lacks the gate; raise the
+  `phoenix_kit` floor in `mix.exs` to the first release that ships the shop API.
+  `update_products` refuses a sku another live item of the catalogue holds
+  (`sku_taken`; no DB index backs it).
   Guide: `dev_docs/guides/api-tools.md`; tests: `test/phoenix_kit_catalogue/api/`,
   through `Test.ApiCase`.
 - **Moves and copies** — a move lands only in a live catalogue (and

@@ -46,6 +46,11 @@ defmodule PhoenixKitCatalogue.API.Schemas do
     }
   end
 
+  @doc "A category reference: like `ref/0` without the sku."
+  def category_ref do
+    update_in(ref(), ["properties"], &Map.delete(&1, "sku"))
+  end
+
   @doc "`[{set_id, values}]`, the attribute sets of an item and the value keys selected in each."
   def attributes do
     %{
@@ -187,6 +192,24 @@ defmodule PhoenixKitCatalogue.API.Schemas do
       "properties" => %{
         "catalogue_id" => @uuid,
         "refs" => %{"type" => "array", "minItems" => 1, "maxItems" => 500, "items" => ref()}
+      },
+      "additionalProperties" => false
+    }
+  end
+
+  @doc "`catalogue.delete_categories`: references by id or external_id (categories have no sku)."
+  def delete_categories do
+    %{
+      "type" => "object",
+      "required" => ["refs"],
+      "properties" => %{
+        "catalogue_id" => @uuid,
+        "refs" => %{
+          "type" => "array",
+          "minItems" => 1,
+          "maxItems" => 500,
+          "items" => category_ref()
+        }
       },
       "additionalProperties" => false
     }
