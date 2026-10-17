@@ -585,12 +585,14 @@ Pointers, not docs — the moduledocs are the contract.
 - **Item dependencies** — the item form's Dependencies tab adds a target
   through one pop-up tree like the Location chooser's
   (`PlaceTree.places/2` with `items: true`, built on open, the item itself
-  pruned), is staged in `Web.DependencyDraft` and written on Save by
+  pruned; a pick selects, Add stages it and the pop-up stays open until
+  Done), is staged in `Web.DependencyDraft` and written on Save by
   `Catalogue.put_item_dependencies/3` (replace-all; writes nothing when the
   list is unchanged). The form passes `expected:` — the rows it loaded —
   so a list another admin saved meanwhile is never overwritten
-  (`:dependencies_changed`, their list is loaded); an untouched tab picks
-  up such a save live. Informational only: nothing prices or expands them.
+  (`:dependencies_changed`, their list is loaded), and it looks for that
+  conflict (`dependencies_conflict?/3`) before writing the item itself;
+  an untouched tab picks up such a save live. Informational only: nothing prices or expands them.
   A soft trash leaves a row listed as "in trash"; a permanent delete of
   either end cascades it away, and the permanent-delete dialogs say how
   many other items lose a line (`count_outside_dependents/1`). Duplicating

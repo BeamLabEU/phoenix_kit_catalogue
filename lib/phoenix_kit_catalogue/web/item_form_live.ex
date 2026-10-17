@@ -675,7 +675,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @impl true
   # The Add pop-up. Its tree is built on open, not at mount: it holds every
   # live item, and most edits never add a dependency. The item itself is
-  # left out. Picking a row only selects it; Add stages the row.
+  # left out. Picking a row only selects it; Add stages the row and keeps
+  # the pop-up (and its tree and search) for the next pick, until Done.
   def handle_event("dependency_open_picker", _params, socket) do
     tree =
       nil
@@ -692,7 +693,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
        path: [],
        quantity: "1",
        note: "",
-       error: nil
+       error: nil,
+       added: nil
      })}
   end
 
@@ -727,7 +729,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   def handle_event("dependency_move", %{"key" => key, "direction" => direction}, socket)
       when is_binary(key) and direction in ["up", "down"] do
-    direction = String.to_existing_atom(direction)
+    direction = if direction == "up", do: :up, else: :down
     {:noreply, update(socket, :dependency_draft, &DependencyDraft.move(&1, key, direction))}
   end
 
@@ -1464,19 +1466,30 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         picker_error(socket, "self")
 
       {nil, {kind, record}} ->
-        socket
-        |> update(
-          :dependency_draft,
-          &DependencyDraft.add(
-            &1,
+        quantity = String.trim(picker.quantity)
+
+        draft =
+          DependencyDraft.add(
+            socket.assigns.dependency_draft,
             kind,
             record,
             dependency_name_fun(socket.assigns[:current_locale]),
-            quantity: String.trim(picker.quantity),
+            quantity: quantity,
             note: picker.note
           )
-        )
-        |> assign(:dependency_picker, nil)
+
+        socket
+        |> assign(:dependency_draft, draft)
+        |> assign(:dependency_picker, %{
+          picker
+          | value: nil,
+            kind: nil,
+            path: [],
+            quantity: "1",
+            note: "",
+            error: nil,
+            added: {quantity, List.last(draft.rows).name || "—"}
+        })
     end
   end
 
@@ -1549,6 +1562,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       DependencyDraft.to_specs(socket.assigns.dependency_draft),
       actor_opts(socket) ++ expected
     )
+  end
+
+  defp check_dependency_conflict(socket) do
+    if Catalogue.dependencies_conflict?(
+         socket.assigns.item,
+         DependencyDraft.to_specs(socket.assigns.dependency_draft),
+         socket.assigns.dependency_base
+       ),
+       do: {:error, :dependencies_changed},
+       else: :ok
   end
 
   defp reload_dependencies(socket, item),
@@ -2505,14 +2528,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       actor_opts(socket) ++
         [data_owned_keys: data_owned_keys(socket, @item_extra_owned_data_keys)]
 
-    with {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, update_opts),
+    # The dependency conflict is looked for before anything is written, so
+    # a stale list does not leave the item's own fields saved without it.
+    with :ok <- check_dependency_conflict(socket),
+         {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, update_opts),
          {:ok, _rules} <- maybe_put_rules(socket, item),
          {:ok, _dependencies} <- put_dependencies(socket, item) do
       apply_attribute_assignment(socket, item)
       finish_edit_save(socket, item, mode)
     else
       # Another admin saved this item's dependencies since the form loaded
-      # them. Nothing of ours was written and nothing typed is lost: the
+      # them. Found before the item was written (only a save landing in
+      # the instant between the look and the write gets past it), so as a
+      # rule nothing of ours was written; nothing typed is lost either: the
       # draft stays, and the base becomes their list, so a second Save is a
       # deliberate replace.
       {:error, :dependencies_changed} ->

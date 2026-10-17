@@ -3882,6 +3882,15 @@ msgstr ""
 msgid "Already on the list. Adding it again makes a second line."
 msgstr ""
 
+msgid "Added %{quantity} × %{name}."
+msgstr ""
+
+msgid "Any item in %{place}"
+msgstr ""
+
+msgid "Anything in %{place}"
+msgstr ""
+
 msgid "The note is too long (%{max} characters at most)."
 msgstr ""
 

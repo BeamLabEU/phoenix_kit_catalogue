@@ -3876,6 +3876,15 @@ msgstr "Nothing selected yet."
 msgid "Already on the list. Adding it again makes a second line."
 msgstr "Already on the list. Adding it again makes a second line."
 
+msgid "Added %{quantity} × %{name}."
+msgstr "Added %{quantity} × %{name}."
+
+msgid "Any item in %{place}"
+msgstr "Any item in %{place}"
+
+msgid "Anything in %{place}"
+msgstr "Anything in %{place}"
+
 msgid "The note is too long (%{max} characters at most)."
 msgstr "The note is too long (%{max} characters at most)."
 

@@ -4,8 +4,9 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   `PhoenixKitCatalogue.Web.DependencyDraft` and its Add button, which opens
   a pop-up like the Location chooser's — one tree of folders › catalogues ›
   categories › items (`PlaceTree.places/2` with `items: true`). Picking a
-  row only selects it: the pop-up shows the selection's path, takes its
-  quantity and note, and adds the row on Add.
+  row only selects it: the pop-up shows the selection the way the list
+  will read it, takes its quantity and note, and adds the row on Add. It
+  stays open for the next pick, keeping its search, until Done.
 
   Rendered OUTSIDE the item form: the rows are a small form of their own
   (`dependency_change`), and the picker brings its own search box. Nothing
@@ -20,6 +21,8 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   """
 
   use Phoenix.Component
+
+  alias Phoenix.LiveView.JS
 
   import PhoenixKitWeb.Components.Core.DecimalInput, only: [decimal_input: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
@@ -37,9 +40,10 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
   attr(:picker, :map,
     default: nil,
     doc: """
-    The open pop-up — `%{tree, value, kind, path, quantity, note, error}`,
-    where `value` is the selected row's id (`nil` before one is picked) and
-    `error` names what stops Add — or nil while closed.
+    The open pop-up — `%{tree, value, kind, path, quantity, note, error,
+    added}`, where `value` is the selected row's id (`nil` before one is
+    picked), `error` names what stops Add and `added` is the last line Add
+    staged (`{quantity, name}`) — or nil while closed.
     """
   )
 
@@ -172,8 +176,9 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
         </div>
 
         <%!-- Like the Location chooser: one tree, folders › catalogues ›
-             categories › items. Picking a row selects it; the footer shows
-             the selection and takes its quantity; Add stages the row. --%>
+             categories › items. Picking a row selects it; below, the
+             selection reads as its line will, with its quantity and note;
+             Add stages the row and leaves the pop-up open for the next. --%>
         <.modal
           :if={@picker}
           id="dependency-picker"
@@ -183,7 +188,10 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
         >
           <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a dependency")}</:title>
 
-          <div class="flex flex-col gap-4">
+          <div
+            class="flex flex-col gap-4"
+            phx-mounted={JS.focus(to: "#dependency-place-picker-search")}
+          >
             <p class="text-sm text-base-content/60">
               {Gettext.gettext(
                 PhoenixKitCatalogue.Gettext,
@@ -203,10 +211,25 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
               }
             />
 
+            <p
+              :if={@picker.added}
+              id="dependency-picker-added"
+              class="flex items-center gap-2 text-sm text-success"
+            >
+              <.icon name="hero-check-circle" class="w-4 h-4 shrink-0" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Added %{quantity} × %{name}.",
+                quantity: elem(@picker.added, 0),
+                name: elem(@picker.added, 1)
+              )}
+            </p>
+
             <form
               id="dependency-picker-form"
               phx-change="dependency_picker_change"
-              phx-submit="dependency_picker_confirm"
+              phx-submit={
+                JS.push("dependency_picker_confirm")
+                |> JS.focus(to: "#dependency-place-picker-search")
+              }
               class="flex flex-col gap-3 border-t border-base-300 pt-4"
             >
               <div id="dependency-picker-selection" class="flex flex-col gap-1 min-w-0">
@@ -219,7 +242,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
                 <div :if={@picker.value} class="flex items-start gap-2 min-w-0">
                   <.icon name={kind_icon(@picker.kind)} class="w-5 h-5 shrink-0 text-base-content/60" />
                   <span class="font-medium min-w-0 break-words">
-                    {Enum.join(@picker.path, " › ")}
+                    {selection_text(@picker.kind, @picker.path)}
                   </span>
                   <span class="badge badge-ghost badge-xs shrink-0 mt-1">{kind_label(@picker.kind)}</span>
                 </div>
@@ -244,6 +267,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
                   errors={if @picker.error == "quantity", do: [row_error_message("quantity")], else: []}
                   wrapper_class="w-32"
                   class="input-sm"
+                  phx-debounce="300"
                 />
                 <.input
                   type="text"
@@ -256,6 +280,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
                   class="input-sm"
                   maxlength={ItemDependency.max_note_length()}
                   placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., pick by wood type")}
+                  phx-debounce="300"
                 />
               </div>
 
@@ -269,8 +294,13 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
           </div>
 
           <:actions>
-            <button type="button" phx-click="dependency_close_picker" class="btn btn-ghost btn-sm">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+            <button
+              type="button"
+              id="dependency-picker-done"
+              phx-click="dependency_close_picker"
+              class="btn btn-ghost btn-sm"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Done")}
             </button>
             <button
               type="submit"
@@ -288,6 +318,22 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
     </div>
     """
   end
+
+  # The selection as its line will read: an item by its path; a category
+  # or catalogue as "any item in" it, which is what such a line means.
+  defp selection_text(:item, path), do: Enum.join(path, " › ")
+
+  defp selection_text(:category, path),
+    do:
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Any item in %{place}",
+        place: Enum.join(path, " › ")
+      )
+
+  defp selection_text(_catalogue, path),
+    do:
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Anything in %{place}",
+        place: Enum.join(path, " › ")
+      )
 
   defp listed?(_draft, nil), do: false
 

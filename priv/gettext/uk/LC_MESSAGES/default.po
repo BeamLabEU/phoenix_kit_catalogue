@@ -3889,6 +3889,15 @@ msgstr "Поки нічого не вибрано."
 msgid "Already on the list. Adding it again makes a second line."
 msgstr "Уже є в списку. Повторне додавання створить другий рядок."
 
+msgid "Added %{quantity} × %{name}."
+msgstr "Додано: %{quantity} × %{name}."
+
+msgid "Any item in %{place}"
+msgstr "Будь-яка позиція з %{place}"
+
+msgid "Anything in %{place}"
+msgstr "Будь-що з %{place}"
+
 msgid "The note is too long (%{max} characters at most)."
 msgstr "Примітка задовга (не більше %{max} символів)."
 
