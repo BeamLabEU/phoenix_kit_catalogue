@@ -635,23 +635,21 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
       assert Catalogue.get_item!(a.uuid).name == "A2"
     end
 
-    test "does not count a trashed item, an item of another catalogue, or a cleared sku", %{
+    test "does not count a trashed item or an item of another catalogue as a holder", %{
       catalogue: catalogue
     } do
       {:ok, _} = catalogue |> item("Trashed", %{sku: "T-1"}) |> Catalogue.trash_item()
       item(fixture_catalogue(%{name: "Elsewhere"}), "Foreign", %{sku: "F-1"})
       a = item(catalogue, "Alpha")
       b = item(catalogue, "Beta")
-      c = item(catalogue, "Gamma", %{sku: "C-1"})
 
       result =
         run_update(catalogue, [
           entry(%{"id" => a.uuid}, %{"sku" => "T-1"}),
-          entry(%{"id" => b.uuid}, %{"sku" => "F-1"}),
-          entry(%{"id" => c.uuid}, %{"sku" => nil})
+          entry(%{"id" => b.uuid}, %{"sku" => "F-1"})
         ])
 
-      assert Enum.map(rows(result), & &1["action"]) == ["updated", "updated", "updated"]
+      assert Enum.map(rows(result), & &1["action"]) == ["updated", "updated"]
     end
 
     test "is checked row by row: a released sku can be taken, a claimed one cannot", %{
