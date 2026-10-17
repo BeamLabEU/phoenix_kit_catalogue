@@ -80,7 +80,7 @@ defmodule PhoenixKitCatalogue.API.DeleteProducts do
       other ->
         outcome_row(other)
     end)
-    |> Common.preview()
+    |> Common.preview(%{"requires_confirmation" => true})
   end
 
   # --- execution -------------------------------------------------------------------------

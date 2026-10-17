@@ -129,8 +129,15 @@ defmodule PhoenixKitCatalogue.API.Common do
   what core's executor expects from a handler on a dry run.
   """
   @spec preview([map()]) :: {:preview, map(), String.t()}
-  def preview(rows) do
-    {:preview, %{"rows" => rows, "summary" => summary(rows)}, fingerprint(rows)}
+  def preview(rows), do: preview(rows, %{})
+
+  @doc """
+  `preview/1` with `extra` keys in the preview (not in the fingerprint). The
+  tools that always need a confirmation say so with `%{"requires_confirmation" => true}`.
+  """
+  @spec preview([map()], map()) :: {:preview, map(), String.t()}
+  def preview(rows, extra) do
+    {:preview, Map.merge(extra, %{"rows" => rows, "summary" => summary(rows)}), fingerprint(rows)}
   end
 
   @spec fingerprint(term()) :: String.t()
