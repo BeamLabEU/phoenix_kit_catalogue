@@ -91,6 +91,7 @@ defmodule PhoenixKitCatalogueTest do
       without = API.tools(false)
 
       refute "catalogue.delete_products" in Enum.map(without, & &1.name)
+      refute "catalogue.delete_categories" in Enum.map(without, & &1.name)
       assert Enum.all?(without, &(&1.danger != :always))
 
       assert Enum.map(API.tools(true), & &1.name) ==

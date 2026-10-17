@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.API.Tools do
   #   catalogue.products:delete    delete_products
   #   catalogue.categories:read    list_categories
   #   catalogue.categories:write   upsert_categories
+  #   catalogue.categories:delete  delete_categories
 
   alias PhoenixKit.API.Tool
   alias PhoenixKitCatalogue.API.Schemas
@@ -25,7 +26,8 @@ defmodule PhoenixKitCatalogue.API.Tools do
       set_translations(),
       delete_products(),
       list_categories(),
-      upsert_categories()
+      upsert_categories(),
+      delete_categories()
     ]
   end
 
@@ -211,6 +213,35 @@ defmodule PhoenixKitCatalogue.API.Tools do
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.UpsertCategories, :call},
       annotations: %{idempotent: true},
+      max_items: 500
+    )
+  end
+
+  defp delete_categories do
+    Tool.new!(
+      name: "catalogue.delete_categories",
+      audience: :admin,
+      scope: "catalogue.categories:delete",
+      permission: @permission,
+      title: "Delete categories (to the trash)",
+      description:
+        "Moves up to 500 categories of one catalogue, named by {id} or {external_id}, to the trash. " <>
+          "Nothing is erased: an operator can restore a category from the admin trash. A category takes " <>
+          "everything under it, as the admin's delete does by default: its subcategories and the items in " <>
+          "them go to the trash with it (an item trashed on its own earlier stays as it was), and restoring " <>
+          "the category brings back exactly that set. A category listed together with one of its own " <>
+          "descendants takes it whatever the order; the descendant's row answers unchanged. This operation " <>
+          "always needs confirmation: the first call changes nothing and returns a preview with a " <>
+          "confirmation code (or, for a key that requires approval, queues it for a person); repeat the " <>
+          "call with the code to execute. The preview of each row says how many subcategories and items " <>
+          "would go. dry_run: true previews the same call (requires_confirmation: true) and never creates " <>
+          "a confirmation code. A reference to a category that is already in the trash answers unchanged. " <>
+          "Rows are independent; each answers removed, unchanged or error.",
+      input_schema: Schemas.delete_categories(),
+      output_schema: Schemas.batch_output(),
+      handler: {PhoenixKitCatalogue.API.DeleteCategories, :call},
+      annotations: %{destructive: true, idempotent: true},
+      danger: :always,
       max_items: 500
     )
   end

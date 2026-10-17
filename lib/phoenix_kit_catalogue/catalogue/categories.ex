@@ -539,6 +539,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
   Logs a single `category.trashed` activity on the root with
   `subtree_size`, `items_handled`, and `items_disposition` in metadata.
+  Options besides `:items`: `:actor_uuid`, `:mode`, `:broadcast` (`false`
+  sends no PubSub event) and `:log_metadata` (extra keys for the entry).
 
   ## Examples
 
@@ -554,6 +556,23 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
              | :move_target_in_subtree
              | term()}
   def trash_category(%Category{} = category, opts \\ []) do
+    with {:ok, _outcome, updated} <- trash_category_outcome(category, opts), do: {:ok, updated}
+  end
+
+  @doc """
+  `trash_category/2` that tells whether THIS call trashed anything:
+  `{:ok, :trashed, category}`, or `{:ok, :already_trashed, category}` when the
+  category was in the trash already with nothing live under it (a concurrent
+  trash that landed first); nothing is changed or logged then.
+  """
+  @spec trash_category_outcome(Category.t(), keyword()) ::
+          {:ok, :trashed | :already_trashed, Category.t()}
+          | {:error,
+             :move_target_not_found
+             | :cross_catalogue_move
+             | :move_target_in_subtree
+             | term()}
+  def trash_category_outcome(%Category{} = category, opts \\ []) do
     disposition = Keyword.get(opts, :items, :cascade)
 
     result =
@@ -593,7 +612,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
       # Already in the trash with nothing live under it: this call trashed
       # nothing, so it records nothing.
       {:ok, {updated, _subtree_size, _items_handled, false, _pairs}} ->
-        {:ok, updated}
+        {:ok, :already_trashed, updated}
 
       {:ok, {updated, subtree_size, items_handled, true, pairs}} ->
         MediaFolders.follow(pairs, opts[:actor_uuid])
@@ -616,10 +635,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
               "items_disposition" => disposition_to_metadata(disposition)
             }
           },
-          Keyword.take(opts, [:broadcast, :mode])
+          Keyword.take(opts, [:log_metadata, :broadcast, :mode])
         )
 
-        {:ok, updated}
+        {:ok, :trashed, updated}
 
       error ->
         error
@@ -2452,6 +2471,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
 
     :ok
   end
+
+  @doc """
+  Announces that categories of a catalogue were trashed: the one event a
+  bulk trash sends per touched catalogue, for a caller that trashed with
+  `broadcast: false`.
+  """
+  @spec broadcast_categories_trashed(Ecto.UUID.t()) :: :ok
+  def broadcast_categories_trashed(catalogue_uuid),
+    do: PubSub.broadcast(:category, nil, catalogue_uuid)
 
   defp bulk_trash_category_step(uuid, disposition, opts, acc) do
     case Helpers.get_by_uuid(Category, uuid) do

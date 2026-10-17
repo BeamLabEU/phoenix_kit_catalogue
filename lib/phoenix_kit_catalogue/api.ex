@@ -28,8 +28,8 @@ defmodule PhoenixKitCatalogue.API do
 
   @doc """
   The catalogue's admin tools, as `PhoenixKitCatalogue.api_tools/0` hands them
-  to core. FAIL CLOSED: a tool declared `danger: :always` (today only
-  `catalogue.delete_products`) is withheld unless the loaded core can enforce
+  to core. FAIL CLOSED: a tool declared `danger: :always` (today
+  `catalogue.delete_products` and `catalogue.delete_categories`) is withheld unless the loaded core can enforce
   the confirmation gate (`Gate.available?/0`). A core without the gate ignores
   the `danger` field and would trash on the first call; a version number or a
   `mix.exs` floor does not prove the gate exists (the stand and the forks use
