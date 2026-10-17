@@ -73,7 +73,7 @@ defmodule PhoenixKitCatalogue.Web.Components.DependenciesPanel do
                   {row.name || "—"}
                 </.link>
                 <span class="badge badge-ghost badge-xs shrink-0">{kind_label(row.kind)}</span>
-                <.internal_badge catalogue={%{internal: row.internal?, uuid: row.uuid}} />
+                <.internal_badge record={%{internal: row.internal?, uuid: row.uuid}} />
                 <span :if={row.trashed?} class="badge badge-warning badge-xs shrink-0">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "In trash")}
                 </span>

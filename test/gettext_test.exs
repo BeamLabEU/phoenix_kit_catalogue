@@ -1380,7 +1380,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
   # translation in each non-English one.
   @v5_strings [
     "Internal",
-    "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it.",
+    "Kept out of the item pickers and browse pop-ups that other pages embed, with its subcategories and their items. The admin pages still show it.",
     "Not shown in the item pickers and browse pop-ups",
     "There is nothing to choose from here.",
     "Notes for AI",

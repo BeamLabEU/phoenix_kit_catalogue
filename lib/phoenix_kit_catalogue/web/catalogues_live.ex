@@ -1660,7 +1660,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           >
             {@c_row.name}
           </.link>
-          <Shared.internal_badge catalogue={@c_row} />
         </div>
         <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm flex-1">
           <%= for col <- visible_columns(:catalogues, @ctx.cfg), col.id not in ["name", "folder"] do %>
@@ -1967,7 +1966,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     >
                       {c_row.name}
                     </.link>
-                    <Shared.internal_badge catalogue={c_row} />
                   </.tree_name_cell>
                   <.table_default_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>
                     {render_cell(:catalogues, c.id, c_row)}

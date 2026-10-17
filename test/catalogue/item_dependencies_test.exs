@@ -19,7 +19,7 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemDependenciesTest do
 
   setup do
     furniture = fixture_catalogue(%{name: "Furniture"})
-    screws = fixture_catalogue(%{name: "Screws", internal: true})
+    screws = fixture_catalogue(%{name: "Screws"})
     wood_screws = fixture_category(screws, %{name: "Wood screws"})
     susan = fixture_item(%{name: "Lazy susan", catalogue_uuid: furniture.uuid})
 

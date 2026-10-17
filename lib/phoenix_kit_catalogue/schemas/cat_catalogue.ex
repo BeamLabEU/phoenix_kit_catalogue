@@ -33,10 +33,6 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     field(:item_type, :string, default: "goods")
     field(:markup_percentage, :decimal, default: Decimal.new("0"))
     field(:discount_percentage, :decimal, default: Decimal.new("0"))
-    # Kept out of the embeddable pop-ups (`ItemPicker`, `ItemSelectorModal`,
-    # `CatalogueBrowse`) unless the host passes `include_internal`; the
-    # admin pages show it like any other catalogue.
-    field(:internal, :boolean, default: false)
     # Free text for an AI that reads the catalogue — one language, never
     # shown in the pop-ups, never machine-translated.
     field(:ai_notes, :string)
@@ -68,7 +64,6 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     :item_type,
     :markup_percentage,
     :discount_percentage,
-    :internal,
     :ai_notes,
     :status,
     :position,
@@ -80,7 +75,7 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     catalogue
     |> cast(attrs, @required_fields ++ @optional_fields)
     # The column is NOT NULL; `cast` maps "" to the default, this guards an explicit nil.
-    |> validate_required(@required_fields ++ [:item_type, :internal])
+    |> validate_required(@required_fields ++ [:item_type])
     |> validate_length(:name, min: 1, max: 255)
     |> validate_length(:ai_notes, max: ai_notes_max_length())
     |> validate_inclusion(:status, @statuses)

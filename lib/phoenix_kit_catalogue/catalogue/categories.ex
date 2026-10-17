@@ -25,7 +25,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
     :parent_uuid,
     :position,
     :slug,
-    :ai_notes
+    :ai_notes,
+    :internal
   ]
 
   @category_slugs_table "phoenix_kit_cat_category_slugs"
@@ -1680,6 +1681,21 @@ defmodule PhoenixKitCatalogue.Catalogue.Categories do
   @spec change_category(Category.t(), map()) :: Ecto.Changeset.t(Category.t())
   def change_category(%Category{} = category, attrs \\ %{}) do
     Category.changeset(category, attrs)
+  end
+
+  @doc """
+  The categories the embeddable pop-ups leave out: every category marked
+  `internal` and every category under one, at any depth, as text uuids.
+  An item filed in one of them is left out with it. Trashed rows count
+  too — a live subcategory of a trashed internal category is still under
+  it. `[]` when nothing is internal.
+  """
+  @spec internal_category_uuids() :: [Ecto.UUID.t()]
+  def internal_category_uuids do
+    case from(c in Category, where: c.internal == true, select: c.uuid) |> repo().all() do
+      [] -> []
+      roots -> category_subtree_uuids(roots)
+    end
   end
 
   @doc """

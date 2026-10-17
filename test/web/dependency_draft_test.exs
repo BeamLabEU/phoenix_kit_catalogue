@@ -10,7 +10,7 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraftTest do
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item, ItemDependency}
   alias PhoenixKitCatalogue.Web.DependencyDraft
 
-  @screws %Catalogue{uuid: "c1", name: "Screws", status: "active", internal: true}
+  @screws %Catalogue{uuid: "c1", name: "Screws", status: "active"}
   @wood %Category{
     uuid: "k1",
     name: "Wood",
@@ -23,12 +23,15 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraftTest do
     name: "Screw",
     status: "deleted",
     catalogue_uuid: "c1",
+    category_uuid: "k1",
     catalogue: @screws,
     category: @wood
   }
 
+  # "k1" is internal (or under an internal category): the hidden set the
+  # item form reads from `Catalogue.internal_category_uuids/0`.
   defp draft do
-    DependencyDraft.new()
+    DependencyDraft.new([], &Map.get(&1, :name), %{"k1" => true})
     |> DependencyDraft.add(:catalogue, @screws)
     |> DependencyDraft.add(:category, @wood)
     |> DependencyDraft.add(:item, @screw)
@@ -36,10 +39,26 @@ defmodule PhoenixKitCatalogue.Web.DependencyDraftTest do
 
   test "a row says what it is, where it sits and whether it is trashed or internal" do
     assert [
-             %{kind: :catalogue, name: "Screws", place: nil, internal?: true, quantity: "1"},
-             %{kind: :category, name: "Wood", place: "Screws", catalogue_uuid: "c1"},
+             %{kind: :catalogue, name: "Screws", place: nil, internal?: false, quantity: "1"},
+             %{
+               kind: :category,
+               name: "Wood",
+               place: "Screws",
+               catalogue_uuid: "c1",
+               internal?: true
+             },
              %{kind: :item, place: "Screws › Wood", trashed?: true, internal?: true}
            ] = draft().rows
+  end
+
+  test "without a hidden set nothing is marked internal" do
+    rows =
+      DependencyDraft.new()
+      |> DependencyDraft.add(:category, @wood)
+      |> DependencyDraft.add(:item, @screw)
+      |> Map.fetch!(:rows)
+
+    assert Enum.all?(rows, &(&1.internal? == false))
   end
 
   test "a saved list round-trips through new/2 with its quantities and notes" do

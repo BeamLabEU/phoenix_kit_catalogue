@@ -8,7 +8,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
-  import PhoenixKitWeb.Components.Core.Checkbox, only: [checkbox: 1]
   import PhoenixKitWeb.Components.Core.DecimalInput, only: [decimal_input: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
@@ -65,7 +64,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     "item_type" => :item_type,
     "markup_percentage" => :markup_percentage,
     "discount_percentage" => :discount_percentage,
-    "internal" => :internal,
     "ai_notes" => :ai_notes
   }
 
@@ -578,15 +576,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archived catalogues are hidden from active views.")}
               </span>
             </div>
-
-            <.checkbox
-              field={@form[:internal]}
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Internal")}
-            >
-              <:description>
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it.")}
-              </:description>
-            </.checkbox>
 
             <.ai_notes_field field={@form[:ai_notes]} />
           </div>

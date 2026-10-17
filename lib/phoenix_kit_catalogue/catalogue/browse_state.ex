@@ -102,7 +102,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
     * `:scope` — map with any of `:catalogue_uuids`, `:category_uuids`,
       `:only`, `:statuses`, `:include_descendants`, `:item_types` (by the
       EFFECTIVE type, e.g. `["goods"]`), `:exclude_internal` (leave out the
-      items of `internal` catalogues even where the other keys name them —
+      items of `internal` categories even where the other keys name them —
       the pop-ups set it unless their host passes `include_internal`).
       Fixed for the state's lifetime. Unknown keys raise `ArgumentError`.
     * `:per_page` — page size (default #{@default_per_page}).

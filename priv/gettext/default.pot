@@ -3822,7 +3822,7 @@ msgstr ""
 msgid "Internal"
 msgstr ""
 
-msgid "Kept out of the item pickers and browse pop-ups that other pages embed. The admin pages still show it."
+msgid "Kept out of the item pickers and browse pop-ups that other pages embed, with its subcategories and their items. The admin pages still show it."
 msgstr ""
 
 msgid "Not shown in the item pickers and browse pop-ups"

@@ -20,6 +20,11 @@ defmodule PhoenixKitCatalogue.Schemas.Category do
     field(:position, :integer, default: 0)
     field(:status, :string, default: "active")
     field(:data, :map, default: %{})
+    # Kept out of the embeddable pop-ups (`ItemPicker`, `ItemSelectorModal`,
+    # `CatalogueBrowse`) with everything under it — subcategories and their
+    # items — unless the host passes `include_internal`; the admin pages
+    # show it like any other category. See `Catalogue.internal_category_uuids/0`.
+    field(:internal, :boolean, default: false)
     # Free text for an AI that reads the catalogue (V5) — see
     # `PhoenixKitCatalogue.Schemas.Catalogue`'s field of the same name.
     field(:ai_notes, :string)
@@ -57,13 +62,22 @@ defmodule PhoenixKitCatalogue.Schemas.Category do
   end
 
   @required_fields [:name, :catalogue_uuid]
-  @optional_fields [:description, :ai_notes, :position, :status, :data, :parent_uuid, :slug]
+  @optional_fields [
+    :description,
+    :ai_notes,
+    :internal,
+    :position,
+    :status,
+    :data,
+    :parent_uuid,
+    :slug
+  ]
 
   def changeset(category, attrs) do
     category
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> update_change(:data, &drop_nil_data_values/1)
-    |> validate_required(@required_fields)
+    |> validate_required(@required_fields ++ [:internal])
     |> validate_length(:name, min: 1, max: 255)
     |> validate_length(:ai_notes,
       max: CatalogueSchema.ai_notes_max_length()
