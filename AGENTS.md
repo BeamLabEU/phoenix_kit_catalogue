@@ -11,7 +11,7 @@ and import/export. Admin-only LiveView UI; no public routes of its own; the shop
 semantics live in module `@moduledoc`s and `dev_docs/` — this file holds
 conventions, contracts and non-obvious boundaries.
 
-- **Depends on:** `phoenix_kit` `>= 2.38.0 and < 3.0.0` (Hex, patch-precise
+- **Depends on:** `phoenix_kit` `>= 2.63.0 and < 3.0.0` (Hex, patch-precise
   floor — see the comment in `mix.exs` and `test/core_pin_conformance_test.exs`),
   `phoenix_kit_ai` `~> 0.24` (hard dep; the AI-translate integration is
   duck-typed through `ai_translatables/0`), `phoenix_kit_entities` `~> 0.4`
@@ -534,8 +534,10 @@ Pointers, not docs — the moduledocs are the contract.
   a core that enforces the confirmation gate. A category goes with its subtree
   (`items: :cascade`, the admin's default), and the dry run of an always-confirm
   tool carries `requires_confirmation: true` (`Common.preview/2`). `API.Gate`
-  keeps those tools out of the registry on a core that lacks the gate; raise the
-  `phoenix_kit` floor in `mix.exs` to the first release that ships the shop API.
+  keeps those tools out of the registry on a core that lacks the gate. The
+  `phoenix_kit` floor in `mix.exs` is 2.63.0, the first release that ships the
+  shop API (`PhoenixKit.API.Tool`, `Activity.log_many/2`); a newer API need
+  raises it again.
   `update_products` refuses a sku another live item of the catalogue holds
   (`sku_taken`; no DB index backs it).
   Guide: `dev_docs/guides/api-tools.md`; tests: `test/phoenix_kit_catalogue/api/`,
