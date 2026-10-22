@@ -3062,7 +3062,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      # Client, 2026-09-12: the host's per-category pickers (category_uuids
+      # Reported bug: a host's per-category pickers (category_uuids
       # only, no catalogue) listed a category's items A→Z while the
       # admin's Manual view showed the hand-arranged order — the Manual
       # gate keyed off the catalogue alone. Positions here run against
