@@ -517,7 +517,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
     test "a per-category narrow scope (category_uuids only, no catalogue_uuids) still confirms in tree order",
          %{conn: conn, cat: cat} do
-      # tim-dev's per-category narrow picker shape: the host scope names
+      # A host's per-category narrow picker shape: the host scope names
       # ONLY a category (`cat_scope`, no `c=`) — `catalogue_uuids: nil`.
       # A pick from a subcategory the tiles filter down to must still
       # sort correctly: it must not fall out of the sort index and land
@@ -2835,7 +2835,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
   end
 
-  describe "multi-catalogue level navigation (tim-dev wide picker, 2026-08-31)" do
+  describe "multi-catalogue level navigation (wide host picker, 2026-08-31)" do
     # A scope naming SEVERAL catalogues used to get no tiles, no switcher,
     # no category hits at all ("check why the categories and sub
     # categories aren't showing up"). The root now groups each offered
@@ -3022,7 +3022,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      # tim-dev's per-category narrow pickers pass category_uuids with
+      # A host's per-category narrow pickers pass category_uuids with
       # catalogue_uuids: nil — the tree builder keyed off the catalogue
       # and handed that shape the EMPTY tree, so WASTE SORTERS' healthy
       # children never rendered (error report, 2026-08-31). The
@@ -3231,7 +3231,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
   end
 
-  describe "content language (tim-dev error report, 2026-08-31)" do
+  describe "content language (host error report, 2026-08-31)" do
     # The host process carries the viewer's gettext locale and passes no
     # :locale attr — exactly a host-app integration. The list used to read
     # the wrong translation key ("name" where the editor stores "_name"),
