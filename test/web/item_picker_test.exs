@@ -64,7 +64,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     )
   end
 
-  describe "locale fallback (tim-dev error report, 2026-08-31)" do
+  describe "locale fallback (host error report, 2026-08-31)" do
     test "without a :locale attr the process gettext locale applies" do
       item = %{
         fake_item("i-loc-1", "Steel screw")
