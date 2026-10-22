@@ -148,11 +148,11 @@ New gettext strings (Columns, Reset, Apply, Sort by, Folder, Kind, Markup %, Dis
 2. **Suppliers + Manufacturers:** wire the toolbar + dynamic columns + sort/filter/search + card view + move action buttons into the toolbar. (Simplest — already `table_default`.)
 3. **Catalogues index:** flat conversion, folder filter + folder column, Active/Deleted retained, remove tree/DnD + global item search.
 4. **Folders modal:** full folder CRUD.
-5. gettext, `mix format`, compile via `/www/app`, restart, runtime verify.
+5. gettext, `mix format`, compile via `<host-app>`, restart, runtime verify.
 
 ## Verification
 
-- Compile via `cd /www/app && mix compile` (catalogue can't compile standalone — stale deps).
+- Compile via `cd <host-app> && mix compile` (catalogue can't compile standalone — stale deps).
 - Restart elixir (path-dep, no hot reload); confirm clean boot + HTTP 200.
 - Runtime checks: column show/hide persists across a reconnect and across users; sort + filter + search work in both table and card view; folder filter narrows; folder modal CRUD works; Active/Deleted toggle intact; "Move to folder" still works; no leftover global-search crashes.
 - daisyUI 5 mobile check via headless browser (per project memory — no eyeballing).
