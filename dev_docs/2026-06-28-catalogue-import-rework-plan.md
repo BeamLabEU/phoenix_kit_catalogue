@@ -76,7 +76,7 @@ end
 - [ ] **Step 2: Run test, verify it fails**
 
 Run: `cd /www/app && mix test ../phoenix_kit_catalogue/test/phoenix_kit_catalogue/pro100/id_test.exs`
-Expected: FAIL (module `PhoenixKitCatalogue.Pro100.Id` undefined). If the path form is awkward, run from the catalogue dir per project convention; the andi compile path is what matters.
+Expected: FAIL (module `PhoenixKitCatalogue.Pro100.Id` undefined). If the path form is awkward, run from the catalogue dir per project convention; the host app compile path is what matters.
 
 - [ ] **Step 3: Implement**
 
@@ -1045,7 +1045,7 @@ git commit -m "Add Import.Source registry (Universal + PRO100) mirroring Export.
 
 ## Task 9: `Web.ImportLive` — Source/Format selects + sync flow (preview + report)
 
-Wire the UI: source/format selects on the upload step, branch to `:mapping` (existing) or `:sync` (new preview→apply→report). This is the integration task; it is DB-backed, so its LiveView tests run in the andi test env (Postgres) — when local Postgres is unavailable, verify live via Tidewave + the manual steps in the spec's "Live verification".
+Wire the UI: source/format selects on the upload step, branch to `:mapping` (existing) or `:sync` (new preview→apply→report). This is the integration task; it is DB-backed, so its LiveView tests run in the host test env (Postgres) — when local Postgres is unavailable, verify live via Tidewave + the manual steps in the spec's "Live verification".
 
 **Files:**
 - Modify: `lib/phoenix_kit_catalogue/web/import_live.ex`
@@ -1125,7 +1125,7 @@ where `build_update_attrs/1` turns `change.changes` (`%{field => {_old, new}}`) 
 
 Follow the existing `test/web/import_live_*_test.exs` for upload simulation (`file_input`/`render_upload`). Keep assertions on: preview matched count, skipped raw lines present, post-apply DB state.
 
-- [ ] **Step 8: Run tests (andi test env) / live verify**
+- [ ] **Step 8: Run tests (host test env) / live verify**
 
 Run (if Postgres available): `cd /www/app && mix test ../phoenix_kit_catalogue/test/web/import_live_pro100_test.exs`
 Otherwise: recompile + restart elixir, then walk the spec's "Live verification" steps, and verify DB state via Tidewave.

@@ -27,7 +27,7 @@ The page title/subtitle already moved to the global admin header (prior task). T
 
 ## Architecture — a self-contained mini-toolkit inside the module
 
-`phoenix_kit_catalogue` is a standalone library and **must not** depend on host-app `Andi.*` modules (the orders stack lives in andi). So the pattern is replicated locally, reusing only phoenix_kit **core** components (`<.table_default>`, `Modal`, `SortableGrid` hook, icons).
+`phoenix_kit_catalogue` is a standalone library and **must not** depend on host-app modules (the orders stack lives in the host app). So the pattern is replicated locally, reusing only phoenix_kit **core** components (`<.table_default>`, `Modal`, `SortableGrid` hook, icons).
 
 New modules (all under `lib/phoenix_kit_catalogue/web/`):
 

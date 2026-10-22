@@ -75,7 +75,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
           }
       }
 
-      # The Andi shape: the host process is in et, no attr passed. The
+      # A common host shape: the host process is in et, no attr passed. The
       # picker used to default to a hardcoded "en" here — its dropdown,
       # breadcrumbs and product-card popup all stayed English.
       Gettext.put_locale("et")
