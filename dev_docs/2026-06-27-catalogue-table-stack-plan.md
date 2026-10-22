@@ -4,13 +4,13 @@
 
 **Goal:** Give `/admin/catalogue`, `/admin/catalogue/suppliers`, and `/admin/catalogue/manufacturers` a control toolbar (search + filters + sort + view-toggle + column management + relocated action buttons), a table↔card view, and per-user-persisted column/sort/filter/view state — with the catalogues index flattened (folder filter + "Folders" modal instead of the inline tree).
 
-**Architecture:** A self-contained mini-toolkit inside `phoenix_kit_catalogue` (no `Andi.*` deps): `TableConfig` (column metadata per scope), `TableQuery` (in-memory search/filter/sort), `ViewConfig` (per-user persistence in `users.custom_fields`), and a `column_settings_modal` component — all wired into the single `CataloguesLive` LiveView, rendering through phoenix_kit core's `<.table_default toggleable>`.
+**Architecture:** A self-contained mini-toolkit inside `phoenix_kit_catalogue` (no host-app deps): `TableConfig` (column metadata per scope), `TableQuery` (in-memory search/filter/sort), `ViewConfig` (per-user persistence in `users.custom_fields`), and a `column_settings_modal` component — all wired into the single `CataloguesLive` LiveView, rendering through phoenix_kit core's `<.table_default toggleable>`.
 
 **Tech Stack:** Elixir/Phoenix LiveView, phoenix_kit core components (`table_default`, `modal`, `icon`, `SortableGrid` JS hook), Gettext (`PhoenixKitCatalogue.Gettext`), daisyUI 5.
 
 ## Global Constraints
 
-- **No `Andi.*` / `AndiWeb.*` dependencies** — `phoenix_kit_catalogue` is a standalone library. Use phoenix_kit **core** components only.
+- **No host-app dependencies** — `phoenix_kit_catalogue` is a standalone library. Use phoenix_kit **core** components only.
 - **No new DB table / migration.** Per-user state lives in `phoenix_kit_users.custom_fields["catalogue_view_configs"]`.
 - **Persist writes** use `PhoenixKit.Users.Auth.update_user_custom_fields(user, merged, ensure_definitions: false, broadcast: false)` — the `ensure_definitions: false` opt is mandatory.
 - **Compile only via** `cd /www/app && mix compile` (catalogue can't compile standalone — stale deps). Must be clean: no new warnings/errors.
@@ -1192,7 +1192,7 @@ git commit -m "Add gettext strings for catalogue table toolbar and columns"
 ## Task 10: Final integration verification
 
 - [ ] **Step 1: Full clean compile.** `cd /www/app && mix compile` — zero new warnings attributable to catalogue files.
-- [ ] **Step 2: Restart + boot check.** `sudo /usr/bin/supervisorctl restart elixir`; wait for "Running AndiWeb.Endpoint"; HTTP 200 on `/`.
+- [ ] **Step 2: Restart + boot check.** `sudo /usr/bin/supervisorctl restart elixir`; wait for "Running <HostWeb>.Endpoint"; HTTP 200 on `/`.
 - [ ] **Step 3: Cross-table runtime sweep (headless browser, logged-in admin):**
   - `/admin/catalogue`: flat table, Active/Deleted, folder filter+column, column modal persists across reload, sort (header + select), card view, Folders modal CRUD, Move-to-folder, no global item search, no JS errors.
   - `/admin/catalogue/suppliers` & `/manufacturers`: toolbar, status filter, sort, search, column modal persists, card view, New button.
