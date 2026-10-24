@@ -1,3 +1,25 @@
+## 0.49.1 - 2026-10-24
+
+Reviews: `dev_docs/pull_requests/2026/154-hidden-label-ru-et-uk/`,
+`155-neutral-host-wording/` (`CLAUDE_REVIEW.md`, `FOLLOW_UP.md`).
+
+The requirements are unchanged.
+
+### Changed
+
+- Shop API writes record how they came in from core's API context: an
+  assistant write a person confirmed is logged with `via: "agent"`; key writes,
+  and any write from a core that sends no `via`, keep `"api"`. Thanks to
+  timujinne (#156).
+- Dependencies refreshed to PhoenixKit 2.64.1 and phoenix_kit_ai 0.26.1.
+
+### Fixed
+
+- The internal-category flag reads "hidden" in Russian, Estonian and Ukrainian
+  ("Скрытая", "Peidetud", "Прихована") instead of a literal "internal"
+  (#154).
+- Comments, docs and test data name no real host deployments or clients (#155).
+
 ## 0.49.0 - 2026-10-19
 
 Reviews: `dev_docs/pull_requests/2026/152-shop-api-tools/`,
