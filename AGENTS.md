@@ -707,6 +707,17 @@ Pointers, not docs — the moduledocs are the contract.
   queue is missing; `requeue_stuck_extractions/1` is the operator-driven heal
   for stuck rows. Engine selection lives in `Catalogue.PdfEngines` (pdfium as a
   precompiled NIF, poppler as fallback when installed).
+- **Vendored pdf.js viewer** — `priv/static/pdfjs/` is the prebuilt pdf.js
+  4.10.38 generic viewer, served at `/_pdfjs/` and shipped in the Hex package
+  (see the `files:` comment in `mix.exs`). `cmaps/`, `standard_fonts/`,
+  `locale/` and `images/` are needed at runtime. When upgrading, drop what the
+  distribution adds for development: the `*.map` source maps and the
+  `//# sourceMappingURL=` lines pointing at them, the demo
+  `compressed.tracemonkey-pldi-09.pdf` (set `defaultUrl` in `web/viewer.mjs`
+  to `""` — the viewer then opens empty without a `?file=`), and
+  `web/debugger.mjs`/`.css` (only loaded when `pdfBugEnabled`, which the
+  production build hard-wires to `false`). Together that was ~9.8 MB of the
+  17.8 MB directory.
 - **Place pickers** — every place choice (a category's parent, a move
   target, the import/export catalogue, the item form's Location) is core's
   `PhoenixKitWeb.Components.TreePicker` over a `Web.PlaceTree` tree, never a

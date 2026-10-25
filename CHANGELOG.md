@@ -1,3 +1,12 @@
+## Unreleased
+
+### Changed
+
+- The vendored pdf.js viewer no longer ships its development files: the source
+  maps, the pdf.js demo PDF and the PDFBug debugger (~9.8 MB of the 17.8 MB
+  `priv/static/pdfjs/`). With no `?file=`, the viewer now opens empty instead
+  of loading the demo document. Nothing the catalogue uses changes.
+
 ## 0.49.1 - 2026-10-24
 
 Reviews: `dev_docs/pull_requests/2026/154-hidden-label-ru-et-uk/`,
