@@ -33,8 +33,12 @@ defmodule PhoenixKitCatalogue do
 
   @version Mix.Project.config()[:version]
 
+  require Logger
+
   alias PhoenixKit.Dashboard.Tab
   alias PhoenixKit.Settings
+  alias PhoenixKit.Users.Auth.Scope
+  alias PhoenixKit.Users.Permissions
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
 
   # ===========================================================================
@@ -256,8 +260,131 @@ defmodule PhoenixKitCatalogue do
       key: module_key(),
       label: "Catalogues",
       icon: "hero-rectangle-stack",
-      description: "Product catalogue management for items and categories"
+      description: "Product catalogue management for items and categories",
+      # The base key opens and edits every catalogue. Settings → Catalogues
+      # is site-wide instead: it runs the background AI-translation sweep
+      # (its schedule, batch size and target languages, and the AI cost they
+      # carry) and sets list and item-form behaviour for every editor, so it
+      # takes this key on top. `migrate_legacy/0` grants it once to every role
+      # that held the base key before it existed.
+      sub_permissions: [
+        %{
+          key: "settings",
+          label: "Change the catalogue settings",
+          description:
+            "Open Settings → Catalogues: the AI translation sweep's schedule, batch size and languages, and the list and item-form preferences every editor gets"
+        }
+      ]
     }
+  end
+
+  @settings_permission "catalogue.settings"
+
+  # Set once `catalogue.settings` has been carried to the roles that held the
+  # base key before it existed, so it never runs again and an Owner's revoke
+  # sticks.
+  @settings_backfill_key "catalogue_settings_backfilled"
+
+  @doc "The permission key that opens Settings → Catalogues."
+  @spec settings_permission() :: String.t()
+  def settings_permission, do: @settings_permission
+
+  @doc """
+  Whether `scope` may open and change Settings → Catalogues
+  (`catalogue.settings`, which needs the base key too).
+
+  `Scope.can?/2` rather than a raw lookup: the page does not hold the
+  module's on/off switch (Admin → Modules does), so requiring the module to
+  be enabled costs nothing, and core refuses a disabled module's pages before
+  mount anyway.
+  """
+  @spec can_change_settings?(term()) :: boolean()
+  def can_change_settings?(%Scope{} = scope), do: Scope.can?(scope, @settings_permission)
+  def can_change_settings?(_), do: false
+
+  @impl PhoenixKit.Module
+  @doc """
+  One-time data repairs core runs at boot. Grants `catalogue.settings` once
+  to every role that already holds `catalogue`, so nobody loses the settings
+  page they could open before the key was split out; a role created or
+  granted `catalogue` later gets the narrow meaning. The flag is set only
+  after every grant succeeded, so a failed pass retries next boot.
+  """
+  def migrate_legacy, do: backfill_settings_permission()
+
+  @doc false
+  # `grant` is `Permissions.grant_permission/3` (never a raw insert: it
+  # refreshes the affected users' live scopes); the tests pass a failing one
+  # to prove the flag stays unset.
+  @spec backfill_settings_permission(function()) :: :ok | {:error, term()}
+  def backfill_settings_permission(grant \\ &Permissions.grant_permission/3) do
+    if Settings.get_setting(@settings_backfill_key) == "true" do
+      :ok
+    else
+      with {:ok, role_uuids} <- roles_lacking(module_key(), @settings_permission),
+           [] <-
+             role_uuids
+             |> Enum.map(&grant.(&1, @settings_permission, nil))
+             |> Enum.reject(&match?({:ok, _}, &1)),
+           {:ok, _} <-
+             Settings.update_setting_with_module(@settings_backfill_key, "true", module_key()) do
+        :ok
+      else
+        {:error, :lookup_failed} = error ->
+          backfill_failed(:lookup_failed)
+          error
+
+        failures when is_list(failures) ->
+          backfill_failed({:grants_failed, length(failures)})
+
+        {:error, reason} ->
+          backfill_failed({:flag_not_saved, reason})
+      end
+    end
+  rescue
+    error -> backfill_failed(error.__struct__)
+  catch
+    :exit, _reason -> backfill_failed(:exit)
+  end
+
+  defp backfill_failed(reason) do
+    Logger.warning(
+      "[Catalogue] #{@settings_permission} backfill did not complete, will retry on next boot: #{inspect(reason)}"
+    )
+
+    {:error, reason}
+  end
+
+  # Roles holding `base` but not `key`, read with queries that RAISE on a
+  # database error. Core's `Permissions.get_permissions_for_role/1` and
+  # `roles_with_permission/1` answer `[]` for a failed query, which would
+  # read as "nobody holds the base key" and set the flag for good.
+  @doc false
+  @spec roles_lacking(String.t(), String.t()) :: {:ok, [term()]} | {:error, :lookup_failed}
+  def roles_lacking(base, key) do
+    import Ecto.Query, only: [from: 2]
+
+    repo = PhoenixKit.RepoHelper.repo()
+
+    holders =
+      repo.all(
+        from(rp in PhoenixKit.Users.RolePermission,
+          where: rp.module_key == ^base,
+          select: rp.role_uuid
+        )
+      )
+
+    have =
+      from(rp in PhoenixKit.Users.RolePermission,
+        where: rp.module_key == ^key,
+        select: rp.role_uuid
+      )
+      |> repo.all()
+      |> MapSet.new()
+
+    {:ok, holders |> Enum.uniq() |> Enum.reject(&MapSet.member?(have, &1))}
+  rescue
+    _ -> {:error, :lookup_failed}
   end
 
   @impl PhoenixKit.Module
@@ -573,7 +700,7 @@ defmodule PhoenixKitCatalogue do
         priority: 923,
         level: :admin,
         parent: :admin_settings,
-        permission: module_key(),
+        permission: @settings_permission,
         live_view: {PhoenixKitCatalogue.Web.SettingsLive, :settings}
       )
     ]

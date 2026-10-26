@@ -184,6 +184,10 @@ defmodule PhoenixKitCatalogue.GettextTest do
            "Käivita taustatõlge automaatselt"},
           {"Enter a whole number above 0.", "Введите целое число больше 0.",
            "Sisesta täisarv, mis on suurem kui 0."},
+          # Settings → Catalogues takes `catalogue.settings`.
+          {"You do not have permission to change the catalogue settings.",
+           "У вас нет прав на изменение настроек каталогов.",
+           "Sul pole õigust kataloogide seadeid muuta."},
           # The sweep's cap became a ceiling on queued jobs (2026-09-22).
           {"Most jobs queued at once", "Не больше заданий в очереди одновременно",
            "Kõige rohkem töid korraga järjekorras"},

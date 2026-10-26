@@ -76,7 +76,14 @@ defmodule PhoenixKitCatalogue.Web.Revalidation20260428Test do
     end
 
     test "SettingsLive" do
-      {:ok, view, _html} = live(conn(), "/en/admin/settings/catalogues")
+      register_catalogue_module()
+
+      {:ok, view, _html} =
+        live(
+          with_permissions(conn(), ["catalogue", "catalogue.settings"]),
+          "/en/admin/settings/catalogues"
+        )
+
       assert_stray_message_ignored(view, "SettingsLive")
     end
   end

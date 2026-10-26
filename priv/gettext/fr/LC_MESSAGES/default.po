@@ -3666,6 +3666,9 @@ msgstr "Saisissez un nombre entier supérieur à 0."
 msgid "Enter a whole number of minutes above 0."
 msgstr "Saisissez un nombre entier de minutes supérieur à 0."
 
+msgid "You do not have permission to change the catalogue settings."
+msgstr "Vous n'avez pas l'autorisation de modifier les paramètres des catalogues."
+
 msgid "How the catalogue's admin lists behave."
 msgstr "Le comportement des listes d’administration du catalogue."
 
