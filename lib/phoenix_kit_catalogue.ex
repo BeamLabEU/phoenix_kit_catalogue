@@ -47,6 +47,15 @@ defmodule PhoenixKitCatalogue do
   @impl PhoenixKit.Module
   def migration_module, do: PhoenixKitCatalogue.Migrations
 
+  @doc """
+  The places in this module's tables that point at a stored file; see
+  `PhoenixKitCatalogue.FileReferences`.
+  """
+  # No `@impl`: the callback exists from the first core release after 2.64.1.
+  # Without it this module still compiles against an older core, where core's
+  # own list for these tables stays in force.
+  def file_references, do: PhoenixKitCatalogue.FileReferences.pairs()
+
   @impl PhoenixKit.Module
   # The plural, as every page says it ("Catalogues / …" in the header, the
   # index's title): the module was named "Catalogue" while its pages said
