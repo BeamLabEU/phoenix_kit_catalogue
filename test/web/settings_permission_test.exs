@@ -72,7 +72,9 @@ defmodule PhoenixKitCatalogue.Web.SettingsPermissionTest do
       {:ok, _} = CatalogueSettings.update_sweep_enabled(false)
       {:ok, _} = CatalogueSettings.update_sweep_interval_minutes(60)
       {:ok, _} = CatalogueSettings.update_sweep_max_per_run(200)
-      langs = CatalogueSettings.sweep_langs()
+      # A stored selection, read back raw: an unticked group posts nothing,
+      # so an ungated `save_sweep_langs` would overwrite it with none.
+      {:ok, _} = CatalogueSettings.update_sweep_langs(["et"])
 
       {:ok, view, _html} = live(with_permissions(conn, ["catalogue", @sub]), @path)
       swap_scope(view, base_only())
@@ -94,7 +96,10 @@ defmodule PhoenixKitCatalogue.Web.SettingsPermissionTest do
       assert CatalogueSettings.sweep_max_per_run() == 200
 
       render_click(view, "save_sweep_langs", %{})
-      assert CatalogueSettings.sweep_langs() == langs
+
+      assert Settings.get_json_setting("catalogue_translation_sweep_langs") == %{
+               "codes" => ["et"]
+             }
     end
 
     test "a holder's write still goes through", %{conn: conn} do

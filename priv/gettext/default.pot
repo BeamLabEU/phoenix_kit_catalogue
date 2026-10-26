@@ -3675,6 +3675,9 @@ msgstr ""
 msgid "You do not have permission to change the catalogue settings."
 msgstr ""
 
+msgid "You do not have permission to translate catalogue content."
+msgstr ""
+
 msgid "How the catalogue's admin lists behave."
 msgstr ""
 

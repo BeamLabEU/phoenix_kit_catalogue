@@ -67,6 +67,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   @preserve_fields %{"name" => :name}
 
   on_mount({__MODULE__, :self_wrapped_layout})
+  # Re-checks the permission before the ai_* modal events below run.
+  on_mount(PhoenixKitCatalogue.Web.AITranslateGate)
 
   def on_mount(:self_wrapped_layout, _params, _session, socket) do
     {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}

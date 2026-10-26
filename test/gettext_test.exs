@@ -188,6 +188,9 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"You do not have permission to change the catalogue settings.",
            "У вас нет прав на изменение настроек каталогов.",
            "Sul pole õigust kataloogide seadeid muuta."},
+          {"You do not have permission to translate catalogue content.",
+           "У вас нет прав на перевод содержимого каталогов.",
+           "Sul pole õigust kataloogi sisu tõlkida."},
           # The sweep's cap became a ceiling on queued jobs (2026-09-22).
           {"Most jobs queued at once", "Не больше заданий в очереди одновременно",
            "Kõige rohkem töid korraga järjekorras"},

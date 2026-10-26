@@ -393,6 +393,12 @@ holders are read with a query that raises, never core's error-swallowing
 lookups), so a role granted `catalogue` later gets the narrow meaning. Tests
 that mount the page use `LiveCase.with_permissions/2` and
 `register_catalogue_module/0` (`Scope.can?/2` asks the module registry).
+The AI-translate modal's events (`ai_translate_lang` enqueues jobs) are handled
+by `phoenix_kit_ai`'s `AITranslate.Embed` hook, which checks no permission:
+every form using it declares `on_mount(PhoenixKitCatalogue.Web.AITranslateGate)`
+BEFORE `use ...AITranslate.Embed` (hooks run in attach order), which halts those
+events when the socket's current scope lacks `catalogue`. A new form with the
+modal does the same.
 PubSub topic: `"phoenix_kit_catalogue"`.
 
 ## Database & migrations
