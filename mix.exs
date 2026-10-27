@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
-  @version "0.49.1"
+  @version "0.50.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
@@ -151,14 +151,14 @@ defmodule PhoenixKitCatalogue.MixProject do
       {:rustler, ">= 0.0.0", optional: true},
       # 0.24 is the floor: the translation sweep worker is a source for
       # `PhoenixKitAI.TranslationSweep`, first shipped in phoenix_kit_ai 0.24.0.
-      pk_dep(:phoenix_kit_ai, "~> 0.24"),
+      pk_dep(:phoenix_kit_ai, "~> 0.27"),
       # Attribute sets ride the entities engine as MANAGED blueprints
       # (2026-08-18 rework). The Managed contract + on_behalf_of write
       # path ship in entities > 0.4.0; on an older entities the feature
       # cleanly reports :entities_disabled (AttributeSets checks for
       # the Managed module, not just enabled?). Local dev/tests:
       # PHOENIX_KIT_ENTITIES_PATH=../phoenix_kit_entities.
-      pk_dep(:phoenix_kit_entities, "~> 0.4"),
+      pk_dep(:phoenix_kit_entities, "~> 0.7"),
       # Comments stay a SOFT runtime dependency (every call in lib/ is
       # guarded with Code.ensure_loaded?, and lib/ must keep compiling
       # without the package). Test-only, so the suite can render the real
@@ -166,7 +166,7 @@ defmodule PhoenixKitCatalogue.MixProject do
       # and prove the {:leaf_changed, …} hop and the per-row threads —
       # neither is coverable otherwise. Local dev:
       # PHOENIX_KIT_COMMENTS_PATH=../phoenix_kit_comments.
-      pk_dep(:phoenix_kit_comments, "~> 0.4", only: :test),
+      pk_dep(:phoenix_kit_comments, "~> 0.5", only: :test),
       {:phoenix_live_view, "~> 1.1"},
       {:xlsx_reader, "~> 0.8"},
       # Used directly by the CSV import parser (NimbleCSV.define/2). Declared
