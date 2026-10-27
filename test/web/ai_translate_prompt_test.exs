@@ -38,6 +38,12 @@ defmodule PhoenixKitCatalogue.Web.AITranslatePromptTest do
     :ok
   end
 
+  # The modal events re-check the `catalogue` key (`Web.AITranslateGate`).
+  setup %{conn: conn} do
+    register_catalogue_module()
+    {:ok, conn: with_permissions(conn, ["catalogue"])}
+  end
+
   setup do
     start_supervised!({Oban, repo: PhoenixKitCatalogue.Test.Repo, testing: :manual})
     enable_multilang!()
@@ -97,6 +103,45 @@ defmodule PhoenixKitCatalogue.Web.AITranslatePromptTest do
       assert uuid == category.uuid
       assert prompt_uuid == catalogue_prompt_uuid
       refute prompt_uuid == shared_default
+    end
+  end
+
+  describe "after the catalogue key is revoked mid-session" do
+    # What core's live scope refresh does when a role loses a grant while
+    # the page is open.
+    defp revoke(view) do
+      :sys.replace_state(view.pid, fn %{socket: socket} = state ->
+        scope = permission_scope([])
+        %{state | socket: Phoenix.Component.assign(socket, :phoenix_kit_current_scope, scope)}
+      end)
+
+      view
+    end
+
+    defp refused?(conn, path) do
+      {:ok, view, _html} = live(conn, path)
+      html = view |> revoke() |> render_click("ai_translate_lang", %{"lang" => "*"})
+      html =~ "permission" and translate_worker_jobs() == []
+    end
+
+    test "the item form refuses a crafted ai_translate_lang", %{conn: conn} do
+      item = fixture_item(%{catalogue_uuid: fixture_catalogue().uuid, name: "Vase"})
+      assert refused?(conn, edit_item_url(item.uuid))
+    end
+
+    test "the category form refuses a crafted ai_translate_lang", %{conn: conn} do
+      category = fixture_category(fixture_catalogue(), %{name: "Shelves"})
+      assert refused?(conn, edit_category_url(category.uuid))
+    end
+
+    test "the catalogue form refuses a crafted ai_translate_lang", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Kitchens"})
+      assert refused?(conn, "#{@base}/#{catalogue.uuid}/edit")
+    end
+
+    test "the attribute form refuses a crafted ai_translate_lang", %{conn: conn} do
+      {:ok, group} = PhoenixKitCatalogue.Catalogue.create_attribute_group(%{name: "Doors"})
+      assert refused?(conn, "#{@base}/attributes/#{group.uuid}/edit")
     end
   end
 end

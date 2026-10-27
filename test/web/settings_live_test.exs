@@ -11,6 +11,13 @@ defmodule PhoenixKitCatalogue.Web.SettingsLiveTest do
 
   @path "/en/admin/settings/catalogues"
 
+  # The page takes `catalogue.settings` (pinned by
+  # `settings_permission_test.exs`); every test here holds it.
+  setup %{conn: conn} do
+    register_catalogue_module()
+    {:ok, conn: with_permissions(conn, ["catalogue", "catalogue.settings"])}
+  end
+
   setup do
     before = %{
       context_menu: Settings.context_menu_enabled?(),
@@ -315,6 +322,6 @@ defmodule PhoenixKitCatalogue.Web.SettingsLiveTest do
     assert tab.parent == :admin_settings
     assert tab.path == "catalogues"
     assert tab.live_view == {PhoenixKitCatalogue.Web.SettingsLive, :settings}
-    assert tab.permission == PhoenixKitCatalogue.module_key()
+    assert tab.permission == "catalogue.settings"
   end
 end

@@ -42,14 +42,37 @@ defmodule PhoenixKitCatalogue.Web.SettingsLive do
   # subtitle reach the global admin header.
   on_mount({__MODULE__, :self_wrapped_layout})
 
+  # Every event that writes a setting. Each one re-checks the permission
+  # before it reaches its clause in `gated_event/3`.
+  @write_events ~w(toggle_context_menu toggle_seo_fields toggle_sweep save_sweep_interval
+                   save_sweep_max_per_run save_sweep_langs)
+
   def on_mount(:self_wrapped_layout, _params, _session, socket) do
     {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}
   end
 
+  # The page takes `catalogue.settings` on top of the everyday `catalogue`
+  # key (see `PhoenixKitCatalogue.can_change_settings?/1`). The tab's
+  # `permission:` makes core refuse the mount too; this check does not rely
+  # on it, and every write event re-checks the scope the socket holds NOW —
+  # core swaps it in when a role loses a grant mid-session.
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, socket |> assign(:page_title, gettext("Catalogues")) |> load_settings()}
+    if authorized?(socket) do
+      {:ok, socket |> assign(:page_title, gettext("Catalogues")) |> load_settings()}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, not_authorized_message())
+       |> push_navigate(to: Routes.path("/admin"))}
+    end
   end
+
+  defp authorized?(socket),
+    do: PhoenixKitCatalogue.can_change_settings?(socket.assigns[:phoenix_kit_current_scope])
+
+  defp not_authorized_message,
+    do: gettext("You do not have permission to change the catalogue settings.")
 
   # Read straight through on every load rather than caching in assigns: these
   # are read once per page view, and a stale toggle here is a lie about what
@@ -71,19 +94,32 @@ defmodule PhoenixKitCatalogue.Web.SettingsLive do
   # ── Events ─────────────────────────────────────────────────────────
 
   @impl true
-  def handle_event("toggle_context_menu", params, socket) do
+  def handle_event(event, params, socket) when event in @write_events do
+    if authorized?(socket) do
+      gated_event(event, params, socket)
+    else
+      {:noreply, put_flash(socket, :error, not_authorized_message())}
+    end
+  end
+
+  def handle_event(event, _params, socket) do
+    Logger.debug("SettingsLive ignored unhandled event: #{inspect(event)}")
+    {:noreply, socket}
+  end
+
+  defp gated_event("toggle_context_menu", params, socket) do
     {:noreply, save(socket, &Settings.update_context_menu_enabled/2, checked?(params))}
   end
 
-  def handle_event("toggle_seo_fields", params, socket) do
+  defp gated_event("toggle_seo_fields", params, socket) do
     {:noreply, save(socket, &Settings.update_seo_fields_visible/2, checked?(params))}
   end
 
-  def handle_event("toggle_sweep", params, socket) do
+  defp gated_event("toggle_sweep", params, socket) do
     {:noreply, save(socket, &Settings.update_sweep_enabled/2, checked?(params))}
   end
 
-  def handle_event("save_sweep_interval", %{"value" => value}, socket) when is_binary(value) do
+  defp gated_event("save_sweep_interval", %{"value" => value}, socket) when is_binary(value) do
     case positive_integer(value) do
       {:ok, minutes} ->
         {:noreply, save(socket, &Settings.update_sweep_interval_minutes/2, minutes)}
@@ -93,7 +129,7 @@ defmodule PhoenixKitCatalogue.Web.SettingsLive do
     end
   end
 
-  def handle_event("save_sweep_max_per_run", %{"value" => value}, socket) when is_binary(value) do
+  defp gated_event("save_sweep_max_per_run", %{"value" => value}, socket) when is_binary(value) do
     case positive_integer(value) do
       {:ok, n} ->
         {:noreply, save(socket, &Settings.update_sweep_max_per_run/2, n)}
@@ -103,12 +139,12 @@ defmodule PhoenixKitCatalogue.Web.SettingsLive do
     end
   end
 
-  def handle_event("save_sweep_langs", params, socket) do
+  defp gated_event("save_sweep_langs", params, socket) do
     picked = picked_langs(params, socket.assigns.available_langs)
     {:noreply, save(socket, &Settings.update_sweep_langs/2, picked)}
   end
 
-  def handle_event(event, _params, socket) do
+  defp gated_event(event, _params, socket) do
     Logger.debug("SettingsLive ignored unhandled event: #{inspect(event)}")
     {:noreply, socket}
   end

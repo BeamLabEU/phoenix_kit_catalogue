@@ -3666,6 +3666,12 @@ msgstr "Sisesta täisarv, mis on suurem kui 0."
 msgid "Enter a whole number of minutes above 0."
 msgstr "Sisesta minutite arv täisarvuna, suurem kui 0."
 
+msgid "You do not have permission to change the catalogue settings."
+msgstr "Sul pole õigust kataloogide seadeid muuta."
+
+msgid "You do not have permission to translate catalogue content."
+msgstr "Sul pole õigust kataloogi sisu tõlkida."
+
 msgid "How the catalogue's admin lists behave."
 msgstr "Kuidas kataloogi halduslehtede loendid käituvad."
 

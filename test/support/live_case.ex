@@ -123,6 +123,7 @@ defmodule PhoenixKitCatalogue.LiveCase do
       # path segment; the test routes live under /en/ too, so mirror it —
       # content localization (Catalogue.localize/2) keys off this.
       |> Phoenix.Component.assign(:current_locale, "en")
+      |> assign_test_scope(session)
 
     # Production's locale hook records the page's full dialect for
     # `Multilang.current_locale/0`; `with_request_locale/2` lets a test
@@ -143,6 +144,45 @@ defmodule PhoenixKitCatalogue.LiveCase do
       _ ->
         {:cont, socket}
     end
+  end
+
+  # `with_permissions/2` replaces the anonymous scope with one holding the
+  # given permission keys, for pages that check them in the module itself.
+  defp assign_test_scope(socket, %{"pk_test_permissions" => keys}) when is_list(keys) do
+    Phoenix.Component.assign(socket, :phoenix_kit_current_scope, permission_scope(keys))
+  end
+
+  defp assign_test_scope(socket, _session), do: socket
+
+  @doc """
+  A `%Scope{}` holding exactly `keys` — what core's `for_user/1` builds for a
+  role granted them. `Scope.can?/2` also asks `ModuleRegistry` whether the
+  module behind a key is enabled, so a test checking with it registers the
+  module first (`register_catalogue_module/0`).
+  """
+  def permission_scope(keys) do
+    %Scope{Scope.for_user(nil) | authenticated?: true, cached_permissions: MapSet.new(keys)}
+  end
+
+  @doc """
+  Mounts the next `live/2` with a scope holding exactly `keys` (see
+  `permission_scope/1`).
+  """
+  def with_permissions(conn, keys) when is_list(keys) do
+    Plug.Conn.put_session(conn, "pk_test_permissions", keys)
+  end
+
+  @doc """
+  Starts `PhoenixKit.ModuleRegistry` for the test with this module in it and
+  the module switched on, so `Scope.can?/2` can answer for `catalogue.*`
+  keys and `Permissions.grant_permission/3` accepts them. The test must be
+  `async: false`: the registry is process-global.
+  """
+  def register_catalogue_module do
+    ExUnit.Callbacks.start_supervised!(PhoenixKit.ModuleRegistry)
+    :ok = PhoenixKit.ModuleRegistry.register(PhoenixKitCatalogue)
+    {:ok, _} = PhoenixKit.Settings.update_boolean_setting("catalogue_enabled", true)
+    :ok
   end
 
   defp load_user(uuid) do

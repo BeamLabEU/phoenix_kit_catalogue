@@ -39,8 +39,9 @@ conventions, contracts and non-obvious boundaries.
 ## What this module does NOT do
 
 - **No authorization in the context.** Mutating functions accept `actor_uuid`
-  only for activity logging. Permission gating happens at the LiveView mount
-  layer (`live_session :phoenix_kit_admin`, `:catalogue` permission key).
+  only for activity logging. Permission gating happens at the LiveView layer
+  (`live_session :phoenix_kit_admin` on the `catalogue` key; the settings page
+  also checks `catalogue.settings` itself — see Architecture).
 - **Admin-only.** No public routes, JSON endpoints of its own, or webhook
   receivers. The plain HTTP routes — the stateless export download and the
   redirects from the module's old addresses — are both behind
@@ -378,7 +379,26 @@ item selector's choices. A save writes only the fields it changed; never keep
 them in `custom_fields` (a whole-map write from a page's copy of the user drops
 what another tab saved).
 
-Permission: one key, `"catalogue"` (`permission_metadata/0`), no sub-permissions.
+Permissions (`permission_metadata/0`): the base key `"catalogue"` opens and
+edits every catalogue, including import, export, trash and permanent delete.
+One sub-permission, `"catalogue.settings"`, opens Settings → Catalogues — the
+AI translation sweep and the list and item-form preferences, which act for the
+whole site. `Web.SettingsLive` checks it (`PhoenixKitCatalogue.can_change_settings?/1`,
+i.e. `Scope.can?/2`) at mount and in every write event against the socket's
+current scope; the settings tab carries it too, so core refuses the mount and
+hides the entry, but the page does not rely on that. `migrate_legacy/0` grants
+it once to every role holding the base key (flag
+`catalogue_settings_backfilled`, set only after every grant succeeded; the
+holders are read with a query that raises, never core's error-swallowing
+lookups), so a role granted `catalogue` later gets the narrow meaning. Tests
+that mount the page use `LiveCase.with_permissions/2` and
+`register_catalogue_module/0` (`Scope.can?/2` asks the module registry).
+The AI-translate modal's events (`ai_translate_lang` enqueues jobs) are handled
+by `phoenix_kit_ai`'s `AITranslate.Embed` hook, which checks no permission:
+every form using it declares `on_mount(PhoenixKitCatalogue.Web.AITranslateGate)`
+BEFORE `use ...AITranslate.Embed` (hooks run in attach order), which halts those
+events when the socket's current scope lacks `catalogue`. A new form with the
+modal does the same.
 PubSub topic: `"phoenix_kit_catalogue"`.
 
 ## Database & migrations

@@ -3666,6 +3666,12 @@ msgstr "Gib eine ganze Zahl größer als 0 ein."
 msgid "Enter a whole number of minutes above 0."
 msgstr "Gib eine ganze Zahl an Minuten größer als 0 ein."
 
+msgid "You do not have permission to change the catalogue settings."
+msgstr "Du hast keine Berechtigung, die Katalogeinstellungen zu ändern."
+
+msgid "You do not have permission to translate catalogue content."
+msgstr "Du hast keine Berechtigung, Kataloginhalte zu übersetzen."
+
 msgid "How the catalogue's admin lists behave."
 msgstr "Wie sich die Admin-Listen des Katalogs verhalten."
 

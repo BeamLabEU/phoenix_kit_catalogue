@@ -2,6 +2,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   @moduledoc "Create/edit form for catalogues with multilang support."
 
   use Phoenix.LiveView
+  # Before the Embed: its hook enqueues translations without a permission
+  # check, so the gate must see the events first.
+  on_mount(PhoenixKitCatalogue.Web.AITranslateGate)
   use PhoenixKitAI.Components.AITranslate.Embed
 
   require Logger
