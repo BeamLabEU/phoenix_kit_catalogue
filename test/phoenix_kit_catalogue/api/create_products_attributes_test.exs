@@ -87,6 +87,9 @@ defmodule PhoenixKitCatalogue.API.CreateProductsAttributesTest do
 
     test "an attribute write that fails after the item was created answers a fixed sentence and a code",
          ctx do
+      :ok = PubSub.subscribe()
+      flush()
+
       input = %{
         "catalogue_id" => ctx.catalogue.uuid,
         "items" => [
@@ -115,6 +118,12 @@ defmodule PhoenixKitCatalogue.API.CreateProductsAttributesTest do
       refute row["error"]["message"] =~ "set_not_found"
       refute row["error"]["message"] =~ "Ecto"
       assert Catalogue.get_item!(row["id"]).name == "Half done"
+
+      cat_uuid = ctx.catalogue.uuid
+      id = row["id"]
+      assert_receive {:catalogue_bulk_change, ^cat_uuid, :created, [^id], _from}
+      assert_receive {:catalogue_data_changed, :item, nil, ^cat_uuid}
+      refute_receive {:catalogue_data_changed, :item, ^id, _}, 50
     end
 
     test "attribute writes announce no per-item event, only the one bulk event", ctx do

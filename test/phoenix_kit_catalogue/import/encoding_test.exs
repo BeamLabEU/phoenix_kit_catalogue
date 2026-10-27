@@ -115,6 +115,20 @@ defmodule PhoenixKitCatalogue.Import.EncodingTest do
                {:ok, "Шкаф"}
     end
 
+    test "a damaged file with a byte-order mark is never read as a code page" do
+      for binary <- [
+            <<0xEF, 0xBB, 0xBF, "Name\n", 0xF5>>,
+            <<0xFF, 0xFE, 0x4B>>,
+            <<0xFE, 0xFF, 0x4B>>
+          ] do
+        refute Encoding.needs_code_page?(binary)
+
+        for page <- Encoding.code_pages() do
+          assert Encoding.to_utf8(binary, page) == {:error, :not_utf8}
+        end
+      end
+    end
+
     test "a NUL byte is refused under every page" do
       for page <- Encoding.code_pages() do
         assert Encoding.to_utf8(<<"K", 0xF5, "rge", 0, "kapp">>, page) == {:error, :not_utf8}

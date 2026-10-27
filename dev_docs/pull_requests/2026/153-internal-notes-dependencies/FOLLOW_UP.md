@@ -30,3 +30,20 @@ Findings re-verified against `main` at the commit that carries this file.
 ## Open
 
 None.
+
+## Codex follow-up — 2026-10-27
+
+Fixed the conflict data loss described in `CODEX_REVIEW.md`. A dependency
+conflict rebases the item form on the latest item while retaining submitted
+fields, derived-slug ownership and the staged location. The two-admin test
+checks that a second submission preserves the rename and applies the staged
+move as well as the dependency replacement.
+
+## Final validation — 2026-10-27
+
+- `mix test`: 2 doctests, 4,360 tests, 0 failures; 10 checks excluded because
+  the installed core lacks the newer schema-chain/manifest and file-reference
+  test helpers. Database-backed tests ran.
+- `mix precommit`: passed (warnings-as-errors compilation, lock/Hex checks,
+  formatting, strict Credo and Dialyzer with the existing ignore configuration).
+- `git diff --check`: passed.

@@ -2540,12 +2540,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       # draft stays, and the base becomes their list, so a second Save is a
       # deliberate replace.
       {:error, :dependencies_changed} ->
+        item = Catalogue.get_item(socket.assigns.item.uuid) || socket.assigns.item
+
         {:noreply,
          socket
-         |> refresh_after_edit(
-           Catalogue.get_item(socket.assigns.item.uuid) || socket.assigns.item
-         )
-         |> assign(:dependency_base, Catalogue.list_item_dependencies(socket.assigns.item))
+         |> assign(:item, item)
+         |> assign_changeset(Catalogue.change_item(item, params))
+         |> assign(:dependency_base, Catalogue.list_item_dependencies(item))
          |> assign(:current_tab, :dependencies)
          |> put_flash(:error, Errors.message(:dependencies_changed))}
 

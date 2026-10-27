@@ -262,6 +262,10 @@ defmodule PhoenixKitCatalogue.Import.Encoding do
   so it is in a single-byte code page somebody has to name.
   """
   @spec needs_code_page?(binary()) :: boolean()
+  def needs_code_page?(<<@utf8_bom, _rest::binary>>), do: false
+  def needs_code_page?(<<@utf16_le_bom, _rest::binary>>), do: false
+  def needs_code_page?(<<@utf16_be_bom, _rest::binary>>), do: false
+
   def needs_code_page?(binary) when is_binary(binary) do
     match?({:error, :not_utf8}, to_utf8(binary)) and :binary.match(binary, <<0>>) == :nomatch
   end

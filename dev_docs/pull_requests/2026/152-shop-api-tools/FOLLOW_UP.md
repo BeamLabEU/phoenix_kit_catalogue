@@ -41,3 +41,19 @@ See the gate result in the commit that carries this file.
 ## Open
 
 None.
+
+## Codex follow-up — 2026-10-27
+
+Fixed the partial-create notification described in `CODEX_REVIEW.md`: an item
+created before its attribute save fails is included in the one bulk creation
+event and catalogue count refresh. The existing partial-success race test now
+verifies both notifications and confirms per-item events remain suppressed.
+
+## Final validation — 2026-10-27
+
+- `mix test`: 2 doctests, 4,360 tests, 0 failures; 10 checks excluded because
+  the installed core lacks the newer schema-chain/manifest and file-reference
+  test helpers. Database-backed tests ran.
+- `mix precommit`: passed (warnings-as-errors compilation, lock/Hex checks,
+  formatting, strict Credo and Dialyzer with the existing ignore configuration).
+- `git diff --check`: passed.

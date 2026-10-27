@@ -421,6 +421,10 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
 
       pick_item(first, ctx.screw)
       pick_place(second, "catalogue:" <> ctx.screws.uuid)
+      render_click(second, "open_location_picker", %{})
+      target = "catalogue:" <> ctx.screws.uuid
+      send(second.pid, {TreePicker, "location-tree-picker", target})
+      render(second)
 
       save(first)
 
@@ -436,9 +440,13 @@ defmodule PhoenixKitCatalogue.Web.ItemDependenciesFormTest do
       assert [%{target_item_uuid: screw}] = Catalogue.list_item_dependencies(ctx.susan)
       assert screw == ctx.screw.uuid
       assert has_element?(second, "[data-dependency-kind=catalogue]", "Screws")
+      assert has_element?(second, ~s(input[name="item[name]"][value="Lazy susan, oiled"]))
+      assert :sys.get_state(second.pid).socket.assigns.location_target == target
 
       # Saving again is now a deliberate replace, and goes through.
-      save(second)
+      second |> form(form_selector()) |> render_submit()
+      assert Catalogue.get_item(ctx.susan.uuid).name == "Lazy susan, oiled"
+      assert Catalogue.get_item(ctx.susan.uuid).catalogue_uuid == ctx.screws.uuid
       assert [%{target_catalogue_uuid: screws}] = Catalogue.list_item_dependencies(ctx.susan)
       assert screws == ctx.screws.uuid
     end

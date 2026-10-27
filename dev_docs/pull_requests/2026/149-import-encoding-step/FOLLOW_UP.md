@@ -38,3 +38,18 @@ Awaiting the maintainer's decision (fix, skip, or punt):
   silently importing replacement characters. Suggested fix, if wanted: detect
   "valid UTF-8 except for N bytes" and show a dedicated message naming the
   offending byte offset instead of the code-page picker.
+
+## Codex follow-up — 2026-10-27
+
+Fixed the damaged-BOM fallback described in `CODEX_REVIEW.md`: self-describing
+files never qualify for a single-byte encoding, even when decoding fails.
+Regression covers invalid UTF-8 and truncated UTF-16 in both byte orders.
+
+## Final validation — 2026-10-27
+
+- `mix test`: 2 doctests, 4,360 tests, 0 failures; 10 checks excluded because
+  the installed core lacks the newer schema-chain/manifest and file-reference
+  test helpers. Database-backed tests ran.
+- `mix precommit`: passed (warnings-as-errors compilation, lock/Hex checks,
+  formatting, strict Credo and Dialyzer with the existing ignore configuration).
+- `git diff --check`: passed.

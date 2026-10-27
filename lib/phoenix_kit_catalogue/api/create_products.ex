@@ -210,7 +210,9 @@ defmodule PhoenixKitCatalogue.API.CreateProducts do
         :ets.delete(claims)
       end
 
-    created = for %{"action" => "created", "id" => id} <- rows, do: id
+    # Only persisted creates carry an id, including an error whose item
+    # was created before its attribute write failed.
+    created = for %{"id" => id} <- rows, do: id
     Catalogue.broadcast_item_batch_change(catalogue.uuid, :created, created)
 
     Common.batch_result(rows)
