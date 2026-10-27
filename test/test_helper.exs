@@ -87,6 +87,13 @@ repo_available =
       # anywhere.
       PhoenixKit.Migration.ensure_current(PhoenixKitCatalogue.Test.Repo, log: false)
 
+      # The tables other modules own (core 3.0 no longer creates them): their real
+      # chains, in dependency order.
+      for chain <- [PhoenixKitAI.Migrations, PhoenixKitComments.Migrations],
+          stmt <- chain.up_statements("public") do
+        PhoenixKitCatalogue.Test.Repo.query!(stmt)
+      end
+
       # Then entities' chain, because attribute sets are entity blueprints
       # read through `PhoenixKitEntities`' own schemas. Its V1 is adoptive, so
       # this is a no-op today — it is here so it stays one. The moment

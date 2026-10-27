@@ -141,7 +141,9 @@ defmodule PhoenixKitCatalogue.MixProject do
       #     2.13.4–2.13.10) won't do — the compound form keeps the
       #     conventional open ceiling at the next major instead of
       #     collapsing to one minor (see CorePinConformanceTest).
-      pk_dep(:phoenix_kit, ">= 2.63.0 and < 3.0.0"),
+      # Floor 2.65.0: the first core with the `file_references/0` and `expected_schema/0`
+      # callbacks this module implements (`@impl`). The ceiling is open through core 3.x.
+      pk_dep(:phoenix_kit, ">= 2.65.0 and < 4.0.0"),
       # mdex_native (pulled in transitively through phoenix_kit's mdex dep)
       # builds from source when MDEX_NATIVE_BUILD=1 is set in the
       # environment; that path requires rustler itself, not just

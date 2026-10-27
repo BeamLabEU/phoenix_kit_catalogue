@@ -7,6 +7,8 @@
 
 ### Changed
 
+- **Core pin widened to `>= 2.65.0 and < 4.0.0`:** works with core 3.x (core 3.0 stops creating the module tables; this module's own chain builds its tables). The floor is the first core with the `file_references/0` and `expected_schema/0` callbacks, which now carry `@impl PhoenixKit.Module`.
+
 - The vendored pdf.js viewer no longer ships its development files: the source
   maps, the pdf.js demo PDF and the PDFBug debugger (~9.8 MB of the 17.8 MB
   `priv/static/pdfjs/`). With no `?file=`, the viewer now opens empty instead

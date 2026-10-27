@@ -44,7 +44,7 @@ defmodule PhoenixKitCatalogue.CorePinConformanceTest do
   at the top, same as `~> 2.8` was before it.
   """
 
-  @must_admit ["2.63.0", "2.63.1", "2.64.0", "2.80.0"]
+  @must_admit ["2.65.0", "2.65.1", "2.99.4", "3.0.0", "3.9.9"]
   @must_reject [
     "1.7.236",
     "2.3.0",
@@ -55,10 +55,11 @@ defmodule PhoenixKitCatalogue.CorePinConformanceTest do
     "2.37.5",
     "2.38.0",
     "2.62.2",
-    "3.0.0"
+    "2.64.9",
+    "4.0.0"
   ]
 
-  test "the :phoenix_kit requirement admits every core >= 2.63.0 minor and nothing else" do
+  test "the :phoenix_kit requirement admits every core >= 2.65.0 minor and nothing else" do
     requirement = core_requirement()
 
     assert match?({:ok, _parsed}, Version.parse_requirement(requirement)),
