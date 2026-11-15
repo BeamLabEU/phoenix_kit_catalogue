@@ -1069,31 +1069,27 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
     primary = [item.name]
 
     translated =
-      if Code.ensure_loaded?(Multilang) do
-        try do
-          Multilang.enabled_languages()
-          |> Enum.map(fn lang ->
-            (item.data || %{})
-            |> Multilang.get_language_data(lang)
-            |> Map.get("name")
-          end)
-        rescue
-          # Multilang ships with the host app; the realistic failure
-          # surface here is a stale settings cache (KeyError),
-          # missing-locale list (ArgumentError), or a future API
-          # change (UndefinedFunctionError). Anything else (DB error,
-          # programmer bug) re-raises so it surfaces in telemetry
-          # instead of silently degrading the search to "no
-          # translations found".
-          e in [KeyError, ArgumentError, UndefinedFunctionError] ->
-            Logger.warning(
-              "PdfLibrary.item_titles Multilang lookup failed: #{Exception.message(e)}"
-            )
+      try do
+        Multilang.enabled_languages()
+        |> Enum.map(fn lang ->
+          (item.data || %{})
+          |> Multilang.get_language_data(lang)
+          |> Map.get("name")
+        end)
+      rescue
+        # Multilang ships with the host app; the realistic failure
+        # surface here is a stale settings cache (KeyError),
+        # missing-locale list (ArgumentError), or a future API
+        # change (UndefinedFunctionError). Anything else (DB error,
+        # programmer bug) re-raises so it surfaces in telemetry
+        # instead of silently degrading the search to "no
+        # translations found".
+        e in [KeyError, ArgumentError, UndefinedFunctionError] ->
+          Logger.warning(
+            "PdfLibrary.item_titles Multilang lookup failed: #{Exception.message(e)}"
+          )
 
-            []
-        end
-      else
-        []
+          []
       end
 
     (primary ++ translated)

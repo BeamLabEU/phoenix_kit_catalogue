@@ -101,49 +101,15 @@ defmodule PhoenixKitCatalogue.MixProject do
 
   defp deps do
     [
-      # 2.63.0 is the floor. The shop API tools plug into core's machine API
-      # (#934): `PhoenixKit.API.Tool`, the optional `api_tools/0` callback and
-      # `PhoenixKit.Activity.log_many/2` (the one-insert audit write behind
-      # `Catalogue.update_items/2`) — first shipped in phoenix_kit 2.63.0, and
-      # the package does not compile against an older core (undefined
-      # `PhoenixKit.API.Tool`), nor does `update_items/2` log on one.
-      # It was 2.38.0 before that: the catalogue runs on core's shared toolkits
-      # (#860): `PhoenixKit.Activity.log/3`, `PhoenixKitWeb.Actor`,
-      # `TreePicker` with `Utils.Tree`/`TreeQuery`, `ResourceFolders`,
-      # `PhoenixKitWeb.Attachments` and `Users.ViewPrefs` — first shipped in
-      # phoenix_kit 2.38.0, and they do not compile against an older core.
-      # It was 2.34.0 before that: the Events page calls
-      # `PhoenixKit.Activity.split_changes/1` / `humanize_metadata_key/1`
-      # and the detail page passes `swap=` to `bulk_select_scope` — all
-      # first shipped in phoenix_kit 2.34.0 (#837). On an older core the
-      # Events page raises UndefinedFunctionError for any entry with
-      # metadata. It was 2.13.11 before that, for two stacked reasons that
-      # still hold under the higher floor:
-      #   - 2.8 was needed for the folder-explorer / header work
-      #     (`page_crumbs` on `app_layout`, `Core.ColumnSettings`,
-      #     `table_row_menu_link`'s `patch` attr, the UrlState path-param
-      #     leak fix — phoenix_kit #719). 2.3–2.7 compile this package with
-      #     warnings-as-errors failures.
-      #   - The V01 adoption chain (`PhoenixKitCatalogue.Migrations`)
-      #     transcribes core's V178–V180 shape (crm_company_uuid,
-      #     manufacturer_source/supplier_source, the dropped FKs) —
-      #     first shipped in phoenix_kit 2.13.4 (CHANGELOG "## 2.13.4",
-      #     #743). But 2.13.4 through 2.13.10 crash applying V180 itself
-      #     (a bare LOCK TABLE outside a transaction, 25P01
-      #     no_active_sql_transaction — every install with a
-      #     phoenix_kit_cat_manufacturer_suppliers table hits it, adopted
-      #     or not), fixed only in 2.13.11 (CHANGELOG "## 2.13.11"). A
-      #     floor of 2.13.4 would let `mix deps.get` resolve to a version
-      #     whose own migration chain can't reach the shape we assume, so
-      #     the floor is the first release that both ships the shape AND
-      #     can actually get a host there. Patch-precise floor, so a
-      #     two-segment `~> 2.13` (which would still admit the crashing
-      #     2.13.4–2.13.10) won't do — the compound form keeps the
-      #     conventional open ceiling at the next major instead of
-      #     collapsing to one minor (see CorePinConformanceTest).
-      # Floor 2.65.0: the first core with the `file_references/0` and `expected_schema/0`
-      # callbacks this module implements (`@impl`). The ceiling is open through core 3.x.
-      pk_dep(:phoenix_kit, ">= 2.65.0 and < 4.0.0"),
+      # Floor 3.5.0, the minimum core every PhoenixKit module requires. It
+      # carries everything this module builds on: the machine API
+      # (`PhoenixKit.API.Tool`, `api_tools/0`, `Activity.log_many/2`), the
+      # shared toolkits (`PhoenixKitWeb.Actor`, `TreePicker`,
+      # `ResourceFolders`, `PhoenixKitWeb.Attachments`, `Users.ViewPrefs`) and
+      # the `file_references/0` and `expected_schema/0` callbacks.
+      # Patch-precise floor in the compound form, so the ceiling stays open
+      # through every core 3.x (see test/core_pin_conformance_test.exs).
+      pk_dep(:phoenix_kit, ">= 3.5.0 and < 4.0.0"),
       # mdex_native (pulled in transitively through phoenix_kit's mdex dep)
       # builds from source when MDEX_NATIVE_BUILD=1 is set in the
       # environment; that path requires rustler itself, not just

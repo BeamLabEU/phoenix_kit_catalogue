@@ -6,60 +6,27 @@ defmodule PhoenixKitCatalogue.CorePinConformanceTest do
   core MINOR (the three-segment trap), and against a local path override
   reaching a commit.
 
-  The trap is the three-segment form: `~> 2.8.x` expands to
-  `>= 2.8.x and < 2.9.0`, so no 2.9 or later core satisfies it. The breakage
+  The trap is the three-segment form: `~> 3.5.x` expands to
+  `>= 3.5.x and < 3.6.0`, so no 3.6 or later core satisfies it. The breakage
   lands on CONSUMERS, never here — a host depending on both this module and a
   newer core minor gets an unsolvable dependency set and `mix deps.get` fails
   outright, with no degraded mode. Nothing else in this repo's own test run
   would notice, which is why the check is a test rather than a convention.
 
-  The floor is `>= 2.63.0 and < 3.0.0`: the shop API tools build on core's
-  machine API (`PhoenixKit.API.Tool`, the optional `api_tools/0` callback,
-  `Activity.log_many/2`), first shipped in core 2.63.0 (#934); without it the
-  package does not compile (`PhoenixKit.API.Tool` is undefined) and
-  `Catalogue.update_items/2` cannot write its audit entries.
-
-  Before that it was `>= 2.38.0 and < 3.0.0`: the catalogue runs on core's
-  shared toolkits (`Activity.log/3`, `PhoenixKitWeb.Actor`, `TreePicker`,
-  `ResourceFolders`, `PhoenixKitWeb.Attachments`, `Users.ViewPrefs`), all
-  first shipped in core 2.38.0 (#860).
-
-  Before that it was `>= 2.34.0 and < 3.0.0`: the Events page and the bulk bar use
-  `PhoenixKit.Activity.split_changes/1`, `humanize_metadata_key/1` and
-  `bulk_select_scope`'s `swap`, all first shipped in core 2.34.0 (#837) — on
-  an older core the Events page raises on any entry with metadata.
-
-  Before that it was `>= 2.13.11 and < 3.0.0` (raised from `~> 2.8`, addressing
-  a catalogue V01 review finding): the V01 adoption chain
-  (`PhoenixKitCatalogue.Migrations`) transcribes core's V178–V180 shape
-  (`crm_company_uuid`, `manufacturer_source`/`supplier_source`, the
-  dropped FKs), which first ships in core 2.13.4 (#743) — but 2.13.4
-  through 2.13.10 crash applying V180 itself (a bare `LOCK TABLE` outside
-  a transaction), fixed only in 2.13.11. A lower pin would let
-  `mix deps.get` resolve to a core release whose own migration chain
-  can't reach the shape this module assumes. `~> 2.13.11` (three-segment)
-  would fall right back into the trap this test exists to catch — it
-  admits only the 2.13 minor — so the floor is the compound form instead:
-  patch-precise at the bottom, still open through every later 2.x minor
-  at the top, same as `~> 2.8` was before it.
+  The requirement is `>= 3.5.0 and < 4.0.0`. The floor is the minimum core
+  every PhoenixKit module requires; it carries everything this module builds
+  on: the machine API (`PhoenixKit.API.Tool`, the optional `api_tools/0`
+  callback, `Activity.log_many/2`), the shared toolkits (`Activity.log/3`,
+  `PhoenixKitWeb.Actor`, `TreePicker`, `ResourceFolders`,
+  `PhoenixKitWeb.Attachments`, `Users.ViewPrefs`) and the `file_references/0`
+  and `expected_schema/0` callbacks. The ceiling is open through every core
+  3.x.
   """
 
-  @must_admit ["2.65.0", "2.65.1", "2.99.4", "3.0.0", "3.9.9"]
-  @must_reject [
-    "1.7.236",
-    "2.3.0",
-    "2.8.0",
-    "2.13.4",
-    "2.13.11",
-    "2.34.0",
-    "2.37.5",
-    "2.38.0",
-    "2.62.2",
-    "2.64.9",
-    "4.0.0"
-  ]
+  @must_admit ["3.5.0", "3.5.1", "3.6.0", "3.9.9"]
+  @must_reject ["1.7.236", "2.0.0", "2.65.0", "2.99.4", "3.0.0", "3.4.0", "3.4.9", "4.0.0"]
 
-  test "the :phoenix_kit requirement admits every core >= 2.65.0 minor and nothing else" do
+  test "the :phoenix_kit requirement admits every core >= 3.5.0 minor and nothing else" do
     requirement = core_requirement()
 
     assert match?({:ok, _parsed}, Version.parse_requirement(requirement)),
@@ -70,7 +37,7 @@ defmodule PhoenixKitCatalogue.CorePinConformanceTest do
              "`:phoenix_kit` requirement #{inspect(requirement)} rejects core #{version}. " <>
                "A pin that excludes a core minor breaks `mix deps.get` for every host " <>
                "running this module alongside that core. Keep the floor patch-precise " <>
-               "and the ceiling open (`>= 2.63.0 and < 3.0.0`), never a three-segment `~>`."
+               "and the ceiling open (`>= 3.5.0 and < 4.0.0`), never a three-segment `~>`."
     end
 
     for version <- @must_reject do

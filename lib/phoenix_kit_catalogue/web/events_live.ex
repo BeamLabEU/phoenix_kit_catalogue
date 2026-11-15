@@ -114,23 +114,19 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
   end
 
   defp load_filter_options(socket) do
-    if Code.ensure_loaded?(PhoenixKit.Activity) do
-      all = PhoenixKit.Activity.list(module: "catalogue", per_page: 1000, preload: [])
+    all = PhoenixKit.Activity.list(module: "catalogue", per_page: 1000, preload: [])
 
-      action_types =
-        all.entries |> Enum.map(& &1.action) |> Enum.uniq() |> Enum.sort()
+    action_types =
+      all.entries |> Enum.map(& &1.action) |> Enum.uniq() |> Enum.sort()
 
-      resource_types =
-        all.entries
-        |> Enum.map(& &1.resource_type)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.uniq()
-        |> Enum.sort()
+    resource_types =
+      all.entries
+      |> Enum.map(& &1.resource_type)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.sort()
 
-      assign(socket, action_types: action_types, resource_types: resource_types)
-    else
-      socket
-    end
+    assign(socket, action_types: action_types, resource_types: resource_types)
   rescue
     e ->
       Logger.warning("EventsLive could not load the filter options: #{Exception.message(e)}")
@@ -145,28 +141,24 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
   end
 
   defp load_next_page(socket) do
-    if Code.ensure_loaded?(PhoenixKit.Activity) do
-      result =
-        PhoenixKit.Activity.list(
-          module: "catalogue",
-          page: socket.assigns.page,
-          per_page: @per_page,
-          action: socket.assigns.filter_action,
-          resource_type: socket.assigns.filter_resource_type,
-          preload: [:actor]
-        )
-
-      socket
-      |> stream(:entries, result.entries)
-      |> assign(
-        total: result.total,
-        page: socket.assigns.page + 1,
-        has_more: result.page < result.total_pages,
-        loading: false
+    result =
+      PhoenixKit.Activity.list(
+        module: "catalogue",
+        page: socket.assigns.page,
+        per_page: @per_page,
+        action: socket.assigns.filter_action,
+        resource_type: socket.assigns.filter_resource_type,
+        preload: [:actor]
       )
-    else
-      assign(socket, loading: false)
-    end
+
+    socket
+    |> stream(:entries, result.entries)
+    |> assign(
+      total: result.total,
+      page: socket.assigns.page + 1,
+      has_more: result.page < result.total_pages,
+      loading: false
+    )
   rescue
     e ->
       Logger.warning("EventsLive could not load events: #{Exception.message(e)}")

@@ -39,12 +39,8 @@ defmodule PhoenixKitCatalogue.Test.ApiCase do
       raise ArgumentError, "no catalogue tool named #{inspect(name)}"
   end
 
-  @doc "The MCP name of a dotted tool name (core's `MCP.Names.to_mcp/1` when core has it)."
-  def mcp_name(dotted) do
-    if Code.ensure_loaded?(Names),
-      do: Names.to_mcp(dotted),
-      else: dotted
-  end
+  @doc "The MCP name of a dotted tool name (core's `MCP.Names.to_mcp/1`)."
+  def mcp_name(dotted), do: Names.to_mcp(dotted)
 
   def ctx(overrides \\ %{}) do
     {scopes, overrides} = Map.pop(overrides, :scopes, all_scopes())

@@ -62,11 +62,7 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
   """
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe do
-    if Code.ensure_loaded?(PhoenixKit.PubSubHelper) do
-      PhoenixKit.PubSubHelper.subscribe(@topic)
-    else
-      :ok
-    end
+    PhoenixKit.PubSubHelper.subscribe(@topic)
   end
 
   @doc """
@@ -83,12 +79,10 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
   """
   @spec broadcast(kind(), Ecto.UUID.t() | nil, Ecto.UUID.t() | nil) :: :ok
   def broadcast(kind, uuid, parent_catalogue_uuid \\ nil) when is_atom(kind) do
-    if Code.ensure_loaded?(PhoenixKit.PubSubHelper) do
-      PhoenixKit.PubSubHelper.broadcast(
-        @topic,
-        {:catalogue_data_changed, kind, uuid, parent_catalogue_uuid}
-      )
-    end
+    PhoenixKit.PubSubHelper.broadcast(
+      @topic,
+      {:catalogue_data_changed, kind, uuid, parent_catalogue_uuid}
+    )
 
     :ok
   end
@@ -113,12 +107,10 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
           pid()
         ) :: :ok
   def broadcast_card_refresh(catalogue_uuid, scope, flash_uuid, flash_status, from \\ self()) do
-    if Code.ensure_loaded?(PhoenixKit.PubSubHelper) do
-      PhoenixKit.PubSubHelper.broadcast(
-        @topic,
-        {:catalogue_card_refresh, catalogue_uuid, scope, flash_uuid, flash_status, from}
-      )
-    end
+    PhoenixKit.PubSubHelper.broadcast(
+      @topic,
+      {:catalogue_card_refresh, catalogue_uuid, scope, flash_uuid, flash_status, from}
+    )
 
     :ok
   end
@@ -134,12 +126,10 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
   """
   @spec broadcast_view_sort_changed(atom(), String.t(), :asc | :desc, pid()) :: :ok
   def broadcast_view_sort_changed(scope, sort_by, sort_dir, from \\ self()) do
-    if Code.ensure_loaded?(PhoenixKit.PubSubHelper) do
-      PhoenixKit.PubSubHelper.broadcast(
-        @topic,
-        {:catalogue_view_sort_changed, scope, sort_by, sort_dir, from}
-      )
-    end
+    PhoenixKit.PubSubHelper.broadcast(
+      @topic,
+      {:catalogue_view_sort_changed, scope, sort_by, sort_dir, from}
+    )
 
     :ok
   end
@@ -157,12 +147,10 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
           pid()
         ) :: :ok
   def broadcast_category_reorder(catalogue_uuid, moved_id, status, from \\ self()) do
-    if Code.ensure_loaded?(PhoenixKit.PubSubHelper) do
-      PhoenixKit.PubSubHelper.broadcast(
-        @topic,
-        {:catalogue_category_reorder, catalogue_uuid, moved_id, status, from}
-      )
-    end
+    PhoenixKit.PubSubHelper.broadcast(
+      @topic,
+      {:catalogue_category_reorder, catalogue_uuid, moved_id, status, from}
+    )
 
     :ok
   end
@@ -197,12 +185,10 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
         ) :: :ok
   def broadcast_bulk_change(catalogue_uuid, kind, uuids, from \\ self())
       when is_atom(kind) and is_list(uuids) do
-    if Code.ensure_loaded?(PhoenixKit.PubSubHelper) do
-      PhoenixKit.PubSubHelper.broadcast(
-        @topic,
-        {:catalogue_bulk_change, catalogue_uuid, kind, uuids, from}
-      )
-    end
+    PhoenixKit.PubSubHelper.broadcast(
+      @topic,
+      {:catalogue_bulk_change, catalogue_uuid, kind, uuids, from}
+    )
 
     :ok
   end

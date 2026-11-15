@@ -3,9 +3,6 @@ defmodule PhoenixKitCatalogue.FileReferencesTest do
   The file references this module hands to core's orphan-file check
   (`PhoenixKitCatalogue.FileReferences`): the right tables, SQL that runs, and the very SQL
   core's own built-in list holds for them, so moving the check changes nothing.
-
-  Needs core's `Storage.builtin_file_references/0`, from the first core release
-  after 2.64.1; against an older core the tests are excluded.
   """
   use ExUnit.Case, async: false
 
@@ -21,7 +18,6 @@ defmodule PhoenixKitCatalogue.FileReferencesTest do
   alias PhoenixKitCatalogue.Test.Repo
 
   @moduletag :integration
-  @moduletag :requires_core_file_references
 
   @tables [
     "phoenix_kit_cat_catalogues",

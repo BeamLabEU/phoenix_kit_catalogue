@@ -168,40 +168,24 @@ defmodule PhoenixKitCatalogue.API.ToolsConformanceTest do
                ["catalogue.delete_products", "catalogue.delete_categories"]
   end
 
-  # The MCP layer (ToolLint, MCP names) may be absent from the core under test; a missing piece
-  # shows up as a skipped test with the reason, never as a silent pass.
-  if Code.ensure_loaded?(ToolLint) do
-    test "ToolLint finds nothing wrong with the tools, and no two MCP names collide" do
-      assert :ok = ToolLint.check_tools(Tools.all())
-    end
-  else
-    @tag skip: "core without the MCP layer: PhoenixKit.API.ToolLint is not there"
-    test "ToolLint finds nothing wrong with the tools, and no two MCP names collide" do
-      flunk("skipped")
-    end
+  test "ToolLint finds nothing wrong with the tools, and no two MCP names collide" do
+    assert :ok = ToolLint.check_tools(Tools.all())
   end
 
-  if Code.ensure_loaded?(Names) do
-    test "every tool is reachable by its MCP name and answers there exactly as under its dotted name" do
-      for tool <- Tools.all() do
-        mcp = Names.to_mcp(tool.name)
+  test "every tool is reachable by its MCP name and answers there exactly as under its dotted name" do
+    for tool <- Tools.all() do
+      mcp = Names.to_mcp(tool.name)
 
-        refute String.contains?(mcp, "."), "#{tool.name}: the MCP name keeps a dot"
+      refute String.contains?(mcp, "."), "#{tool.name}: the MCP name keeps a dot"
 
-        assert mcp =~ ~r/^[a-zA-Z0-9_-]{1,64}$/,
-               "#{tool.name}: #{mcp} is not a legal MCP tool name"
+      assert mcp =~ ~r/^[a-zA-Z0-9_-]{1,64}$/,
+             "#{tool.name}: #{mcp} is not a legal MCP tool name"
 
-        # An undeclared field fails validation of every closed schema before any handler runs, so
-        # this needs no database; the same schema answers under both names.
-        input = %{"undeclared_field" => 1}
-        assert {:error, :validation_failed, _, %{errors: [_ | _]}} = ApiCase.call(mcp, input)
-        assert ApiCase.call(mcp, input) == ApiCase.call(tool.name, input)
-      end
-    end
-  else
-    @tag skip: "core without the MCP layer: PhoenixKit.API.MCP.Names is not there"
-    test "every tool is reachable by its MCP name and answers there exactly as under its dotted name" do
-      flunk("skipped")
+      # An undeclared field fails validation of every closed schema before any handler runs, so
+      # this needs no database; the same schema answers under both names.
+      input = %{"undeclared_field" => 1}
+      assert {:error, :validation_failed, _, %{errors: [_ | _]}} = ApiCase.call(mcp, input)
+      assert ApiCase.call(mcp, input) == ApiCase.call(tool.name, input)
     end
   end
 

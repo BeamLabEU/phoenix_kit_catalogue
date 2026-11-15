@@ -9,9 +9,6 @@ defmodule PhoenixKitCatalogue.API.ExecutorTest do
 
   use PhoenixKitCatalogue.DataCase, async: false
 
-  # Runs only against a core that has the API (see test_helper.exs).
-  @moduletag :core_api
-
   import PhoenixKitCatalogue.LiveCase,
     only: [fixture_catalogue: 1, fixture_category: 2, fixture_item: 1]
 

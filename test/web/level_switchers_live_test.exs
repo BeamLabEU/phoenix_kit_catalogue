@@ -1,14 +1,11 @@
 defmodule PhoenixKitCatalogue.Web.LevelSwitchersLiveTest do
   @moduledoc """
-  The detail page hands its level switchers to core's header. With a core
-  that has the switcher, the ▾ lists render; with an older one the page
-  renders exactly as before (the maps are ignored) — both are checked here,
-  whichever core the suite runs against.
+  The detail page hands its level switchers to core's header, which renders
+  the ▾ lists.
   """
   use PhoenixKitCatalogue.LiveCase, async: false
 
   @base "/en/admin/catalogues"
-  @core_switcher? Code.ensure_loaded?(PhoenixKitWeb.Components.Core.CrumbSwitcher)
 
   setup %{conn: conn, scope: scope} do
     kitchen = fixture_catalogue(%{name: "Kitchen switch"})
@@ -36,12 +33,8 @@ defmodule PhoenixKitCatalogue.Web.LevelSwitchersLiveTest do
     names = :sys.get_state(view.pid).socket.assigns.switch_catalogues |> Enum.map(& &1.name)
     assert "Kitchen switch" in names and "Bathroom switch" in names
 
-    if @core_switcher? do
-      labels = list_labels(html, "pk-title-switcher")
-      assert "Kitchen switch" in labels and "Bathroom switch" in labels
-    else
-      refute html =~ "pk-title-switcher"
-    end
+    labels = list_labels(html, "pk-title-switcher")
+    assert "Kitchen switch" in labels and "Bathroom switch" in labels
   end
 
   test "a subcategory's page switches at every level of the trail", %{
@@ -51,13 +44,9 @@ defmodule PhoenixKitCatalogue.Web.LevelSwitchersLiveTest do
   } do
     {:ok, _view, html} = live(conn, "#{@base}/#{kitchen.uuid}?category=#{oak.uuid}")
 
-    if @core_switcher? do
-      # Crumbs: the catalogue, then Doors; the title is Oak doors.
-      assert "Bathroom switch" in list_labels(html, "pk-crumb-switcher-0")
-      assert list_labels(html, "pk-crumb-switcher-1") == ["Doors", "Handles"]
-      assert list_labels(html, "pk-title-switcher") == ["Oak doors", "Glass doors"]
-    else
-      assert html =~ "Oak doors"
-    end
+    # Crumbs: the catalogue, then Doors; the title is Oak doors.
+    assert "Bathroom switch" in list_labels(html, "pk-crumb-switcher-0")
+    assert list_labels(html, "pk-crumb-switcher-1") == ["Doors", "Handles"]
+    assert list_labels(html, "pk-title-switcher") == ["Oak doors", "Glass doors"]
   end
 end
