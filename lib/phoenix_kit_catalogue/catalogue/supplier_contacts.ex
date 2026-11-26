@@ -30,8 +30,9 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
       write unsets every primary.
 
   Every edit reads the contacts under the supplier's row lock, so two
-  concurrent edits build on each other. Contacts keep their uuid across
-  edits.
+  concurrent edits build on each other. A spec that carries the `:uuid` of
+  one of the supplier's contacts keeps that row's uuid (the module's own
+  add/delete/set-primary edits always do); one without gets a fresh one.
 
   So a supplier with a single contact reads back exactly the text that was
   written — every install that has only ever used `contact_info` sees no
@@ -158,22 +159,33 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
       repo().transaction(fn ->
         lock_supplier!(supplier)
         current = list_supplier_contacts(supplier)
-        changesets = current |> fun.() |> build_changesets(supplier, current, &settle_primaries/1)
 
-        case Enum.find(changesets, &(not &1.valid?)) do
-          nil -> :ok
-          bad -> repo().rollback(%{bad | action: :insert})
-        end
-
-        if Enum.map(current, &comparable/1) == Enum.map(changesets, &comparable/1) do
-          {:unchanged, current}
-        else
-          replace!(supplier, changesets)
-          {:written, write_summary!(supplier, changesets), length(current), length(changesets)}
+        case fun.(current) do
+          {:error, _} = error -> error
+          specs -> write_specs(supplier, current, specs)
         end
       end)
 
     after_edit(tx, supplier, opts)
+  end
+
+  # A refusal (an invalid contact, an unknown uuid) is returned, never a
+  # rollback: inside a caller's own transaction a rollback would poison it.
+  # Nothing has been written when it is returned.
+  defp write_specs(supplier, current, specs) do
+    changesets = build_changesets(specs, supplier, current, &settle_primaries/1)
+
+    cond do
+      bad = Enum.find(changesets, &(not &1.valid?)) ->
+        {:error, %{bad | action: :insert}}
+
+      Enum.map(current, &comparable/1) == Enum.map(changesets, &comparable/1) ->
+        {:unchanged, current}
+
+      true ->
+        replace!(supplier, changesets)
+        {:written, write_summary!(supplier, changesets), length(current), length(changesets)}
+    end
   end
 
   defp build_changesets(specs, supplier, current, settle) do
@@ -181,9 +193,13 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
 
     specs
     |> Enum.with_index()
-    |> Enum.map(fn {spec, index} ->
-      {spec_attrs(spec, supplier.uuid, index), keep(spec, known)}
+    |> Enum.map_reduce(known, fn {spec, index}, left ->
+      # A uuid is kept once: a second spec naming it gets a fresh one.
+      kept = keep(spec, left)
+      left = if kept, do: Map.delete(left, kept.uuid), else: left
+      {{spec_attrs(spec, supplier.uuid, index), kept}, left}
     end)
+    |> elem(0)
     |> then(fn pairs ->
       settled = pairs |> Enum.map(&elem(&1, 0)) |> settle.()
       Enum.zip_with(settled, pairs, fn attrs, {_, kept} -> contact_changeset(attrs, kept) end)
@@ -256,7 +272,7 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
       supplier,
       fn current ->
         case Enum.find(current, &(&1.uuid == contact_uuid)) do
-          nil -> repo().rollback(:not_found)
+          nil -> {:error, :not_found}
           %SupplierContact{kind: kind} -> Enum.map(current, &primary_spec(&1, kind, contact_uuid))
         end
       end,
@@ -350,6 +366,9 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
 
   defp after_edit(tx, supplier, opts) do
     case tx do
+      {:ok, {:error, reason}} ->
+        {:error, reason}
+
       {:ok, {:unchanged, current}} ->
         {:ok, %{reload(supplier) | contacts: current}}
 
@@ -365,9 +384,6 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
 
         PubSub.broadcast(:supplier, supplier.uuid)
         {:ok, %{updated | contacts: list_supplier_contacts(supplier)}}
-
-      {:error, :not_found} ->
-        {:error, :not_found}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:error, changeset}

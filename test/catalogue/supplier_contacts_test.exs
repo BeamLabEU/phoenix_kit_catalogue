@@ -341,6 +341,35 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContactsTest do
              ]
     end
 
+    test "two specs naming the same uuid: the second gets a fresh one" do
+      s = supplier(%{contact_info: "sales@kraana.ee"})
+      [c] = Catalogue.list_supplier_contacts(s)
+      spec = %{uuid: c.uuid, kind: "email", value: "sales@kraana.ee"}
+
+      assert {:ok, _} =
+               Catalogue.put_supplier_contacts(s, [spec, %{spec | value: "info@kraana.ee"}])
+
+      assert [%{uuid: uuid}, %{uuid: other}] = Catalogue.list_supplier_contacts(s)
+      assert uuid == c.uuid
+      refute other == c.uuid
+    end
+
+    test "a refused edit inside the caller's transaction leaves that transaction usable" do
+      s = supplier()
+
+      assert {:ok, :still_usable} =
+               Repo.transaction(fn ->
+                 assert {:error, %Ecto.Changeset{}} =
+                          Catalogue.put_supplier_contacts(s, [%{kind: "nope", value: "x"}])
+
+                 assert {:error, :not_found} =
+                          Catalogue.set_primary_supplier_contact(s, Ecto.UUID.generate())
+
+                 Repo.query!("SELECT 1")
+                 :still_usable
+               end)
+    end
+
     test "set_primary on an unknown uuid is :not_found and writes nothing" do
       s = supplier(%{contact_info: "sales@kraana.ee"})
 
