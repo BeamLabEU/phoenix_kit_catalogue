@@ -4039,3 +4039,45 @@ msgstr "Ohne Lieferant zugeordnet: %{columns}. Diese Werte werden nicht importie
 
 msgid "%{count} rows: supplier values skipped (no supplier)."
 msgstr "%{count} Zeilen: Lieferantenwerte übersprungen (kein Lieferant)."
+
+msgid "day"
+msgstr "Tag"
+
+msgid "wk"
+msgstr "Wo."
+
+msgid "mo"
+msgstr "Mon."
+
+msgid "yr"
+msgstr "Jahr"
+
+msgid "Day"
+msgstr "Tag"
+
+msgid "Week"
+msgstr "Woche"
+
+msgid "Month"
+msgstr "Monat"
+
+msgid "Year"
+msgstr "Jahr"
+
+msgid "Person"
+msgstr "Person"
+
+msgid "Phone"
+msgstr "Telefon"
+
+msgid "Email"
+msgstr "E-Mail"
+
+msgid "Web address"
+msgstr "Webadresse"
+
+msgid "Address"
+msgstr "Adresse"
+
+msgid "Other"
+msgstr "Sonstiges"

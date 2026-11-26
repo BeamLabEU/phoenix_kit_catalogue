@@ -4039,3 +4039,45 @@ msgstr "Mapped without a supplier: %{columns}. These values will not be imported
 
 msgid "%{count} rows: supplier values skipped (no supplier)."
 msgstr "%{count} rows: supplier values skipped (no supplier)."
+
+msgid "day"
+msgstr ""
+
+msgid "wk"
+msgstr ""
+
+msgid "mo"
+msgstr ""
+
+msgid "yr"
+msgstr ""
+
+msgid "Day"
+msgstr ""
+
+msgid "Week"
+msgstr ""
+
+msgid "Month"
+msgstr ""
+
+msgid "Year"
+msgstr ""
+
+msgid "Person"
+msgstr ""
+
+msgid "Phone"
+msgstr ""
+
+msgid "Email"
+msgstr ""
+
+msgid "Web address"
+msgstr ""
+
+msgid "Address"
+msgstr ""
+
+msgid "Other"
+msgstr ""

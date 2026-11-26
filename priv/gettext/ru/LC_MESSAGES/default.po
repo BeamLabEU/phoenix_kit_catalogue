@@ -4053,3 +4053,45 @@ msgstr "Сопоставлено без поставщика: %{columns}. Эти
 
 msgid "%{count} rows: supplier values skipped (no supplier)."
 msgstr "Строк: %{count} — значения поставщика пропущены (нет поставщика)."
+
+msgid "day"
+msgstr "день"
+
+msgid "wk"
+msgstr "нед."
+
+msgid "mo"
+msgstr "мес."
+
+msgid "yr"
+msgstr "г."
+
+msgid "Day"
+msgstr "День"
+
+msgid "Week"
+msgstr "Неделя"
+
+msgid "Month"
+msgstr "Месяц"
+
+msgid "Year"
+msgstr "Год"
+
+msgid "Person"
+msgstr "Контактное лицо"
+
+msgid "Phone"
+msgstr "Телефон"
+
+msgid "Email"
+msgstr "Эл. почта"
+
+msgid "Web address"
+msgstr "Веб-адрес"
+
+msgid "Address"
+msgstr "Адрес"
+
+msgid "Other"
+msgstr "Другое"

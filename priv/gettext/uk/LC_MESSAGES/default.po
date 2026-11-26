@@ -4053,3 +4053,45 @@ msgstr "Зіставлено без постачальника: %{columns}. Ці
 
 msgid "%{count} rows: supplier values skipped (no supplier)."
 msgstr "Рядків: %{count} — значення постачальника пропущено (немає постачальника)."
+
+msgid "day"
+msgstr "день"
+
+msgid "wk"
+msgstr "тиж."
+
+msgid "mo"
+msgstr "міс."
+
+msgid "yr"
+msgstr "рік"
+
+msgid "Day"
+msgstr "День"
+
+msgid "Week"
+msgstr "Тиждень"
+
+msgid "Month"
+msgstr "Місяць"
+
+msgid "Year"
+msgstr "Рік"
+
+msgid "Person"
+msgstr "Контактна особа"
+
+msgid "Phone"
+msgstr "Телефон"
+
+msgid "Email"
+msgstr "Ел. пошта"
+
+msgid "Web address"
+msgstr "Веб-адреса"
+
+msgid "Address"
+msgstr "Адреса"
+
+msgid "Other"
+msgstr "Інше"
