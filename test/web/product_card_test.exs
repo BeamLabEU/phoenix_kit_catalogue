@@ -41,6 +41,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardTest do
     render_component(&ProductCard.product_card/1, base_assigns(overrides))
   end
 
+  # Core's `<.preview_card>` draws the carousel controls. A core that works under a
+  # nonce Content-Security-Policy names them with `data-pc-jump` / `data-pc-step`
+  # (one delegated listener in `phoenix_kit.js`); the cores before it carried inline
+  # `scrollIntoView` / `scrollBy` handlers. This module supports both.
+  defp jump_control?(html), do: html =~ "data-pc-jump" or html =~ "scrollIntoView"
+  defp step_control?(html), do: html =~ "data-pc-step" or html =~ "scrollBy"
+
   describe "carousel" do
     test "renders every image as a slide (medium variant) and the item name as title" do
       html = render_card()
@@ -56,8 +63,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardTest do
 
       # The strip and arrows scroll the snap track locally…
       assert html =~ "data-pc-track"
-      assert html =~ "scrollIntoView"
-      assert html =~ "scrollBy"
+      assert jump_control?(html)
+      assert step_control?(html)
       assert html =~ "Previous"
       assert html =~ "Next"
       # …and no slide event ever reaches the server.
@@ -68,8 +75,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardTest do
       html = render_card(%{images: [%{uuid: "only", name: "x.jpg"}]})
 
       assert html =~ "only"
-      refute html =~ "scrollIntoView"
-      refute html =~ "scrollBy"
+      refute jump_control?(html)
+      refute step_control?(html)
     end
 
     test "files continue the same swipe track after the photos" do
