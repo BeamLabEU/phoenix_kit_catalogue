@@ -1655,7 +1655,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         src={URLSigner.signed_url(@uuid, @variant)}
         alt={@name || ""}
         loading="lazy"
-        onerror="this.style.display='none'"
+        data-pkc-img-error="hide"
         class="w-full h-full rounded object-cover bg-base-200"
       />
       <span
@@ -1712,7 +1712,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       src={URLSigner.signed_url(@uuid, "small")}
       alt={Map.get(@resource, :name) || ""}
       loading="lazy"
-      onerror="this.style.display='none'"
+      data-pkc-img-error="hide"
       class="w-10 h-10 rounded object-cover bg-base-200"
     />
     <span

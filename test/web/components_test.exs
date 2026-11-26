@@ -465,7 +465,10 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
       assert html =~ @uuid
       assert html =~ "thumbnail"
       # A dangling pointer must hide itself, not show a broken-image glyph.
-      assert html =~ "onerror"
+      # Named, not an inline `onerror` (no CSP nonce covers an attribute): the
+      # listener is in priv/static/assets/phoenix_kit_catalogue.js.
+      assert html =~ ~s(data-pkc-img-error="hide")
+      refute html =~ "onerror"
     end
 
     test "works on the catalogues index's plain row maps too" do

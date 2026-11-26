@@ -433,34 +433,47 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
   end
 
   describe "qty_stepper/1" do
-    test "a zero clears itself on focus and comes back when the field is left empty" do
-      onfocus = zero_handler("onfocus")
-      onblur = zero_handler("onblur")
+    @module_js "priv/static/assets/phoenix_kit_catalogue.js"
 
-      assert onfocus =~ "this.__pkZero=this.value"
-      assert onfocus =~ "this.value=''"
+    # The input only names the behaviour; the listeners are in the module's
+    # JS (an inline handler is blocked by a nonce Content-Security-Policy).
+    test "a zero clears itself on focus and comes back when the field is left empty" do
+      html =
+        render_component(&Browse.qty_stepper/1, id: "q1", uuid: "u-1", qty: "0", precision: 0)
+
+      assert html =~ " data-pkc-zero-clear"
+      for name <- ~w(onfocus onblur onkeydown), do: refute(html =~ ~s( #{name}=))
+
+      js = File.read!(@module_js)
 
       [regex] =
-        Regex.run(~r{^if\(!this\.readOnly&&/(.*)/\.test}, onfocus, capture: :all_but_first)
+        Regex.run(~r{var ZERO_TEXT = /(.*)/;}, js, capture: :all_but_first)
 
       js_zero = ~r/#{regex}/
       for zero <- ["0", "0,00", "0.0", " 0 ", "-0"], do: assert(zero =~ js_zero)
       for other <- ["", "1", "0,5", "10", "2.5"], do: refute(other =~ js_zero)
 
-      assert onblur =~ "this.value.trim()===''"
-      assert onblur =~ "this.value=this.__pkZero"
-      assert onblur =~ "delete this.__pkZero"
+      for event <- ~w(focus blur keydown) do
+        assert js =~ ~s|document.addEventListener("#{event}", function(e) {|
+      end
     end
 
     # LiveView's patch of a focused input removes every attribute the
     # server did not render, so a zero parked in `data-*` was lost on any
     # re-render (a relay refresh) while the field sat emptied.
     test "the remembered zero never lives in a data- attribute" do
-      for name <- ~w(onfocus onblur onkeydown), do: refute(zero_handler(name) =~ "dataset")
+      js = File.read!(@module_js)
+
+      [zero_code] =
+        Regex.run(~r/function zeroFocus.*?function sweepBrokenImages/s, js)
+
+      assert zero_code =~ "el.__pkZero = el.value"
+      refute zero_code =~ "dataset"
+      refute zero_code =~ "setAttribute"
     end
 
-    # The handlers themselves, run in node on a stand-in element — the
-    # attribute strings above only prove the wiring. Skipped without node.
+    # The listeners' functions themselves, run in node on a stand-in
+    # element — the checks above only prove the wiring. Skipped without node.
     # Returns the value after focus, the value at the end, and how many
     # input events the element dispatched on its own.
     test "in a browser-like run: 0 clears on focus and returns on blur, typed text stays" do
@@ -495,12 +508,12 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       end
     end
 
-    test "the free-decimal text control carries the same zero handlers" do
+    test "the free-decimal text control carries the same zero behaviour" do
       html =
         render_component(&Browse.qty_stepper/1, id: "q1", uuid: "u-1", qty: "0", precision: :any)
 
       assert html =~ ~s(type="text")
-      for name <- ~w(onfocus onblur onkeydown), do: assert(html =~ ~s( #{name}="))
+      assert html =~ " data-pkc-zero-clear"
     end
 
     # 2026-09-24: the field is named just "value", so the browser offered
@@ -796,46 +809,32 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
     end
   end
 
-  defp zero_handler(name) do
-    html = render_component(&Browse.qty_stepper/1, id: "q1", uuid: "u-1", qty: "0", precision: 0)
-
-    # the attribute value is HTML-escaped in the markup (' → &#39;, …)
-    [js] = Regex.run(~r/ #{name}="([^"]*)"/, html, capture: :all_but_first)
-
-    js
-    |> String.replace("&#39;", "'")
-    |> String.replace("&gt;", ">")
-    |> String.replace("&lt;", "<")
-    |> String.replace("&quot;", "\"")
-    |> String.replace("&amp;", "&")
-  end
-
   # Steps: "focus", "blur", {"type", text}, {"key", key}.
   defp run_zero(node, value, steps) do
-    fun = &Jason.encode!(zero_handler(&1))
-
     js_steps =
       Enum.map_join(steps, "\n", fn
         "focus" ->
-          "focus.call(el, {}); if (focused === undefined) focused = el.value;"
+          "pkc.zeroFocus(el); if (focused === undefined) focused = el.value;"
 
         "blur" ->
-          "blur.call(el, {});"
+          "pkc.zeroBlur(el);"
 
+        # What the document's keydown listener does.
         {"key", key} ->
-          "keydown.call(el, {key: #{Jason.encode!(key)}});"
+          "if (#{Jason.encode!(key)} === 'Enter') pkc.zeroEnter(el);"
 
         {"type", text} ->
           "el.value = #{Jason.encode!(text)}; typing = true; el.dispatchEvent(new Event('input')); typing = false;"
       end)
 
+    # The file is a browser script: give it the two globals it touches at load.
     script = """
+    globalThis.window = {addEventListener() {}, __pkcDeclaredHandlers: true};
+    globalThis.document = {addEventListener() {}};
+    const pkc = require(#{Jason.encode!(Path.expand("priv/static/assets/phoenix_kit_catalogue.js"))});
     const el = Object.assign(new EventTarget(), {value: #{Jason.encode!(value)}, readOnly: false});
     let own = 0, typing = false, focused;
     el.addEventListener('input', () => { if (!typing) own++ });
-    const focus = new Function('event', #{fun.("onfocus")});
-    const blur = new Function('event', #{fun.("onblur")});
-    const keydown = new Function('event', #{fun.("onkeydown")});
     #{js_steps}
     process.stdout.write(JSON.stringify([focused, el.value, own]));
     """

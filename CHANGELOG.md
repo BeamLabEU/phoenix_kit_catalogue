@@ -1,3 +1,23 @@
+## Unreleased
+
+### Changed
+
+- **The module renders no inline event handlers, so it works under a nonce
+  `Content-Security-Policy`** (`script-src 'self' 'nonce-…'`, no
+  `'unsafe-inline'`; core's `guides/content-security-policy.md`). The
+  thumbnails' `onerror` (five places: `featured_thumb`, the thumbnail tile, the
+  item picker) is now `data-pkc-img-error="hide"`, and the quantity field's
+  `onfocus` / `onblur` / `onkeydown` (a zero clears on focus) is
+  `data-pkc-zero-clear`. Both are handled by delegated listeners in the
+  module's own `phoenix_kit_catalogue.js` (`js_sources/0`), so they behave the
+  same on every supported core. A host must load `phoenix_kit_modules.js`, as
+  it already does for the category tree's drag and drop. The module has no
+  inline `<script>` or `<style>` (its colocated hooks are compiled into the
+  host's bundle). `test/web/csp_inline_tags_test.exs` fails on a new inline
+  handler or an inline tag without a nonce. Not covered: inline `style="…"`
+  attributes, and the vendored pdf.js viewer (`priv/static/pdfjs/`).
+  (#158)
+
 ## 0.50.0 - 2026-10-27
 
 ### Added

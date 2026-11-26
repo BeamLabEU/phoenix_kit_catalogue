@@ -1228,26 +1228,13 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # (BeamLabEU/phoenix_kit#859): a field showing 0 (0,00, 0.0) empties
   # when it gains focus, so a typed 1 is 1 and not 10 — the caret used to
   # land after the zero; leaving it still empty puts the zero back, and
-  # `qty_commit` then carries that zero as before. Inline handlers on the
-  # control, no hook; a programmatic value change fires no `input` event,
-  # so neither `qty_change` nor the row's selected-state hook sees the swap.
-  # Same handlers as core 2.37.4, kept verbatim so the two controls behave
-  # alike: the zero lives in expando properties, never `dataset` —
-  # LiveView's patch of a focused input drops every attribute the server
-  # did not render, and a component re-render (a relay refresh) while the
-  # field sat emptied lost the zero. A readonly field is never cleared.
-  @zero_test "!this.readOnly&&/^\\s*[-+]?(?:0+(?:[.,]0*)?|[.,]0+)\\s*$/.test(this.value)"
-  @zero_on_focus "if(#{@zero_test}){this.__pkZero=this.value;this.__pkZeroEdited=false;this.__pkZeroOnInput||(this.__pkZeroOnInput=()=>{this.__pkZeroEdited=true});this.addEventListener('input',this.__pkZeroOnInput);this.value=''}"
-
-  # Typed-then-erased: `qty_change` last heard `""` (ignored, so a row
-  # selected by the typed value stayed selected), so the restore announces
-  # itself with an input event of its own — `qty_change` hears the zero
-  # and the selected-state hook flips back with it.
-  @zero_on_blur "if(this.__pkZero!=null){if(this.value.trim()===''){this.value=this.__pkZero;if(this.__pkZeroEdited)this.dispatchEvent(new Event('input',{bubbles:true}))}delete this.__pkZero}"
-
-  # Enter submits the form before any blur: restore the zero first, so
-  # `qty_commit` carries it and not `""`.
-  @zero_on_keydown "if(event.key==='Enter'&&this.__pkZero!=null&&this.value.trim()===''){this.value=this.__pkZero;delete this.__pkZero}"
+  # `qty_commit` then carries that zero as before. The input only names
+  # the behaviour (`data-pkc-zero-clear`); the listeners are in
+  # `priv/static/assets/phoenix_kit_catalogue.js` ("DECLARATIVE HANDLERS"),
+  # because an inline `onfocus="…"` is blocked by a Content-Security-Policy
+  # without 'unsafe-inline'. A programmatic value change fires no `input`
+  # event, so neither `qty_change` nor the row's selected-state hook sees
+  # the swap. A readonly field is never cleared.
 
   @doc """
   Quantity input: a native `<input type="number">` — the browser's own
@@ -1328,12 +1315,6 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:size, :string, default: "sm", values: ~w(xs sm))
 
   def qty_stepper(assigns) do
-    assigns =
-      assigns
-      |> assign(:zero_on_focus, @zero_on_focus)
-      |> assign(:zero_on_blur, @zero_on_blur)
-      |> assign(:zero_on_keydown, @zero_on_keydown)
-
     ~H"""
     <%!-- The form wraps the join (Enter commits via phx-submit; phx-blur
          commits on focus loss). phx-change catches what blur never sees:
@@ -1426,9 +1407,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           phx-value-uuid={@uuid}
           phx-target={@target}
           aria-label={gettext("Quantity")}
-          onfocus={@zero_on_focus}
-          onblur={@zero_on_blur}
-          onkeydown={@zero_on_keydown}
+          data-pkc-zero-clear
         />
         <span
           :if={@unit}

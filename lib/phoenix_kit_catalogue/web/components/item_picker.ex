@@ -788,7 +788,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           <img
             src={URLSigner.signed_url(@selected_photo_uuid, @photo_asset_type)}
             alt={item_display_name(@selected_item, @locale) || ""}
-            onerror="this.style.display='none'"
+            data-pkc-img-error="hide"
             class={[@photo_size, "shrink-0 rounded object-cover bg-base-200 border border-base-300"]}
           />
         </button>
@@ -796,7 +796,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           :if={@selected_photo_uuid && !@photo_clickable}
           src={URLSigner.signed_url(@selected_photo_uuid, @photo_asset_type)}
           alt={item_display_name(@selected_item, @locale) || ""}
-          onerror="this.style.display='none'"
+          data-pkc-img-error="hide"
           class={[@photo_size, "shrink-0 rounded object-cover bg-base-200 border border-base-300"]}
         />
         <%!--
@@ -919,7 +919,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
                   :if={li_photo_uuid}
                   src={URLSigner.signed_url(li_photo_uuid, @photo_asset_type)}
                   alt={item_display_name(item, @locale) || ""}
-                  onerror="this.style.display='none'"
+                  data-pkc-img-error="hide"
                   class={[@row_photo_size, "shrink-0 rounded object-cover bg-base-200 border border-base-300"]}
                 />
                 <div class="min-w-0 flex-1">

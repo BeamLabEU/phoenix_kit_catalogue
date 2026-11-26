@@ -451,6 +451,29 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
   manifest.
 - UUIDv7 PKs and `use PhoenixKit.SchemaPrefix` on every table-backed schema.
 
+## Content-Security-Policy
+
+The module works under a host policy like `script-src 'self' 'nonce-…'`
+(core's `guides/content-security-policy.md`). Rules:
+
+- **No inline event handlers** (`onclick=`, `onerror=`, `onfocus=` …), in
+  markup or in HTML the JS builds: no nonce covers an attribute. Use a `phx-`
+  binding, a hook, or name the behaviour with a `data-pkc-*` attribute handled
+  by a delegated listener in `priv/static/assets/phoenix_kit_catalogue.js`
+  ("DECLARATIVE HANDLERS": `data-pkc-img-error="hide"`, `data-pkc-zero-clear`).
+  The module's own attributes, not core's `data-pk-*`: those listeners are
+  absent from the cores below the first CSP release, which the pin still allows.
+- **No inline `<script>` / `<style>` without the host's nonce.** There is none
+  today (a `Phoenix.LiveView.ColocatedHook` script is compiled out of the
+  template). A new one takes `nonce={…}` from a feature-detected
+  `PhoenixKitWeb.CSP.nonce/1` (`Code.ensure_loaded?/1` +
+  `function_exported?/3`, called through a variable module; `nil` renders no attribute).
+  A `<style>` created from JS is stamped first with
+  `window.PhoenixKitInternals.adoptStyle(el)` when that exists.
+- `test/web/csp_inline_tags_test.exs` enforces both over `lib/` and the JS
+  file. The vendored pdf.js viewer (`priv/static/pdfjs/`) is third-party and
+  not scanned; inline `style="…"` attributes are not covered either.
+
 ## Testing
 
 - Test DB `phoenix_kit_catalogue_test`. `config/test.exs` sets

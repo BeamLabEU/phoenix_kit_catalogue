@@ -278,4 +278,114 @@
           .querySelectorAll('[phx-hook="BulkSelectScope"] [data-bulk-clear]')
           .forEach(function(btn) { btn.click(); });
       });
+
+      // -----------------------------------------------------------------------
+      // DECLARATIVE HANDLERS
+      //
+      // What the catalogue's markup used to do with inline handlers
+      // (`onerror="…"`, `onfocus="…"`). A Content-Security-Policy without
+      // 'unsafe-inline' blocks those and no nonce can be put on an attribute,
+      // so the markup names what it wants and one listener per event, on the
+      // document, does it. Attributes are the module's own (`data-pkc-*`), so
+      // this works on a core that has no `data-pk-*` listeners.
+      //
+      //   data-pkc-img-error="hide"   a broken <img> hides itself
+      //   data-pkc-zero-clear         qty_stepper: a zero clears on focus
+      //
+      // Capture phase: error, focus and blur do not bubble.
+      // -----------------------------------------------------------------------
+      function pkcHas(el, name) {
+        return !!el && typeof el.hasAttribute === "function" && el.hasAttribute(name);
+      }
+
+      function onImageError(img) {
+        if (img.getAttribute("data-pkc-img-error") === "hide") img.style.display = "none";
+      }
+
+      // A zero-like text (optional sign, zeros, optional decimal zeros) is
+      // cleared on focus so typing replaces it, and comes back if the field
+      // is left empty. Same behaviour as core's decimal_input. The zero is
+      // kept in expando properties, never `dataset`: LiveView's patch of a
+      // focused input drops every attribute the server did not render. A
+      // readonly field is never cleared.
+      var ZERO_TEXT = /^\s*[-+]?(?:0+(?:[.,]0*)?|[.,]0+)\s*$/;
+
+      function zeroFocus(el) {
+        if (el.readOnly || !ZERO_TEXT.test(el.value)) return;
+        el.__pkZero = el.value;
+        el.__pkZeroEdited = false;
+        // One stable function, so adding it on every focus registers it once.
+        el.__pkZeroOnInput || (el.__pkZeroOnInput = function() { el.__pkZeroEdited = true; });
+        el.addEventListener("input", el.__pkZeroOnInput);
+        el.value = "";
+      }
+
+      // Typed-then-erased: `qty_change` last heard "" (ignored, so a row
+      // selected by the typed value stayed selected), so the restore
+      // announces itself with an input event of its own.
+      function zeroBlur(el) {
+        if (el.__pkZero == null) return;
+        if (el.value.trim() === "") {
+          el.value = el.__pkZero;
+          if (el.__pkZeroEdited) el.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        delete el.__pkZero;
+      }
+
+      // Enter submits the form before any blur: restore the zero first, so
+      // `qty_commit` carries it and not "".
+      function zeroEnter(el) {
+        if (el.__pkZero != null && el.value.trim() === "") {
+          el.value = el.__pkZero;
+          delete el.__pkZero;
+        }
+      }
+
+      // An image that failed before this file ran never fires its error
+      // again: look once the document is parsed.
+      function sweepBrokenImages() {
+        document.querySelectorAll("img[data-pkc-img-error]").forEach(function(img) {
+          // An SVG with no intrinsic size can report a natural width of 0
+          // while it shows fine, so it is left to its own error event.
+          var src = img.getAttribute("src") || "";
+          if (!src || /\.svg(\?|#|$)/i.test(src) || src.indexOf("data:image/svg") === 0) return;
+          if (img.complete && img.naturalWidth === 0) onImageError(img);
+        });
+      }
+
+      if (typeof module === "object" && module.exports) {
+        module.exports.ZERO_TEXT = ZERO_TEXT;
+        module.exports.onImageError = onImageError;
+        module.exports.zeroFocus = zeroFocus;
+        module.exports.zeroBlur = zeroBlur;
+        module.exports.zeroEnter = zeroEnter;
+      }
+
+      // The file may be evaluated more than once on a page; the listeners
+      // are installed once.
+      if (!window.__pkcDeclaredHandlers) {
+        window.__pkcDeclaredHandlers = true;
+
+        document.addEventListener("error", function(e) {
+          if (pkcHas(e.target, "data-pkc-img-error")) onImageError(e.target);
+        }, true);
+
+        document.addEventListener("focus", function(e) {
+          if (pkcHas(e.target, "data-pkc-zero-clear")) zeroFocus(e.target);
+        }, true);
+
+        document.addEventListener("blur", function(e) {
+          if (pkcHas(e.target, "data-pkc-zero-clear")) zeroBlur(e.target);
+        }, true);
+
+        document.addEventListener("keydown", function(e) {
+          if (e.key === "Enter" && pkcHas(e.target, "data-pkc-zero-clear")) zeroEnter(e.target);
+        }, true);
+
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", sweepBrokenImages);
+        } else {
+          sweepBrokenImages();
+        }
+      }
 })();
