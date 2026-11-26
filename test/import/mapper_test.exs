@@ -222,7 +222,8 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
     end
 
     test "translated labels of the new units round-trip" do
-      for locale <- ~w(et ru de fr), code <- ~w(hour service visit km pack roll kg litre m3) do
+      for locale <- ~w(et ru de fr),
+          code <- ~w(hour day week month year service visit km pack roll kg litre m3) do
         label =
           Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
             Item.unit_label(code)

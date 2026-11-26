@@ -264,10 +264,10 @@ defmodule PhoenixKitCatalogue.SchemasTest do
       end
     end
 
-    test "allowed_units/0 has exactly the 15 goods+services codes" do
+    test "allowed_units/0 has exactly the 19 goods+services codes" do
       assert Enum.sort(Item.allowed_units()) ==
                Enum.sort(
-                 ~w(piece set pair sheet m2 running_meter pack roll kg litre m3 hour service visit km)
+                 ~w(piece set pair sheet m2 running_meter pack roll kg litre m3 hour day week month year service visit km)
                )
     end
   end
@@ -290,7 +290,7 @@ defmodule PhoenixKitCatalogue.SchemasTest do
       assert Enum.sort(goods) ==
                Enum.sort(~w(piece set pair sheet m2 running_meter pack roll kg litre m3))
 
-      assert Enum.sort(services) == Enum.sort(~w(hour service visit km))
+      assert Enum.sort(services) == Enum.sort(~w(hour day week month year service visit km))
     end
 
     test "rejects negative base_price" do
