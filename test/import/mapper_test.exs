@@ -139,6 +139,9 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
   describe "normalize_unit/2" do
     test "maps Estonian TK to piece" do
       assert Mapper.normalize_unit("TK") == "piece"
+      assert Mapper.normalize_unit("Weeks") == "week"
+      assert Mapper.normalize_unit("MONTHS") == "month"
+      assert Mapper.normalize_unit("years") == "year"
     end
 
     test "maps KMPL to set" do
