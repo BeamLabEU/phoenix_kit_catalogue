@@ -53,7 +53,7 @@ defmodule PhoenixKitCatalogue.Schemas.Supplier do
     |> validate_required(@required_fields)
     |> validate_length(:name, min: 1, max: 255)
     |> validate_length(:website, max: 500)
-    |> validate_length(:contact_info, max: 500)
+    |> validate_length(:contact_info, max: 500, count: :codepoints)
     |> validate_inclusion(:status, @statuses)
   end
 end

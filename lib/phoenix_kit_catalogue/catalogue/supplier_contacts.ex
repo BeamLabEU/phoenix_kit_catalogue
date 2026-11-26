@@ -23,7 +23,15 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
       `Catalogue.Suppliers` inside the same transaction: the text becomes
       the primary of the kind it looks like (`SupplierContact.classify/1`),
       replacing that kind's primary value or adding one, and the column
-      is rewritten from the primaries. A blank write unsets every primary.
+      is rewritten from the primaries. Free text of no one kind (an edited
+      summary) becomes the `other` primary and the other kinds' primaries
+      step down, so the column reads back exactly what was written; the
+      current summary written back unchanged changes nothing. A blank
+      write unsets every primary.
+
+  Every edit reads the contacts under the supplier's row lock, so two
+  concurrent edits build on each other. Contacts keep their uuid across
+  edits.
 
   So a supplier with a single contact reads back exactly the text that was
   written — every install that has only ever used `contact_info` sees no
@@ -85,8 +93,15 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
     end
   rescue
     # A host whose chain has not reached V8 yet has no table: resolving a
-    # supplier must keep working on the columns it has.
-    Postgrex.Error -> %{}
+    # supplier must keep working on the columns it has. Only that error —
+    # a timeout or a lock failure is the caller's to see. (Inside a
+    # caller's transaction the failed SELECT has already aborted it; a
+    # host must reach V8 before relying on resolve there.)
+    error in Postgrex.Error ->
+      case error do
+        %Postgrex.Error{postgres: %{code: :undefined_table}} -> %{}
+        _ -> reraise error, __STACKTRACE__
+      end
   end
 
   @doc """
@@ -105,8 +120,14 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
     |> Enum.reject(&(&1 in [nil, ""]))
     |> case do
       [] -> nil
-      values -> values |> Enum.join(", ") |> String.slice(0, @summary_max)
+      values -> values |> Enum.join(", ") |> cut(@summary_max)
     end
+  end
+
+  # varchar(n) counts code points; String.slice/3 counts graphemes, which
+  # can be more code points than the column takes.
+  defp cut(text, max) do
+    text |> String.to_charlist() |> Enum.take(max) |> List.to_string()
   end
 
   @doc """
@@ -122,18 +143,66 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
   @spec put_supplier_contacts(Supplier.t(), [spec()], keyword()) ::
           {:ok, Supplier.t()} | {:error, Ecto.Changeset.t()}
   def put_supplier_contacts(%Supplier{} = supplier, specs, opts \\ []) when is_list(specs) do
-    changesets =
-      specs
-      |> Enum.with_index()
-      |> Enum.map(fn {spec, index} -> spec_attrs(spec, supplier.uuid, index) end)
-      |> settle_primaries()
-      |> Enum.map(&SupplierContact.changeset(%SupplierContact{}, &1))
+    edit_contacts(supplier, fn _current -> specs end, opts)
+  end
 
-    case Enum.find(changesets, &(not &1.valid?)) do
-      nil -> write_if_changed(supplier, changesets, opts)
-      bad -> {:error, %{bad | action: :insert}}
+  # The read-modify-write every writer shares. `fun` gets the contacts as
+  # they are under the supplier's row lock and returns the new spec list,
+  # so two concurrent edits (two `add_supplier_contact/3`, say) each build
+  # on the other's committed result instead of one silently replacing it.
+  # A spec carrying the `:uuid` of a current contact keeps that row's uuid
+  # and `inserted_at`, so a caller holding a uuid can still use it after an
+  # unrelated edit.
+  defp edit_contacts(supplier, fun, opts) do
+    tx =
+      repo().transaction(fn ->
+        lock_supplier!(supplier)
+        current = list_supplier_contacts(supplier)
+        changesets = current |> fun.() |> build_changesets(supplier, current, &settle_primaries/1)
+
+        case Enum.find(changesets, &(not &1.valid?)) do
+          nil -> :ok
+          bad -> repo().rollback(%{bad | action: :insert})
+        end
+
+        if Enum.map(current, &comparable/1) == Enum.map(changesets, &comparable/1) do
+          {:unchanged, current}
+        else
+          replace!(supplier, changesets)
+          {:written, write_summary!(supplier, changesets), length(current), length(changesets)}
+        end
+      end)
+
+    after_edit(tx, supplier, opts)
+  end
+
+  defp build_changesets(specs, supplier, current, settle) do
+    known = Map.new(current, &{&1.uuid, &1})
+
+    specs
+    |> Enum.with_index()
+    |> Enum.map(fn {spec, index} ->
+      {spec_attrs(spec, supplier.uuid, index), keep(spec, known)}
+    end)
+    |> then(fn pairs ->
+      settled = pairs |> Enum.map(&elem(&1, 0)) |> settle.()
+      Enum.zip_with(settled, pairs, fn attrs, {_, kept} -> contact_changeset(attrs, kept) end)
+    end)
+  end
+
+  # The current row a spec names by uuid, if it names one of THIS
+  # supplier's contacts (any other uuid is ignored: a fresh one is made).
+  defp keep(spec, known) do
+    case atomize(spec)[:uuid] do
+      uuid when is_binary(uuid) -> Map.get(known, uuid)
+      _ -> nil
     end
   end
+
+  defp contact_changeset(attrs, nil), do: SupplierContact.changeset(%SupplierContact{}, attrs)
+
+  defp contact_changeset(attrs, %SupplierContact{uuid: uuid, inserted_at: at}),
+    do: SupplierContact.changeset(%SupplierContact{uuid: uuid, inserted_at: at}, attrs)
 
   @doc """
   Appends one contact (`attrs` as in `put_supplier_contacts/3`). A contact
@@ -143,20 +212,22 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
   @spec add_supplier_contact(Supplier.t(), spec(), keyword()) ::
           {:ok, Supplier.t()} | {:error, Ecto.Changeset.t()}
   def add_supplier_contact(%Supplier{} = supplier, attrs, opts \\ []) when is_map(attrs) do
-    current = list_supplier_contacts(supplier)
-    new = atomize(attrs)
+    new = attrs |> atomize() |> Map.delete(:uuid)
 
-    current_specs =
-      Enum.map(current, fn c ->
-        spec = to_spec(c)
+    takes_over? = truthy?(new[:is_primary])
+    kind = to_string(new[:kind])
 
-        if new[:is_primary] in [true, "true"] and c.kind == to_string(new[:kind]),
-          do: %{spec | is_primary: false},
-          else: spec
-      end)
-
-    put_supplier_contacts(supplier, current_specs ++ [new], opts)
+    edit_contacts(
+      supplier,
+      fn current ->
+        Enum.map(current, &step_down(&1, takes_over? and &1.kind == kind)) ++ [new]
+      end,
+      opts
+    )
   end
+
+  defp step_down(contact, true), do: %{to_spec(contact) | is_primary: false}
+  defp step_down(contact, false), do: to_spec(contact)
 
   @doc """
   Removes one contact by uuid. When it was its kind's primary, the next
@@ -165,13 +236,13 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
   @spec delete_supplier_contact(Supplier.t(), Ecto.UUID.t(), keyword()) ::
           {:ok, Supplier.t()} | {:error, Ecto.Changeset.t()}
   def delete_supplier_contact(%Supplier{} = supplier, contact_uuid, opts \\ []) do
-    specs =
-      supplier
-      |> list_supplier_contacts()
-      |> Enum.reject(&(&1.uuid == contact_uuid))
-      |> Enum.map(&to_spec/1)
-
-    put_supplier_contacts(supplier, specs, opts)
+    edit_contacts(
+      supplier,
+      fn current ->
+        current |> Enum.reject(&(&1.uuid == contact_uuid)) |> Enum.map(&to_spec/1)
+      end,
+      opts
+    )
   end
 
   @doc """
@@ -181,16 +252,16 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
   @spec set_primary_supplier_contact(Supplier.t(), Ecto.UUID.t(), keyword()) ::
           {:ok, Supplier.t()} | {:error, Ecto.Changeset.t() | :not_found}
   def set_primary_supplier_contact(%Supplier{} = supplier, contact_uuid, opts \\ []) do
-    current = list_supplier_contacts(supplier)
-
-    case Enum.find(current, &(&1.uuid == contact_uuid)) do
-      nil ->
-        {:error, :not_found}
-
-      %SupplierContact{kind: kind} ->
-        specs = Enum.map(current, &primary_spec(&1, kind, contact_uuid))
-        put_supplier_contacts(supplier, specs, opts)
-    end
+    edit_contacts(
+      supplier,
+      fn current ->
+        case Enum.find(current, &(&1.uuid == contact_uuid)) do
+          nil -> repo().rollback(:not_found)
+          %SupplierContact{kind: kind} -> Enum.map(current, &primary_spec(&1, kind, contact_uuid))
+        end
+      end,
+      opts
+    )
   end
 
   defp primary_spec(%SupplierContact{kind: kind} = c, kind, contact_uuid),
@@ -208,13 +279,20 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
     lock_supplier!(supplier)
     current = list_supplier_contacts(supplier)
     text = String.trim(supplier.contact_info || "")
-    specs = current |> Enum.map(&to_spec/1) |> legacy_specs(text)
 
-    changesets =
-      specs
-      |> Enum.with_index()
-      |> Enum.map(fn {spec, index} -> spec_attrs(spec, supplier.uuid, index) end)
-      |> Enum.map(&SupplierContact.changeset(%SupplierContact{}, &1))
+    specs =
+      if text == contact_summary(current),
+        # The summary written back as it reads (a form re-saving it, an
+        # export re-imported): nothing to change.
+        do: Enum.map(current, &to_spec/1),
+        else: current |> Enum.map(&to_spec/1) |> legacy_specs(text)
+
+    changesets = build_changesets(specs, supplier, current, & &1)
+
+    case Enum.find(changesets, &(not &1.valid?)) do
+      nil -> :ok
+      bad -> repo().rollback(%{bad | action: :update})
+    end
 
     if Enum.map(current, &comparable/1) != Enum.map(changesets, &comparable/1) do
       replace!(supplier, changesets)
@@ -228,8 +306,27 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
   # the kind's primary takes the new value, else a new primary is added.
   defp legacy_specs(specs, ""), do: Enum.map(specs, &%{&1 | is_primary: false})
 
+  # Free text that is no one kind (`"Mari, +372 5555 5555"`, an edited
+  # summary) stands for the whole summary: it becomes the only primary, the
+  # other kinds' primaries stay as plain contacts, and the column reads back
+  # exactly what was written — never the old primaries plus the new text.
   defp legacy_specs(specs, text) do
-    kind = SupplierContact.classify(text)
+    case SupplierContact.classify(text) do
+      "other" -> legacy_free_text(specs, text)
+      kind -> legacy_of_kind(specs, text, kind)
+    end
+  end
+
+  defp legacy_free_text(specs, text) do
+    specs
+    |> Enum.map(fn
+      %{kind: "other"} = spec -> spec
+      spec -> %{spec | is_primary: false}
+    end)
+    |> legacy_of_kind(text, "other")
+  end
+
+  defp legacy_of_kind(specs, text, kind) do
     same = Enum.find_index(specs, &(&1.kind == kind and &1.value == text))
     primary = Enum.find_index(specs, &(&1.kind == kind and &1.is_primary))
 
@@ -251,40 +348,26 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
     end
   end
 
-  defp write_if_changed(supplier, changesets, opts) do
-    tx =
-      repo().transaction(fn ->
-        lock_supplier!(supplier)
-        current = list_supplier_contacts(supplier)
-
-        if Enum.map(current, &comparable/1) == Enum.map(changesets, &comparable/1) do
-          {:unchanged, current}
-        else
-          replace!(supplier, changesets)
-          {:written, write_summary!(supplier, changesets), length(current)}
-        end
-      end)
-
+  defp after_edit(tx, supplier, opts) do
     case tx do
       {:ok, {:unchanged, current}} ->
         {:ok, %{reload(supplier) | contacts: current}}
 
-      {:ok, {:written, updated, before}} ->
+      {:ok, {:written, updated, before, total}} ->
         ActivityLog.log(%{
           action: "supplier.contacts_updated",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
           resource_type: "supplier",
           resource_uuid: supplier.uuid,
-          metadata: %{
-            "name" => supplier.name,
-            "before" => before,
-            "total" => length(changesets)
-          }
+          metadata: %{"name" => supplier.name, "before" => before, "total" => total}
         })
 
         PubSub.broadcast(:supplier, supplier.uuid)
         {:ok, %{updated | contacts: list_supplier_contacts(supplier)}}
+
+      {:error, :not_found} ->
+        {:error, :not_found}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:error, changeset}
@@ -356,10 +439,12 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
       kind: spec[:kind] && to_string(spec[:kind]),
       value: spec[:value],
       label: spec[:label],
-      is_primary: spec[:is_primary] in [true, "true"],
+      is_primary: truthy?(spec[:is_primary]),
       position: index
     }
   end
+
+  defp truthy?(value), do: value in [true, "true", "on", "1", 1]
 
   defp atomize(map) do
     Map.new(map, fn
@@ -372,10 +457,11 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
   defp key("value"), do: :value
   defp key("label"), do: :label
   defp key("is_primary"), do: :is_primary
+  defp key("uuid"), do: :uuid
   defp key(other), do: other
 
   defp to_spec(%SupplierContact{} = c),
-    do: %{kind: c.kind, value: c.value, label: c.label, is_primary: c.is_primary}
+    do: %{uuid: c.uuid, kind: c.kind, value: c.value, label: c.label, is_primary: c.is_primary}
 
   defp comparable(%Ecto.Changeset{} = changeset),
     do: changeset |> Ecto.Changeset.apply_changes() |> comparable()

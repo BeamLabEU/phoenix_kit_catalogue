@@ -278,6 +278,151 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContactsTest do
     end
   end
 
+  describe "the V8 backfill and classify/1 agree" do
+    test "on whitespace, Unicode spaces and blanks, kind and value alike" do
+      inputs = [
+        "sales@kraana.ee\n",
+        "sales@kraana.ee\r\n",
+        "\tsales@kraana.ee",
+        "\vsales@kraana.ee",
+        "\u00a0sales@kraana.ee\u3000",
+        "sales@kra\u2003ana.ee",
+        "a\u00c5@b.cc",
+        "https://kraana.ee\n",
+        " https://kraana.ee",
+        "+372 5555 1234\n",
+        "\t+372 5555 1234",
+        "Mari\nmari@kraana.ee",
+        "HTTPS://KRAANA.EE",
+        "call Mari "
+      ]
+
+      blanks = ["\n", "\u00a0", " \t\r\n "]
+
+      rows =
+        for text <- inputs ++ blanks do
+          {:ok, s} = Repo.insert(%Supplier{name: "S", contact_info: text})
+          {text, s}
+        end
+
+      for stmt <- Migrations.up_statements("public"), do: Repo.query!(stmt)
+
+      for {text, s} <- rows do
+        case Catalogue.list_supplier_contacts(s) do
+          [] ->
+            assert String.trim(text) == "", inspect(text)
+
+          [contact] ->
+            assert {contact.kind, contact.value} ==
+                     {SupplierContact.classify(text), String.trim(text)},
+                   inspect(text)
+        end
+      end
+
+      assert Enum.count(rows, fn {_, s} -> Catalogue.list_supplier_contacts(s) == [] end) ==
+               length(blanks)
+    end
+  end
+
+  describe "edits build on the locked state and keep uuids" do
+    test "a contact's uuid survives an unrelated edit" do
+      s = supplier(%{contact_info: "sales@kraana.ee"})
+      [c] = Catalogue.list_supplier_contacts(s)
+
+      {:ok, _} = Catalogue.add_supplier_contact(s, %{kind: "phone", value: "+372 5555 1234"})
+      assert c.uuid in Enum.map(Catalogue.list_supplier_contacts(s), & &1.uuid)
+
+      {:ok, _} = Catalogue.add_supplier_contact(s, %{kind: "email", value: "info@kraana.ee"})
+      {:ok, _} = Catalogue.delete_supplier_contact(s, c.uuid)
+
+      assert summary(Catalogue.list_supplier_contacts(s)) == [
+               {"phone", "+372 5555 1234", true},
+               {"email", "info@kraana.ee", true}
+             ]
+    end
+
+    test "set_primary on an unknown uuid is :not_found and writes nothing" do
+      s = supplier(%{contact_info: "sales@kraana.ee"})
+
+      assert {:error, :not_found} =
+               Catalogue.set_primary_supplier_contact(s, Ecto.UUID.generate())
+
+      assert stored(s).contact_info == "sales@kraana.ee"
+    end
+  end
+
+  describe "legacy writes of the summary" do
+    setup do
+      s = supplier()
+
+      {:ok, s} =
+        Catalogue.put_supplier_contacts(s, [
+          %{kind: "person", value: "Mari"},
+          %{kind: "phone", value: "+372 5555 1234"},
+          %{kind: "email", value: "a@kraana.ee"}
+        ])
+
+      %{s: s}
+    end
+
+    test "the summary written back as it reads changes nothing", %{s: s} do
+      before = Catalogue.list_supplier_contacts(s)
+      {:ok, s2} = Catalogue.update_supplier(s, %{contact_info: s.contact_info <> "\n"})
+      assert s2.contact_info == "Mari, +372 5555 1234, a@kraana.ee"
+      assert Catalogue.list_supplier_contacts(s) == before
+    end
+
+    test "an edited summary is the only primary and reads back as written", %{s: s} do
+      text = "Mari, +372 5555 1234, b@kraana.ee"
+      {:ok, s2} = Catalogue.update_supplier(s, %{contact_info: text})
+      assert s2.contact_info == text
+
+      {:ok, s3} = Catalogue.update_supplier(s2, %{contact_info: text <> " (sales)"})
+      assert s3.contact_info == text <> " (sales)"
+
+      contacts = Catalogue.list_supplier_contacts(s)
+      assert length(contacts) == 4
+      assert [%{kind: "other"}] = Enum.filter(contacts, & &1.is_primary)
+    end
+
+    test "a stored contact that no longer validates is an error on contact_info", %{s: s} do
+      Repo.insert_all(SupplierContact, [
+        %{
+          supplier_uuid: s.uuid,
+          kind: "other",
+          value: "\n",
+          position: 9,
+          inserted_at: DateTime.utc_now(:second),
+          updated_at: DateTime.utc_now(:second)
+        }
+      ])
+
+      assert {:error, %Ecto.Changeset{data: %Supplier{}} = cs} =
+               Catalogue.update_supplier(s, %{contact_info: "c@kraana.ee"})
+
+      assert cs.errors[:contact_info]
+    end
+  end
+
+  test "lengths count code points, as varchar does" do
+    s = supplier()
+    # "e" + combining acute: 260 graphemes, 520 code points.
+    long = String.duplicate("e\u0301", 260)
+
+    assert {:error, %Ecto.Changeset{}} =
+             Catalogue.put_supplier_contacts(s, [%{kind: "other", value: long}])
+
+    assert {:error, %Ecto.Changeset{}} = Catalogue.update_supplier(s, %{contact_info: long})
+
+    contacts = [
+      %{kind: "person", value: String.duplicate("e\u0301", 200), is_primary: true},
+      %{kind: "other", value: String.duplicate("e\u0301", 200), is_primary: true}
+    ]
+
+    assert String.length(Catalogue.supplier_contact_summary(contacts)) <= 500
+    assert length(String.to_charlist(Catalogue.supplier_contact_summary(contacts))) == 500
+  end
+
   describe "resolve" do
     test "a local supplier's email, phone and web address come from its primaries" do
       s = supplier()

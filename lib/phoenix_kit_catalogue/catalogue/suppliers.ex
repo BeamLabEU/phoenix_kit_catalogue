@@ -29,7 +29,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     PubSub
   }
 
-  alias PhoenixKitCatalogue.Schemas.{Item, ItemSupplierInfo, Supplier}
+  alias PhoenixKitCatalogue.Schemas.{Item, ItemSupplierInfo, Supplier, SupplierContact}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
@@ -160,11 +160,22 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   # `Catalogue.SupplierContacts`. Without that change it is a plain write.
   defp write_syncing_contacts(changeset, action) do
     if Ecto.Changeset.changed?(changeset, :contact_info) and changeset.valid? do
-      repo().transaction(fn -> write_then_sync(changeset, action) end)
+      fn -> write_then_sync(changeset, action) end
+      |> repo().transaction()
+      |> contact_error(changeset, action)
     else
       apply(repo(), action, [changeset])
     end
   end
+
+  # A contact the text would become does not validate: the error is the
+  # supplier's, on the field that was written.
+  defp contact_error({:error, %Ecto.Changeset{data: %SupplierContact{}} = contact}, cs, action) do
+    message = Enum.map_join(contact.errors, ", ", fn {_field, {msg, _}} -> msg end)
+    {:error, %{Ecto.Changeset.add_error(cs, :contact_info, message) | action: action}}
+  end
+
+  defp contact_error(result, _changeset, _action), do: result
 
   defp write_then_sync(changeset, action) do
     case apply(repo(), action, [changeset]) do

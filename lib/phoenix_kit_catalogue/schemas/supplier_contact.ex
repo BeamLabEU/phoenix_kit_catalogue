@@ -86,8 +86,8 @@ defmodule PhoenixKitCatalogue.Schemas.SupplierContact do
     text = String.trim(text)
 
     cond do
-      text =~ ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/ -> "email"
-      text =~ ~r/^(https?:\/\/|www\.)\S+$/i -> "url"
+      text =~ ~r/^[^\t\n\x0b\f\r @]+@[^\t\n\x0b\f\r @]+\.[^\t\n\x0b\f\r @]+$/ -> "email"
+      text =~ ~r/^(https?:\/\/|www\.)[^\t\n\x0b\f\r ]+$/i -> "url"
       text =~ ~r/^\+?[0-9(][0-9 ().\/-]{5,}$/ -> "phone"
       true -> "other"
     end
@@ -107,8 +107,9 @@ defmodule PhoenixKitCatalogue.Schemas.SupplierContact do
     |> update_change(:label, &blank_to_nil/1)
     |> validate_required([:supplier_uuid, :kind, :value])
     |> validate_inclusion(:kind, @kinds)
-    |> validate_length(:value, max: @max_value_length)
-    |> validate_length(:label, max: @max_label_length)
+    # Code points, as varchar(n) counts them (graphemes can be fewer).
+    |> validate_length(:value, max: @max_value_length, count: :codepoints)
+    |> validate_length(:label, max: @max_label_length, count: :codepoints)
     |> validate_email()
     |> foreign_key_constraint(:supplier_uuid)
     |> unique_constraint(:is_primary,
