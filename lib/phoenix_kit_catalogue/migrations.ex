@@ -484,7 +484,13 @@ defmodule PhoenixKitCatalogue.Migrations do
   #
   # The table, its keys, the primary-per-kind index and the backfill from
   # the legacy `contact_info` text. The backfill's CASE mirrors
-  # `SupplierContact.classify/1`; keep the two in step.
+  # `SupplierContact.classify/1`; keep the two in step. Neither side says
+  # `\s`: Postgres' follows the locale, PCRE's is ASCII. The trim is
+  # Unicode White_Space, what `String.trim/1` strips (`btrim/1` strips only
+  # the space); the classes inside are PCRE's six ASCII spaces, spelled out.
+  @unicode_space "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000"
+  @ascii_space "\\t\\n\\v\\f\\r "
+  @nows "[^\\t\\n\\v\\f\\r @]"
   defp v8_statements(prefix, p) do
     t = "phoenix_kit_cat_supplier_contacts"
 
@@ -524,20 +530,24 @@ defmodule PhoenixKitCatalogue.Migrations do
       "CREATE UNIQUE INDEX IF NOT EXISTS #{t}_primary_per_kind_index ON #{p}#{t} USING btree (supplier_uuid, kind) WHERE is_primary",
       """
       INSERT INTO #{p}#{t} (supplier_uuid, kind, value, is_primary, "position")
-      SELECT s.uuid,
+      SELECT b.uuid,
              CASE
-               WHEN btrim(s.contact_info) ~ '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$' THEN 'email'
-               WHEN btrim(s.contact_info) ~* '^(https?://|www\\.)\\S+$' THEN 'url'
-               WHEN btrim(s.contact_info) ~ '^\\+?[0-9(][0-9 ().\\/-]{5,}$' THEN 'phone'
+               WHEN b.v ~ '^#{@nows}+@#{@nows}+\\.#{@nows}+$' THEN 'email'
+               WHEN b.v ~* '^(https?://|www\\.)[^#{@ascii_space}]+$' THEN 'url'
+               WHEN b.v ~ '^\\+?[0-9(][0-9 ().\\/-]{5,}$' THEN 'phone'
                ELSE 'other'
              END,
-             btrim(s.contact_info),
+             b.v,
              true,
              0
-      FROM #{p}phoenix_kit_cat_suppliers s
-      WHERE s.contact_info IS NOT NULL
-        AND btrim(s.contact_info) <> ''
-        AND NOT EXISTS (SELECT 1 FROM #{p}#{t} c WHERE c.supplier_uuid = s.uuid)
+      FROM (
+        SELECT s.uuid,
+               regexp_replace(s.contact_info, '^[#{@unicode_space}]+|[#{@unicode_space}]+$', '', 'g') AS v
+        FROM #{p}phoenix_kit_cat_suppliers s
+        WHERE s.contact_info IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM #{p}#{t} c WHERE c.supplier_uuid = s.uuid)
+      ) b
+      WHERE b.v <> ''
       """
     ]
   end
