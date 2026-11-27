@@ -31,10 +31,11 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
 
   Two consequences of that, by design:
 
-    * after a free-text write the email and phone primaries have stepped
-      down, so `resolve_supplier/1` reports `email: nil, phone: nil` until
-      a primary of those kinds is set again (`set_primary_supplier_contact/3`
-      or a write of an address or number);
+    * after a free-text write the email, phone and web-address primaries
+      have stepped down, so `resolve_supplier/1` reports `email: nil,
+      phone: nil` (and `website` falls back to the column alone) until a
+      primary of those kinds is set again (`set_primary_supplier_contact/3`,
+      or a write of an email address, phone number or web address);
     * the legacy path only runs when the changeset changes `contact_info`.
       An `update_supplier/3` from a struct loaded before a contacts edit,
       carrying the value that struct held, is no change to Ecto and writes

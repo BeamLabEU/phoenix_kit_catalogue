@@ -166,7 +166,18 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
             {"років", "year"},
             {"wk", "week"},
             {"mo", "month"},
-            {"yr", "year"}
+            {"yr", "year"},
+            {"дни", "day"},
+            {"недели", "week"},
+            {"месяца", "month"},
+            {"года", "year"},
+            {"тижні", "week"},
+            {"роки", "year"},
+            {"nädalat", "week"},
+            {"kuud", "month"},
+            {"aastat", "year"},
+            {"ДНЕЙ", "day"},
+            {"pa\u0308eva", "day"}
           ] do
         assert Mapper.normalize_unit(label) == code, label
       end

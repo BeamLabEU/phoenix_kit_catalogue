@@ -87,6 +87,8 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     # ("päeva", "Tage", "jours", "дней", "d"). "mois" is singular and
     # plural alike.
     "day" => "day",
+    "дни" => "day",
+    "дні" => "day",
     "d" => "day",
     "päeva" => "day",
     "päevad" => "day",
@@ -102,6 +104,9 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "tag" => "day",
     "jour" => "day",
     "week" => "week",
+    "недели" => "week",
+    "тижні" => "week",
+    "nädalat" => "week",
     "недель" => "week",
     "wochen" => "week",
     "semaines" => "week",
@@ -119,6 +124,9 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "тиж." => "week",
     "тиждень" => "week",
     "month" => "month",
+    "месяца" => "month",
+    "місяці" => "month",
+    "kuud" => "month",
     "месяцев" => "month",
     "monate" => "month",
     "місяців" => "month",
@@ -133,6 +141,9 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "міс." => "month",
     "місяць" => "month",
     "year" => "year",
+    "года" => "year",
+    "роки" => "year",
+    "aastat" => "year",
     "лет" => "year",
     "jahre" => "year",
     "ans" => "year",
@@ -554,12 +565,16 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   defp normalize_blank(""), do: nil
   defp normalize_blank(v), do: v
 
+  # NFC first: a sheet exported in decomposed form ("a" + U+0308, as some
+  # macOS and Excel exports write "ä") must meet the composed alias keys.
+  defp unit_key(value), do: value |> String.normalize(:nfc) |> String.trim() |> String.downcase()
+
   @doc """
   Normalizes a unit value using the user-provided unit map and built-in aliases.
   """
   @spec normalize_unit(String.t(), map()) :: String.t()
   def normalize_unit(value, unit_map \\ %{}) do
-    normalized = String.downcase(String.trim(value))
+    normalized = unit_key(value)
 
     cond do
       Map.has_key?(unit_map, value) -> unit_map[value]
@@ -587,7 +602,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   """
   @spec resolve_pro100_unit(String.t() | nil) :: {:ok, String.t()} | :unknown
   def resolve_pro100_unit(label) when is_binary(label) do
-    case Map.get(@unit_aliases, String.downcase(String.trim(label))) do
+    case Map.get(@unit_aliases, unit_key(label)) do
       nil -> :unknown
       unit -> {:ok, unit}
     end
