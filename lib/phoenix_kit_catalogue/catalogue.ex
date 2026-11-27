@@ -366,6 +366,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate list_uncategorized_items_paged(catalogue_uuid, opts \\ []), to: Items
   defdelegate uncategorized_count_for_catalogue(catalogue_uuid, opts \\ []), to: Items
   defdelegate filter_by_attribute_values(query, opts), to: Items
+  defdelegate filter_by_dimensions(query, opts), to: Items
+  defdelegate catalogue_has_sizes?(catalogue_uuid), to: Items
+  defdelegate item_sort_fields(), to: Items
   defdelegate filter_by_item_types(query, opts), to: Items
   defdelegate item_count_for_category(category_uuid, opts \\ []), to: Items
   defdelegate item_status_counts_for_category(category_uuid), to: Items

@@ -33,7 +33,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       search_type: [default: "", url_key: "type"],
       # Comma-joined attribute VALUE slugs ("blue,oak"). In the URL so a
       # filtered view is a link you can send someone.
-      attribute_filter: [default: "", url_key: "attr"]
+      attribute_filter: [default: "", url_key: "attr"],
+      # A from–to range per item dimension (`Web.SizeFilter`), in the URL
+      # for the same reason.
+      size_filter: [default: "", url_key: "size"]
     ]
 
   use Gettext, backend: PhoenixKitCatalogue.Gettext
@@ -86,6 +89,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Web.LevelSwitchers
   alias PhoenixKitCatalogue.Web.PlaceTree
   alias PhoenixKitCatalogue.Web.Settings, as: CatalogueSettings
+  alias PhoenixKitCatalogue.Web.SizeFilter
   alias PhoenixKitCatalogue.Web.TableConfig
   alias PhoenixKitCatalogue.Web.ViewConfig
   alias PhoenixKitWeb.Components.TreePicker
@@ -100,7 +104,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Active-list sortable fields. Whitelist guards the sort events — the
   # context validates atoms too, but the LV must not coerce attacker
   # input into atoms. `:position` is the manual-order default.
-  @items_sort_fields ~w(position name sku base_price status)a
+  @items_sort_fields ~w(position name sku base_price status
+                        length_mm width_mm thickness_mm area_m2 volume_m3 pack_size)a
   @items_sort_field_strs Enum.map(@items_sort_fields, &Atom.to_string/1)
   @categories_sort_fields ~w(position name items updated)a
   # A level's ONE sort, for a level that lists categories and items both:
@@ -233,6 +238,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         attribute_filter_options: [],
         attribute_value_counts: %{},
         prior_attribute_filter: "",
+        prior_size_filter: "",
+        size_filter_available?: false,
         items_scope: "",
         prior_items_scope: "",
         search_type: "",
@@ -307,8 +314,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # An attribute filter change re-fetches the level exactly as a
     # category change does: the items, their total, and any active search
     # all narrow by it (2026-08-28).
-    filter_changed? = state.attribute_filter != socket.assigns[:prior_attribute_filter]
-    socket = assign(socket, :prior_attribute_filter, state.attribute_filter)
+    filter_changed? =
+      state.attribute_filter != socket.assigns[:prior_attribute_filter] or
+        state.size_filter != socket.assigns[:prior_size_filter]
+
+    socket =
+      socket
+      |> assign(:prior_attribute_filter, state.attribute_filter)
+      |> assign(:prior_size_filter, state.size_filter)
 
     # The Categories/Items page mode. Client-forgeable URL state —
     # anything unknown means the default outline view. A mode change
@@ -798,6 +811,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("clear_attribute_filter", _params, socket) do
     {:noreply, push_url_state(socket, attribute_filter: "")}
+  end
+
+  # The size filter's form: every bound it holds, each time one changes.
+  # What cannot be read as a size is dropped, so the URL only ever carries
+  # a filter the query can take.
+  def handle_event("set_size_filter", %{"size" => params}, socket) do
+    encoded = params |> SizeFilter.from_params() |> SizeFilter.encode()
+    {:noreply, push_url_state(socket, [size_filter: encoded], replace: true)}
+  end
+
+  def handle_event("set_size_filter", _params, socket), do: {:noreply, socket}
+
+  def handle_event("clear_size_filter", _params, socket) do
+    {:noreply, push_url_state(socket, size_filter: "")}
   end
 
   def handle_event("clear_search", _params, socket) do
@@ -2692,6 +2719,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         :attribute_filter_options,
         Catalogue.attribute_filter_options(uuid, lang: loc(socket))
       )
+      |> assign(:size_filter_available?, Catalogue.catalogue_has_sizes?(uuid))
 
     # Per-status item counts for the current node — drive the tab labels
     # and the default-tab pick below.
@@ -3341,7 +3369,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp run_search(socket, query) do
     uuid = socket.assigns.catalogue_uuid
     current = socket.assigns.current_category
-    slugs = active_attribute_slugs(socket)
+    slugs = item_filters(socket)
     type = effective_search_type(socket.assigns)
     subtree? = subtree_items?(socket.assigns)
     # The Deleted tab searches the trash (trashed items of this catalogue).
@@ -3389,7 +3417,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # value the old page was fetched at — so the old page passes the guard
   # and its rows, from the previous filter, are appended to the new list.
   defp search_stamp(socket, offset) do
-    {socket.assigns.search_query, offset, active_attribute_slugs(socket),
+    {socket.assigns.search_query, offset, item_filters(socket),
      level_node_key(socket.assigns.current_category), effective_search_type(socket.assigns),
      subtree_items?(socket.assigns)}
   end
@@ -3430,7 +3458,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       Catalogue.search_items_in_catalogue(
         uuid,
         query,
-        [limit: limit, offset: offset, value_slugs: slugs] ++ mode_opts
+        [limit: limit, offset: offset] ++ slugs ++ mode_opts
       )
 
   defp search_in_scope(uuid, :uncategorized, query, limit, offset, slugs, _subtree?, mode_opts),
@@ -3441,9 +3469,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           catalogue_uuids: [uuid],
           only: :uncategorized_only,
           limit: limit,
-          offset: offset,
-          value_slugs: slugs
-        ] ++ mode_opts
+          offset: offset
+        ] ++ slugs ++ mode_opts
       )
 
   defp search_in_scope(
@@ -3460,29 +3487,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          Catalogue.search_items_in_category(
            cuuid,
            query,
-           [limit: limit, offset: offset, value_slugs: slugs, include_descendants: subtree?] ++
-             mode_opts
+           [limit: limit, offset: offset, include_descendants: subtree?] ++
+             slugs ++ mode_opts
          )
 
   defp search_count_in_scope(uuid, nil, query, slugs, _subtree?, mode_opts),
     do:
       Catalogue.count_search_items(
         query,
-        [catalogue_uuids: [uuid], value_slugs: slugs] ++ mode_opts
+        [catalogue_uuids: [uuid]] ++ slugs ++ mode_opts
       )
 
   defp search_count_in_scope(uuid, :uncategorized, query, slugs, _subtree?, mode_opts),
     do:
       Catalogue.count_search_items(
         query,
-        [catalogue_uuids: [uuid], only: :uncategorized_only, value_slugs: slugs] ++ mode_opts
+        [catalogue_uuids: [uuid], only: :uncategorized_only] ++ slugs ++ mode_opts
       )
 
   defp search_count_in_scope(_uuid, %Category{uuid: cuuid}, query, slugs, subtree?, mode_opts),
     do:
       Catalogue.count_search_items(
         query,
-        [category_uuids: [cuuid], value_slugs: slugs, include_descendants: subtree?] ++ mode_opts
+        [category_uuids: [cuuid], include_descendants: subtree?] ++ slugs ++ mode_opts
       )
 
   @impl true
@@ -3596,7 +3623,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     %{catalogue_uuid: uuid, current_category: current, search_query: query, search_offset: offset} =
       socket.assigns
 
-    slugs = active_attribute_slugs(socket)
+    slugs = item_filters(socket)
     subtree? = subtree_items?(socket.assigns)
     stamp = search_stamp(socket, offset)
     # Later pages search the same place as the first (the trash in the
@@ -3674,7 +3701,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         )
         |> Catalogue.localize(loc(socket))
 
-      total = card_total(scope, catalogue_uuid, status, active_attribute_slugs(socket))
+      total = card_total(scope, catalogue_uuid, status, item_filters(socket))
 
       socket
       |> assign(
@@ -3703,7 +3730,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           catalogue_uuid: catalogue_uuid,
           statuses: [socket.assigns[:view_mode] || "active"],
           search: search,
-          value_slugs: active_attribute_slugs(socket.assigns)
+          value_slugs: active_attribute_slugs(socket.assigns),
+          dimensions: active_dimensions(socket.assigns)
         ] ++
           counts_scope(
             socket.assigns[:current_category],
@@ -3730,13 +3758,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # attribute filter would look broken — but the item section's own total
   # has to match what the filter actually returns (2026-08-28).
   defp node_total(socket, status_counts, status, current, uuid) do
-    case active_attribute_slugs(socket) do
-      [] ->
-        Map.get(status_counts, status, 0)
-
-      slugs ->
-        card_total(node_scope(current), uuid, status, slugs)
-    end
+    if item_filters_active?(socket),
+      do: card_total(node_scope(current), uuid, status, item_filters(socket)),
+      else: Map.get(status_counts, status, 0)
   end
 
   # `status` is the exact item status of the current tab
@@ -3744,20 +3768,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp card_total(:catalogue, catalogue_uuid, status, slugs) do
     Catalogue.count_items_for_catalogue(
       catalogue_uuid,
-      [status: status, value_slugs: slugs] ++ trash_scope(status)
+      [status: status] ++ slugs ++ trash_scope(status)
     )
   end
 
   defp card_total(:uncategorized, catalogue_uuid, status, slugs) do
-    Catalogue.uncategorized_count_for_catalogue(catalogue_uuid,
-      status: status,
-      value_slugs: slugs
-    )
+    Catalogue.uncategorized_count_for_catalogue(catalogue_uuid, [status: status] ++ slugs)
   end
 
   defp card_total(category_uuid, _catalogue_uuid, status, slugs)
        when is_binary(category_uuid) do
-    Catalogue.item_count_for_category(category_uuid, status: status, value_slugs: slugs)
+    Catalogue.item_count_for_category(category_uuid, [status: status] ++ slugs)
   end
 
   # The catalogue-wide trash lists only items outside a trashed category.
@@ -3795,9 +3816,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp items_sort_opts(socket) do
     [
       sort_by: socket.assigns.items_sort_by,
-      sort_dir: socket.assigns.items_sort_dir,
-      value_slugs: active_attribute_slugs(socket)
-    ]
+      sort_dir: socket.assigns.items_sort_dir
+    ] ++ item_filters(socket)
   end
 
   # The attribute filter is a question about live items, and the trash is
@@ -3809,6 +3829,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp active_attribute_slugs(%{assigns: assigns}), do: active_attribute_slugs(assigns)
   defp active_attribute_slugs(%{view_mode: "deleted"}), do: []
   defp active_attribute_slugs(assigns), do: attribute_filter_slugs(assigns)
+
+  # The size filter, under the same rule: a question about live items, so
+  # it neither applies nor is offered in the trash, and `?size=` comes
+  # back with the Active tab.
+  defp active_size_filter(%{assigns: assigns}), do: active_size_filter(assigns)
+  defp active_size_filter(%{view_mode: "deleted"}), do: %{}
+  defp active_size_filter(assigns), do: SizeFilter.decode(assigns[:size_filter])
+
+  defp active_dimensions(source), do: source |> active_size_filter() |> SizeFilter.to_dimensions()
+
+  # Everything that narrows WHICH items show, as the options every item
+  # listing, search and count takes. One list, so no path can apply one
+  # filter and forget the other.
+  defp item_filters(source),
+    do: [value_slugs: active_attribute_slugs(source), dimensions: active_dimensions(source)]
+
+  defp item_filters_active?(source),
+    do: active_attribute_slugs(source) != [] or active_size_filter(source) != %{}
 
   # Re-fetches the current level's child categories in their new order
   # after a sibling DnD reorder. Items are untouched (reorder of the
@@ -4014,11 +4052,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 @attribute_filter_options != [] and
                   not (effective_search_type(assigns) == "categories" and
                          (@search_results != nil or @search_loading)) %>
+              <%!-- Item-level like the attribute filter, so hidden on the
+                    same terms; and only where some item has a size. --%>
+              <% size_filter? =
+                @size_filter_available? and @view_mode != "deleted" and
+                  not (effective_search_type(assigns) == "categories" and
+                         (@search_results != nil or @search_loading)) %>
               <.search_filters
-                :if={subtree_toggle? or attr_filter?}
+                :if={subtree_toggle? or attr_filter? or size_filter?}
                 id="catalogue-level-filters"
                 active={
                   if(attr_filter?, do: length(active_attribute_slugs(assigns)), else: 0) +
+                    if(size_filter?, do: SizeFilter.active(active_size_filter(assigns)), else: 0) +
                     if(subtree_toggle? and subtree_items?(assigns), do: 1, else: 0)
                 }
               >
@@ -4057,6 +4102,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   always_visible
                   inline
                 />
+                <.size_filter :if={size_filter?} filter={active_size_filter(assigns)} />
               </.search_filters>
               <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
                 <%!-- The list's own controls, behind one button, where the
@@ -6370,6 +6416,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   <% "unit" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}</div>
                     <div>{Item.unit_label(item.unit)}</div>
+                  <% size when size in ["length_mm", "width_mm", "thickness_mm", "area_m2", "volume_m3", "pack_size"] -> %>
+                    <div class="text-base-content/60">{size_column_label(size)}</div>
+                    <div class="tabular-nums">{size_column_value(item, size)}</div>
                   <% "item_type" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item type")}</div>
                     <div>{Item.item_type_label(Item.effective_type(item, @catalogue.item_type))}</div>
@@ -6454,6 +6503,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
                     </.table_default_header_cell>
+                  <% size when size in ["length_mm", "width_mm", "thickness_mm", "area_m2", "volume_m3", "pack_size"] -> %>
+                    <.sort_header_cell field={String.to_existing_atom(size)} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" data-col-priority={column_priority(col)} class="w-px whitespace-nowrap text-right">
+                      {size_column_label(size)}
+                    </.sort_header_cell>
                   <% "item_type" -> %>
                     <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item type")}
@@ -6698,8 +6751,58 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       {:sku, Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")},
       {:base_price, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")},
       {:status, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+      | Enum.map(size_columns(), &{String.to_existing_atom(&1), size_column_label(&1)})
     ]
   end
+
+  # The size filter: a from–to pair per dimension, in millimetres. A form
+  # of its own — an input outside one never reaches the server — that sends
+  # every bound on each change; the server answers through the URL.
+  attr(:filter, :map, required: true)
+
+  defp size_filter(assigns) do
+    ~H"""
+    <form id="catalogue-size-filter" phx-change="set_size_filter" phx-submit="set_size_filter" class="w-full flex flex-col gap-2">
+      <div class="flex items-center justify-between">
+        <span class="text-sm font-semibold">{gettext("Size (mm)")}</span>
+        <button
+          :if={@filter != %{}}
+          type="button"
+          phx-click="clear_size_filter"
+          class="link link-hover text-xs"
+        >
+          {gettext("Clear size")}
+        </button>
+      </div>
+      <div
+        :for={field <- SizeFilter.fields()}
+        class="grid grid-cols-[5rem_1fr_1fr] items-center gap-2"
+      >
+        <span class="text-sm text-base-content/70">{size_filter_label(field)}</span>
+        <input
+          :for={side <- [:min, :max]}
+          type="text"
+          inputmode="decimal"
+          id={"size-filter-#{field}-#{side}"}
+          name={"size[#{field}][#{side}]"}
+          value={SizeFilter.input_value(@filter, field, side)}
+          placeholder={if side == :min, do: gettext("From"), else: gettext("To")}
+          aria-label={
+            if side == :min,
+              do: gettext("%{dimension} from", dimension: size_filter_label(field)),
+              else: gettext("%{dimension} to", dimension: size_filter_label(field))
+          }
+          phx-debounce="400"
+          class="input input-sm w-full tabular-nums"
+        />
+      </div>
+    </form>
+    """
+  end
+
+  defp size_filter_label(:length_mm), do: gettext("Length")
+  defp size_filter_label(:width_mm), do: gettext("Width")
+  defp size_filter_label(:thickness_mm), do: gettext("Thickness")
 
   # Strategy-reorder modal options. Values must match the keys in
   # `@items_reorder_strategy_map`.

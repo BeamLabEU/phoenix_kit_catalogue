@@ -33,6 +33,13 @@ defmodule PhoenixKitCatalogue.API.Schemas do
   def row_text(max), do: %{"type" => "string", "maxLength" => max}
   def row_nullable_id, do: %{"type" => ["string", "null"], "maxLength" => 200}
 
+  # A size or a pack size: a JSON number or, to keep every digit, a decimal
+  # string. Row-level like the fields above: a value that is not a number,
+  # or not above zero, fails that row and not the request.
+  @decimal %{"type" => ["number", "string"], "maxLength" => 30}
+  def decimal, do: @decimal
+  def nullable_decimal, do: %{"type" => ["number", "string", "null"], "maxLength" => 30}
+
   @doc "A reference: an object of which the handler requires exactly one key."
   def ref do
     %{
@@ -90,6 +97,10 @@ defmodule PhoenixKitCatalogue.API.Schemas do
               "category_id" => @row_id,
               "status" => %{"type" => "string", "enum" => @statuses},
               "unit" => %{"type" => "string", "enum" => units()},
+              "length_mm" => @decimal,
+              "width_mm" => @decimal,
+              "thickness_mm" => @decimal,
+              "pack_size" => @decimal,
               "attributes" => attributes()
             },
             "additionalProperties" => false
@@ -134,6 +145,10 @@ defmodule PhoenixKitCatalogue.API.Schemas do
         "category_id" => row_nullable_id(),
         "status" => %{"type" => "string", "enum" => @statuses},
         "unit" => %{"type" => "string", "enum" => units()},
+        "length_mm" => nullable_decimal(),
+        "width_mm" => nullable_decimal(),
+        "thickness_mm" => nullable_decimal(),
+        "pack_size" => nullable_decimal(),
         "attributes" => attributes()
       },
       "additionalProperties" => false
@@ -265,6 +280,12 @@ defmodule PhoenixKitCatalogue.API.Schemas do
         "include_deleted" => %{"type" => "boolean"},
         "updated_since" => %{"type" => "string", "minLength" => 10, "maxLength" => 40},
         "q" => %{"type" => "string", "maxLength" => 200},
+        "length_mm_min" => @decimal,
+        "length_mm_max" => @decimal,
+        "width_mm_min" => @decimal,
+        "width_mm_max" => @decimal,
+        "thickness_mm_min" => @decimal,
+        "thickness_mm_max" => @decimal,
         "limit" => %{"type" => "integer", "minimum" => 1},
         "cursor" => %{"type" => "string", "maxLength" => 300},
         "fields" => fields()

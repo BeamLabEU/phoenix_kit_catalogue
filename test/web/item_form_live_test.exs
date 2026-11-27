@@ -1806,4 +1806,244 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert to == catalogue_detail_url(catalogue.uuid)
     end
   end
+
+  describe "dimensions and packaging (chain V7)" do
+    test "typing the three dimensions shows the area and volume of one unit, live", %{conn: conn} do
+      catalogue = fixture_catalogue(%{kind: "standard"})
+      {:ok, view, html} = live(conn, new_item_url(catalogue.uuid))
+
+      assert html =~ "— Area and volume not set —"
+
+      html =
+        view
+        |> form("form[action=\"#\"][phx-submit=save]", %{
+          "item" =>
+            base_item_params(%{
+              "unit" => "sheet",
+              "length_mm" => "2500",
+              "width_mm" => "1250",
+              "thickness_mm" => "18"
+            })
+        })
+        |> render_change()
+
+      assert html =~ ~s(<span id="item-area-m2" class="font-mono">3.125</span>)
+      assert html =~ ~s(<span id="item-volume-m3" class="font-mono">0.05625</span>)
+      refute html =~ "— Area and volume not set —"
+
+      # Without a thickness there is an area and no volume.
+      html =
+        view
+        |> form("form[action=\"#\"][phx-submit=save]", %{
+          "item" => %{"thickness_mm" => ""}
+        })
+        |> render_change()
+
+      assert html =~ ~s(id="item-area-m2")
+      refute html =~ ~s(id="item-volume-m3")
+    end
+
+    test "a save stores them as typed — comma decimals, and a length below the width", %{
+      conn: conn
+    } do
+      catalogue = fixture_catalogue(%{kind: "standard"})
+      {:ok, view, _html} = live(conn, new_item_url(catalogue.uuid))
+
+      {:error, {:live_redirect, _}} =
+        view
+        |> form("form[action=\"#\"][phx-submit=save]", %{
+          "item" =>
+            base_item_params(%{
+              "name" => "Cross grain",
+              "unit" => "sheet",
+              "length_mm" => "1250",
+              "width_mm" => "2500",
+              "thickness_mm" => "6,5",
+              "pack_size" => "40"
+            })
+        })
+        |> render_submit()
+
+      [item] = TestRepo.all(Item)
+      assert Decimal.equal?(item.length_mm, Decimal.new(1250))
+      assert Decimal.equal?(item.width_mm, Decimal.new(2500))
+      assert Decimal.equal?(item.thickness_mm, Decimal.new("6.5"))
+      assert Decimal.equal?(item.pack_size, Decimal.new(40))
+      assert Decimal.equal?(item.volume_m3, Decimal.new("0.0203125"))
+    end
+
+    test "zero is refused with the field's own error", %{conn: conn} do
+      catalogue = fixture_catalogue(%{kind: "standard"})
+      {:ok, view, _html} = live(conn, new_item_url(catalogue.uuid))
+
+      html =
+        view
+        |> form("form[action=\"#\"][phx-submit=save]", %{
+          "item" => base_item_params(%{"thickness_mm" => "0"})
+        })
+        |> render_submit()
+
+      assert html =~ "must be greater than 0"
+      assert TestRepo.all(Item) == []
+    end
+
+    test "an edit shows the saved values and clears one", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Plywood",
+          unit: "sheet",
+          length_mm: 2500,
+          width_mm: 1250,
+          thickness_mm: 18,
+          pack_size: 40
+        })
+
+      {:ok, view, html} = live(conn, edit_item_url(item.uuid))
+      assert html =~ ~s(<span id="item-volume-m3" class="font-mono">0.05625</span>)
+
+      render_submit(view, "save", %{
+        "item" => %{"name" => "Plywood", "thickness_mm" => "", "pack_size" => "35"},
+        "save_action" => "stay"
+      })
+
+      updated = Catalogue.get_item(item.uuid)
+      assert updated.thickness_mm == nil
+      assert updated.volume_m3 == nil
+      assert Decimal.equal?(updated.length_mm, Decimal.new(2500))
+      assert Decimal.equal?(updated.pack_size, Decimal.new(35))
+    end
+
+    test "a smart catalogue's item form has no dimensions", %{conn: conn} do
+      catalogue = fixture_catalogue(%{kind: "smart"})
+      {:ok, _view, html} = live(conn, new_item_url(catalogue.uuid))
+      refute html =~ ~s(id="item-dimensions")
+    end
+  end
+
+  describe "supplier cost unit and pack size (chain V7)" do
+    defp priced_item do
+      fixture_item(%{
+        name: "Oak Panel",
+        unit: "sheet",
+        category_uuid: fixture_category(fixture_catalogue()).uuid
+      })
+    end
+
+    defp supplier_row(item, supplier, attrs) do
+      {:ok, info} =
+        Catalogue.create_supplier_info(
+          Map.merge(
+            %{
+              "item_uuid" => item.uuid,
+              "supplier_uuid" => supplier.uuid,
+              "supplier_source" => "local"
+            },
+            attrs
+          )
+        )
+
+      info
+    end
+
+    defp save_rows(view) do
+      render_submit(view, "save", %{
+        "item" => %{"name" => "Oak Panel"},
+        "supplier_rows" => %{},
+        "save_action" => "stay"
+      })
+    end
+
+    test "the row dialog stages them; Save writes them without a price revision", %{conn: conn} do
+      item = priced_item()
+      supplier = fixture_supplier()
+      info = supplier_row(item, supplier, %{"unit_cost" => "830", "currency" => "EUR"})
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      html = render_click(view, "edit_supplier_info", %{"supplier" => supplier.uuid})
+      # The item's own unit is the default; the others are the ones it converts to.
+      assert html =~ "— The item&#39;s unit (sheet) —"
+      assert html =~ ~s(<option value="m3">m³</option>)
+      assert html =~ ~s(<option value="pack">pack</option>)
+      refute html =~ ~s(<option value="sheet">)
+
+      html =
+        render_click(view, "save_supplier_info", %{
+          "supplier_info" => %{"cost_unit" => "m3", "pack_size" => "35"}
+        })
+
+      # Staged: shown beside the cost, nothing written yet.
+      assert html =~ ~s(id="supplier-cost-unit-#{supplier.uuid}")
+      assert [%{cost_unit: nil}] = Catalogue.list_supplier_infos_for_item(item.uuid)
+
+      save_rows(view)
+
+      assert [updated] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert updated.cost_unit == "m3"
+      assert Decimal.equal?(updated.pack_size, Decimal.new(35))
+      # The same row: a cost unit is a term, not a new price.
+      assert updated.uuid == info.uuid
+      assert Decimal.equal?(updated.unit_cost, Decimal.new(830))
+    end
+
+    test "back to the item's unit clears it, and a zero pack stays in the dialog", %{conn: conn} do
+      item = priced_item()
+      supplier = fixture_supplier()
+
+      supplier_row(item, supplier, %{
+        "unit_cost" => "830",
+        "cost_unit" => "m3",
+        "pack_size" => "35"
+      })
+
+      {:ok, view, html} = live(conn, edit_item_url(item.uuid))
+      assert html =~ ~s(id="supplier-cost-unit-#{supplier.uuid}")
+
+      html = render_click(view, "edit_supplier_info", %{"supplier" => supplier.uuid})
+      assert html =~ "Cost is per"
+      assert has_element?(view, ~s(#supplier-form-cost-unit option[value="m3"][selected]))
+
+      render_click(view, "save_supplier_info", %{
+        "supplier_info" => %{"cost_unit" => "", "pack_size" => "0"}
+      })
+
+      # Refused: the dialog is still open and nothing is staged for a save.
+      assert has_element?(view, "#supplier-form")
+
+      render_click(view, "save_supplier_info", %{
+        "supplier_info" => %{"cost_unit" => "", "pack_size" => ""}
+      })
+
+      save_rows(view)
+
+      assert [updated] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert updated.cost_unit == nil
+      assert updated.pack_size == nil
+    end
+
+    test "a price change carries the cost unit to the new price", %{conn: conn} do
+      item = priced_item()
+      supplier = fixture_supplier()
+
+      supplier_row(item, supplier, %{
+        "unit_cost" => "830",
+        "currency" => "EUR",
+        "cost_unit" => "m3",
+        "pack_size" => "35"
+      })
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      render_submit(view, "save", %{
+        "item" => %{"name" => "Oak Panel"},
+        "supplier_rows" => %{supplier.uuid => %{"unit_cost" => "850", "currency" => "EUR"}},
+        "save_action" => "stay"
+      })
+
+      assert [current] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert Decimal.equal?(current.unit_cost, Decimal.new(850))
+      assert current.cost_unit == "m3"
+      assert Decimal.equal?(current.pack_size, Decimal.new(35))
+    end
+  end
 end

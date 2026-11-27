@@ -6,10 +6,10 @@ The catalogue's part of the shop API: nine admin tools that core's API layer (ke
 
 | Tool | Scope | What it does |
 |---|---|---|
-| `catalogue.list_products` | `catalogue.products:read` | One catalogue's items, oldest change first, keyset pages (`cursor`), exact `count`, filters `category_id` `status` `q` (name, description, sku) `updated_since` (inclusive) `include_deleted` |
+| `catalogue.list_products` | `catalogue.products:read` | One catalogue's items, oldest change first, keyset pages (`cursor`), exact `count`, filters `category_id` `status` `q` (name, description, sku) `updated_since` (inclusive) `include_deleted`, and size: `length_mm_min` / `length_mm_max` (same for `width_mm`, `thickness_mm`), inclusive, a number or a decimal string. No sort: the order is the keyset's |
 | `catalogue.get_products` | `catalogue.products:read` | Up to 50 items by reference; `fields` picks what comes back; shop fields only with `ecommerce.prices:read` |
 | `catalogue.create_products` | `catalogue.products:write` | Up to 500 items; never overwrites (`skipped` + `already_exists`); no price, not visible in the shop |
-| `catalogue.update_products` | `catalogue.products:write` | `{ref, changes}` pairs: name, description, sku, external_id, category, status, unit, attribute values |
+| `catalogue.update_products` | `catalogue.products:write` | `{ref, changes}` pairs: name, description, sku, external_id, category, status, unit, `length_mm` / `width_mm` / `thickness_mm` / `pack_size` (`null` clears), attribute values |
 | `catalogue.set_translations` | `catalogue.products:write` | Per language: name, description, slug, SEO title and description |
 | `catalogue.delete_products` | `catalogue.products:delete` | To the trash, never hard delete; **always** needs confirmation |
 | `catalogue.list_categories` | `catalogue.categories:read` | The category tree |
@@ -73,3 +73,13 @@ Every API write is logged by the context, with the key owner as actor, `mode: "a
 2. Resolve the catalogue with `API.resolve_catalogue/2` and references with `API.resolve_refs/2`; write through the `Catalogue` facade with `Common.write_opts/3`; never pass `base_price`, markup or raw `data`.
 3. A write handler supports `ctx.dry_run?` (preview + fingerprint) and answers per-row results.
 4. Tests through `PhoenixKitCatalogue.Test.ApiCase.call/3`, which validates the input like the executor does. Add the tool to `tools_conformance_test.exs`.
+
+## Size fields
+
+`length_mm`, `width_mm`, `thickness_mm` and `pack_size` are written by
+`create_products` and `update_products` as a JSON number or, to keep every
+digit, a decimal string; a value that is not a number above zero fails its
+own row. They are stored as sent — the API never orders or swaps them. Reads
+return them, with the derived `area_m2` and `volume_m3`, as decimal strings
+(`"0.05625"`), `null` when unset; the two derived fields cannot be written.
+A supplier's cost, cost unit and pack size are not in the API.

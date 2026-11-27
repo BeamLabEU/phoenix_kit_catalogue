@@ -38,8 +38,10 @@ defmodule PhoenixKitCatalogue.Web.SupplierDraft do
           errors: %{supplier_uuid() => atom()}
         }
 
-  @value_keys ~w(unit_cost currency supplier_sku lead_time_days min_order_qty)
-  @term_keys ~w(supplier_sku lead_time_days min_order_qty)
+  # `cost_unit` and `pack_size` are terms, not a price: changing what the
+  # cost is for edits the current row and starts no revision.
+  @value_keys ~w(unit_cost currency supplier_sku lead_time_days min_order_qty cost_unit pack_size)
+  @term_keys ~w(supplier_sku lead_time_days min_order_qty cost_unit pack_size)
 
   @spec new() :: t()
   def new, do: %__MODULE__{}
@@ -505,7 +507,9 @@ defmodule PhoenixKitCatalogue.Web.SupplierDraft do
            :unit_cost,
            :supplier_sku,
            :lead_time_days,
-           :min_order_qty
+           :min_order_qty,
+           :cost_unit,
+           :pack_size
          ]) do
       [] -> :ok
       [{:currency, _} | _] -> {:error, :invalid_currency}
@@ -528,11 +532,12 @@ defmodule PhoenixKitCatalogue.Web.SupplierDraft do
     end
   end
 
-  # `min_order_qty` is a free-decimal input: a typed "2,5" is "2.5".
+  # `min_order_qty` and `pack_size` are free-decimal inputs: a typed "2,5"
+  # is "2.5".
   defp normalize_terms(attrs) do
     Map.new(attrs, fn
-      {"min_order_qty", value} when is_binary(value) ->
-        {"min_order_qty", String.replace(value, ",", ".")}
+      {key, value} when key in ["min_order_qty", "pack_size"] and is_binary(value) ->
+        {key, String.replace(value, ",", ".")}
 
       pair ->
         pair

@@ -3960,3 +3960,66 @@ msgstr "Ці одиниці не можна перерахувати одна в
 
 msgid "This supplier has no cost on the item."
 msgstr "У цього постачальника не вказано вартість позиції."
+
+msgid "Dimensions and packaging"
+msgstr "Розміри та пакування"
+
+msgid "Length (mm)"
+msgstr "Довжина (мм)"
+
+msgid "Width (mm)"
+msgstr "Ширина (мм)"
+
+msgid "Thickness (mm)"
+msgstr "Товщина (мм)"
+
+msgid "Pack size"
+msgstr "Розмір упаковки"
+
+msgid "How many of the item's unit are in one pack."
+msgstr "Скільки одиниць позиції в одній упаковці."
+
+msgid "— Area and volume not set —"
+msgstr "— Площу та об'єм не задано —"
+
+msgid "One %{unit}:"
+msgstr "Одна одиниця (%{unit}):"
+
+msgid "Cost is per"
+msgstr "Ціну вказано за"
+
+msgid "— The item's unit (%{unit}) —"
+msgstr "— Одиниця позиції (%{unit}) —"
+
+msgid "Supplier's pack size"
+msgstr "Розмір упаковки постачальника"
+
+msgid "Area (m²)"
+msgstr "Площа (м²)"
+
+msgid "Volume (m³)"
+msgstr "Об'єм (м³)"
+
+msgid "Size (mm)"
+msgstr "Розмір (мм)"
+
+msgid "Clear size"
+msgstr "Скинути розмір"
+
+msgid "From"
+msgstr "Від"
+
+msgid "To"
+msgstr "До"
+
+msgid "%{dimension} from"
+msgstr "%{dimension} від"
+
+msgid "%{dimension} to"
+msgstr "%{dimension} до"
+
+msgid "Length"
+msgstr "Довжина"
+
+msgid "Thickness"
+msgstr "Товщина"

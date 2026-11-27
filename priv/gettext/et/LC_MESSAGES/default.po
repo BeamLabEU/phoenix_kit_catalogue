@@ -3946,3 +3946,66 @@ msgstr "Neid ühikuid ei saa selle toote puhul üksteiseks teisendada."
 
 msgid "This supplier has no cost on the item."
 msgstr "Sellel tarnijal pole toote hinda määratud."
+
+msgid "Dimensions and packaging"
+msgstr "Mõõtmed ja pakend"
+
+msgid "Length (mm)"
+msgstr "Pikkus (mm)"
+
+msgid "Width (mm)"
+msgstr "Laius (mm)"
+
+msgid "Thickness (mm)"
+msgstr "Paksus (mm)"
+
+msgid "Pack size"
+msgstr "Pakendi suurus"
+
+msgid "How many of the item's unit are in one pack."
+msgstr "Mitu toote ühikut on ühes pakendis."
+
+msgid "— Area and volume not set —"
+msgstr "— Pindala ja maht määramata —"
+
+msgid "One %{unit}:"
+msgstr "Üks ühik (%{unit}):"
+
+msgid "Cost is per"
+msgstr "Hind kehtib ühiku kohta"
+
+msgid "— The item's unit (%{unit}) —"
+msgstr "— Toote ühik (%{unit}) —"
+
+msgid "Supplier's pack size"
+msgstr "Tarnija pakendi suurus"
+
+msgid "Area (m²)"
+msgstr "Pindala (m²)"
+
+msgid "Volume (m³)"
+msgstr "Maht (m³)"
+
+msgid "Size (mm)"
+msgstr "Suurus (mm)"
+
+msgid "Clear size"
+msgstr "Tühjenda suurus"
+
+msgid "From"
+msgstr "Alates"
+
+msgid "To"
+msgstr "Kuni"
+
+msgid "%{dimension} from"
+msgstr "%{dimension} alates"
+
+msgid "%{dimension} to"
+msgstr "%{dimension} kuni"
+
+msgid "Length"
+msgstr "Pikkus"
+
+msgid "Thickness"
+msgstr "Paksus"

@@ -18,6 +18,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
+  # The V7 size columns a search can be ordered by.
+  @size_order_fields ~w(length_mm width_mm thickness_mm area_m2 volume_m3 pack_size)a
+
   @doc """
   Searches items with flexible scope.
 
@@ -52,8 +55,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
       order — catalogue position, category position, item position,
       name; `{:position, dir}` is accepted and the direction ignored,
       like the admin's Manual sort), `:name`, or `{field, :asc | :desc}`
-      for `name` / `sku` / `base_price` / `status`. Anything else raises
+      for `name` / `sku` / `base_price` / `status` or a size column
+      (`length_mm`, `width_mm`, `thickness_mm`, `area_m2`, `volume_m3`,
+      `pack_size` — items without the value last). Anything else raises
       `ArgumentError`.
+    * `:dimensions` — only items of these sizes, exact or a `{min, max}`
+      range per dimension (`Catalogue.filter_by_dimensions/2`).
       Known limits of the Manual chain: catalogue positions are one
       sequence per folder level, so across folders it is position then
       name rather than the index's folder walk; and a subtree listing
@@ -138,6 +145,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
       when field in ~w(name sku base_price status)a and dir in [:asc, :desc],
       do: order_by(query, [i, _cat, _c], [{^dir, field(i, ^field)}, {:asc, i.uuid}])
 
+  # The size columns: an item without the value sorts last either way.
+  def apply_search_order(query, {field, :asc}) when field in @size_order_fields,
+    do: order_by(query, [i, _cat, _c], [{:asc_nulls_last, field(i, ^field)}, {:asc, i.uuid}])
+
+  def apply_search_order(query, {field, :desc}) when field in @size_order_fields,
+    do: order_by(query, [i, _cat, _c], [{:desc_nulls_last, field(i, ^field)}, {:asc, i.uuid}])
+
   def apply_search_order(query, :name),
     do: order_by(query, [i, _cat, _c], asc: i.name, asc: i.uuid)
 
@@ -146,7 +160,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
   def apply_search_order(_query, other) do
     raise ArgumentError,
           "search_items/2 :order must be :position, :name, or {field, :asc | :desc} " <>
-            "with field in [:name, :sku, :base_price, :status], got: #{inspect(other)}"
+            "with field in [:name, :sku, :base_price, :status] or a size column " <>
+            "#{inspect(@size_order_fields)}, got: #{inspect(other)}"
   end
 
   @doc """
@@ -345,6 +360,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     # Same `value_slugs:` the level listings take, so a search inside an
     # attribute filter stays inside it.
     |> PhoenixKitCatalogue.Catalogue.filter_by_attribute_values(opts)
+    |> PhoenixKitCatalogue.Catalogue.filter_by_dimensions(opts)
     |> PhoenixKitCatalogue.Catalogue.filter_by_item_types(opts)
     |> maybe_exclude_internal(Keyword.get(opts, :exclude_internal, false))
   end

@@ -3952,3 +3952,66 @@ msgstr ""
 
 msgid "This supplier has no cost on the item."
 msgstr ""
+
+msgid "Dimensions and packaging"
+msgstr ""
+
+msgid "Length (mm)"
+msgstr ""
+
+msgid "Width (mm)"
+msgstr ""
+
+msgid "Thickness (mm)"
+msgstr ""
+
+msgid "Pack size"
+msgstr ""
+
+msgid "How many of the item's unit are in one pack."
+msgstr ""
+
+msgid "— Area and volume not set —"
+msgstr ""
+
+msgid "One %{unit}:"
+msgstr ""
+
+msgid "Cost is per"
+msgstr ""
+
+msgid "— The item's unit (%{unit}) —"
+msgstr ""
+
+msgid "Supplier's pack size"
+msgstr ""
+
+msgid "Area (m²)"
+msgstr ""
+
+msgid "Volume (m³)"
+msgstr ""
+
+msgid "Size (mm)"
+msgstr ""
+
+msgid "Clear size"
+msgstr ""
+
+msgid "From"
+msgstr ""
+
+msgid "To"
+msgstr ""
+
+msgid "%{dimension} from"
+msgstr ""
+
+msgid "%{dimension} to"
+msgstr ""
+
+msgid "Length"
+msgstr ""
+
+msgid "Thickness"
+msgstr ""

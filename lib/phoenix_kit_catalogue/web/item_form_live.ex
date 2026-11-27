@@ -132,7 +132,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # Free-decimal `<.decimal_input>` fields: "2,5" reaches the changeset's
   # `:decimal` cast as "2.5" — see `Web.Helpers.normalize_decimal_params/2`.
-  @decimal_fields ~w(base_price markup_percentage discount_percentage default_value)
+  @decimal_fields ~w(base_price markup_percentage discount_percentage default_value
+                     length_mm width_mm thickness_mm pack_size)
 
   @preserve_fields %{
     # Translatable primaries: submitted only on the primary tab, so a
@@ -146,6 +147,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     "default_value" => :default_value,
     "default_unit" => :default_unit,
     "unit" => :unit,
+    "length_mm" => :length_mm,
+    "width_mm" => :width_mm,
+    "thickness_mm" => :thickness_mm,
+    "pack_size" => :pack_size,
     "item_type" => :item_type,
     "status" => :status,
     "ai_notes" => :ai_notes,
@@ -1965,8 +1970,32 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         info.unit_cost && Decimal.to_string(Decimal.normalize(info.unit_cost), :normal),
       "currency" => info.currency,
       "lead_time_days" => info.lead_time_days && Integer.to_string(info.lead_time_days),
-      "min_order_qty" => info.min_order_qty && Decimal.to_string(info.min_order_qty, :normal)
+      "min_order_qty" => info.min_order_qty && Decimal.to_string(info.min_order_qty, :normal),
+      "cost_unit" => info.cost_unit,
+      "pack_size" => info.pack_size && plain_decimal(info.pack_size)
     }
+  end
+
+  # The units a cost can be quoted in besides the item's own: the ones
+  # `Catalogue.convert/5` reaches from it. A row saved with any other unit
+  # keeps showing it, so opening the dialog does not silently change it.
+  defp cost_unit_options(item_unit, current) do
+    (~w(m2 m3 pack) ++ List.wrap(current))
+    |> Enum.reject(&(&1 in [nil, "", item_unit]))
+    |> Enum.uniq()
+    |> Enum.map(&{Item.unit_label(&1), &1})
+  end
+
+  # "/ m³" beside a cost that is not per the item's own unit.
+  defp supplier_cost_unit(%{key: supplier_uuid, info: info}, draft) do
+    case draft.values |> Map.get(supplier_uuid, %{}) |> Map.fetch("cost_unit") do
+      {:ok, staged} -> staged
+      :error -> info && info.cost_unit
+    end
+    |> case do
+      unit when unit in [nil, ""] -> nil
+      unit -> Item.unit_label(unit)
+    end
   end
 
   # A forged payload can put anything under these keys; only a map of
@@ -3272,6 +3301,41 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     """
   end
 
+  # Area and volume of one unit, from what is typed right now — the same
+  # functions the stored columns are checked against, so the form shows
+  # what a save will store. A value that does not cast leaves the last
+  # valid one in the changeset, and the field's own error says why.
+  attr(:changeset, :any, required: true)
+
+  defp dimension_readout(assigns) do
+    item = Ecto.Changeset.apply_changes(assigns.changeset)
+
+    assigns =
+      assigns
+      |> assign(:unit, Item.unit_label(item.unit))
+      |> assign(:area, Item.area_m2(item))
+      |> assign(:volume, Item.volume_m3(item))
+
+    ~H"""
+    <p id="item-dimension-readout" class="text-sm text-base-content/70">
+      <span :if={is_nil(@area)} class="italic text-base-content/50">
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Area and volume not set —")}
+      </span>
+      <span :if={@area}>
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "One %{unit}:", unit: @unit)}
+        <span id="item-area-m2" class="font-mono">{plain_decimal(@area)}</span> m²
+        <span :if={@volume}>
+          · <span id="item-volume-m3" class="font-mono">{plain_decimal(@volume)}</span> m³
+        </span>
+      </span>
+    </p>
+    """
+  end
+
+  # Every digit, no trailing zeros, never an exponent.
+  defp plain_decimal(%Decimal{} = value),
+    do: value |> Decimal.normalize() |> Decimal.to_string(:normal)
+
   # The row dialog's fields — price, the optional terms, the admin-defined
   # extras. Every control names its form through `form=`, so the dialog's
   # form owns them wherever the markup puts them.
@@ -3279,6 +3343,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   attr(:supplier_form, :map, required: true)
   attr(:supplier_terms_visible, :boolean, required: true)
   attr(:supplier_fields, :list, required: true)
+  attr(:item_unit, :string, required: true)
 
   defp supplier_fields(assigns) do
     ~H"""
@@ -3341,6 +3406,44 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             "Changing the cost closes the current price and starts a new one, kept in History."
           )}
         </p>
+      </div>
+
+      <%!-- What the cost is for, and this supplier's own pack. With the
+           price, not behind the terms flag: a cost per m³ read as a cost
+           per sheet is a wrong price. --%>
+      <div>
+        <.label for={"#{@form_id}-cost-unit"} class="block mb-2">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cost is per")}
+        </.label>
+        <select
+          id={"#{@form_id}-cost-unit"}
+          form={@form_id}
+          name="supplier_info[cost_unit]"
+          class="select w-full"
+        >
+          <option value="">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "— The item's unit (%{unit}) —",
+              unit: Item.unit_label(@item_unit)
+            )}
+          </option>
+          {Phoenix.HTML.Form.options_for_select(
+            cost_unit_options(@item_unit, @supplier_form.draft["cost_unit"]),
+            @supplier_form.draft["cost_unit"]
+          )}
+        </select>
+      </div>
+
+      <div>
+        <.label for={"#{@form_id}-pack-size"} class="block mb-2">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier's pack size")}
+        </.label>
+        <.decimal_input
+          id={"#{@form_id}-pack-size"}
+          form={@form_id}
+          name="supplier_info[pack_size]"
+          value={@supplier_form.draft["pack_size"]}
+          class="w-full"
+        />
       </div>
 
       <div :if={@supplier_terms_visible}>
@@ -3782,6 +3885,45 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   </span>
                 </div>
               </div>
+            </div>
+
+            <%!-- Size as numbers (chain V7): what the unit conversions and
+                 the area / volume per unit are computed from. The values
+                 are kept exactly as typed — which side is the length is
+                 the business's own rule, so nothing here compares them. --%>
+            <div :if={@catalogue_kind != "smart"} id="item-dimensions" class="flex flex-col gap-3">
+              <h2 class="text-base font-semibold text-base-content/80">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Dimensions and packaging")}
+              </h2>
+
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <.decimal_input
+                  field={@form[:length_mm]}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Length (mm)")}
+                />
+                <.decimal_input
+                  field={@form[:width_mm]}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Width (mm)")}
+                />
+                <.decimal_input
+                  field={@form[:thickness_mm]}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Thickness (mm)")}
+                />
+                <div>
+                  <.decimal_input
+                    field={@form[:pack_size]}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pack size")}
+                  />
+                  <span class="block text-xs text-base-content/50 mt-1">
+                    {Gettext.gettext(
+                      PhoenixKitCatalogue.Gettext,
+                      "How many of the item's unit are in one pack."
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <.dimension_readout changeset={@changeset} />
             </div>
 
             <%!-- Outside the pricing block above: a smart catalogue's items
@@ -4456,6 +4598,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                             aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Currency")}
                           />
                         </div>
+                        <span
+                          :if={unit = supplier_cost_unit(row, @supplier_draft)}
+                          id={"supplier-cost-unit-#{row.key}"}
+                          class="text-xs text-base-content/60 ml-1 whitespace-nowrap"
+                        >
+                          / {unit}
+                        </span>
                       </td>
                       <td :if={@supplier_terms_visible}>
                         {supplier_term(row, @supplier_draft, "lead_time_days")}
@@ -4735,6 +4884,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             supplier_form={@supplier_form}
             supplier_terms_visible={@supplier_terms_visible}
             supplier_fields={@supplier_fields}
+            item_unit={@form[:unit].value || "piece"}
           />
 
           <p :if={@supplier_form.error} class="text-sm text-error">{@supplier_form.error}</p>

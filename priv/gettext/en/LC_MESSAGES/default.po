@@ -3946,3 +3946,66 @@ msgstr "These units cannot be converted into each other for this item."
 
 msgid "This supplier has no cost on the item."
 msgstr "This supplier has no cost on the item."
+
+msgid "Dimensions and packaging"
+msgstr "Dimensions and packaging"
+
+msgid "Length (mm)"
+msgstr "Length (mm)"
+
+msgid "Width (mm)"
+msgstr "Width (mm)"
+
+msgid "Thickness (mm)"
+msgstr "Thickness (mm)"
+
+msgid "Pack size"
+msgstr "Pack size"
+
+msgid "How many of the item's unit are in one pack."
+msgstr "How many of the item's unit are in one pack."
+
+msgid "— Area and volume not set —"
+msgstr "— Area and volume not set —"
+
+msgid "One %{unit}:"
+msgstr "One %{unit}:"
+
+msgid "Cost is per"
+msgstr "Cost is per"
+
+msgid "— The item's unit (%{unit}) —"
+msgstr "— The item's unit (%{unit}) —"
+
+msgid "Supplier's pack size"
+msgstr "Supplier's pack size"
+
+msgid "Area (m²)"
+msgstr "Area (m²)"
+
+msgid "Volume (m³)"
+msgstr "Volume (m³)"
+
+msgid "Size (mm)"
+msgstr "Size (mm)"
+
+msgid "Clear size"
+msgstr "Clear size"
+
+msgid "From"
+msgstr "From"
+
+msgid "To"
+msgstr "To"
+
+msgid "%{dimension} from"
+msgstr "%{dimension} from"
+
+msgid "%{dimension} to"
+msgstr "%{dimension} to"
+
+msgid "Length"
+msgstr "Length"
+
+msgid "Thickness"
+msgstr "Thickness"

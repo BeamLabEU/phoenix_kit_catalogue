@@ -639,7 +639,21 @@ Pointers, not docs — the moduledocs are the contract.
   turns 830 into 830.000…1. `Item.area_m2/1` / `volume_m3/1` use the same
   constants as the generated columns; `test/catalogue/item_dimensions_test.exs`
   holds the two together. The metadata fields `width` / `height` / `depth`
-  are unrelated free text.
+  are unrelated free text. On the admin side: the item form's "Dimensions
+  and packaging" block shows the area and volume live from the changeset;
+  the supplier row dialog stages `cost_unit` / `pack_size` as terms (no
+  price revision); `:detail_items` has six optional size columns whose id
+  is the item field and the sort (`Components.size_columns/0` — a new one
+  needs a `TableConfig` column, a `column_priority/1` clause, and an entry
+  in `Items`', `Search`'s and `BrowseState`'s sort lists). Listings, search,
+  counts and the API take `dimensions:` (`Catalogue.filter_by_dimensions/2`:
+  an exact value or `{min, max}` per dimension); the detail page's Filters
+  pop-up drives it through `?size=` (`Web.SizeFilter`), offered only where
+  `Catalogue.catalogue_has_sizes?/1`. The page passes every item filter as
+  one list (`item_filters/1`) — a new listing or count takes that list,
+  never `value_slugs:` alone. The shop API reads and writes the size
+  fields and filters by them (`*_min` / `*_max`), with no sort (the keyset
+  order is the cursor's) and no supplier cost.
 - **Pricing** — chain is `base → markup → discount`.
   `Catalogue.item_pricing/1` is the one-stop API for UIs; pure helpers live on
   `Item`.

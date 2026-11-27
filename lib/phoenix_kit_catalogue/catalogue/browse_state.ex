@@ -67,7 +67,8 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   # The fields the module's shared item sort can name — TableConfig's
   # sortable :detail_items ids, as atoms (`Search.apply_search_order/2`
   # has a clause per entry).
-  @order_fields ~w(position name sku base_price status)a
+  @order_fields ~w(position name sku base_price status
+                   length_mm width_mm thickness_mm area_m2 volume_m3 pack_size)a
 
   @doc """
   The browse-sort vocabulary: the `:detail_items` sortable column ids

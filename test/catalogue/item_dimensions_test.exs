@@ -165,6 +165,94 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemDimensionsTest do
     end
   end
 
+  describe "filtering and sorting by size" do
+    setup %{catalogue: c} do
+      {:ok, t65} = plywood(c, %{name: "P 6.5", thickness_mm: "6.5"})
+      {:ok, t12} = plywood(c, %{name: "P 12", thickness_mm: 12, length_mm: 1525, width_mm: 1525})
+      {:ok, t18} = plywood(c, %{name: "P 18", thickness_mm: 18})
+      {:ok, bare} = Catalogue.create_item(%{name: "P bare", catalogue_uuid: c.uuid})
+      %{t65: t65, t12: t12, t18: t18, bare: bare}
+    end
+
+    defp names(items), do: items |> Enum.map(& &1.name) |> Enum.sort()
+
+    defp listed(c, opts),
+      do: Catalogue.list_uncategorized_items_paged(c.uuid, [limit: 50] ++ opts)
+
+    test "an exact value, a range and an open end", %{catalogue: c} do
+      assert names(listed(c, dimensions: %{thickness_mm: 18})) == ["P 18"]
+      assert names(listed(c, dimensions: %{thickness_mm: "6.5"})) == ["P 6.5"]
+      assert names(listed(c, dimensions: %{thickness_mm: {12, 18}})) == ["P 12", "P 18"]
+      assert names(listed(c, dimensions: %{thickness_mm: {nil, 12}})) == ["P 12", "P 6.5"]
+      assert names(listed(c, dimensions: %{thickness_mm: {7, nil}})) == ["P 12", "P 18"]
+      # Rules on several dimensions all hold.
+      assert names(listed(c, dimensions: %{thickness_mm: {6, 18}, length_mm: 2500})) ==
+               ["P 18", "P 6.5"]
+
+      assert names(listed(c, dimensions: [{"width_mm", 1525}])) == ["P 12"]
+    end
+
+    test "no rule is no filter, and an item without the dimension never matches one",
+         %{catalogue: c} do
+      everything = ["P 12", "P 18", "P 6.5", "P bare"]
+      assert names(listed(c, [])) == everything
+      assert names(listed(c, dimensions: nil)) == everything
+      assert names(listed(c, dimensions: %{})) == everything
+      assert names(listed(c, dimensions: %{thickness_mm: {nil, nil}})) == everything
+      refute "P bare" in names(listed(c, dimensions: %{thickness_mm: {0, nil}}))
+    end
+
+    test "the counts, the search and the API paging take the same rule", %{catalogue: c} do
+      rule = [dimensions: %{thickness_mm: {12, 18}}]
+
+      assert Catalogue.uncategorized_count_for_catalogue(c.uuid, rule) == 2
+
+      assert names(Catalogue.search_items("P", [catalogue_uuids: [c.uuid]] ++ rule)) ==
+               ["P 12", "P 18"]
+
+      assert Catalogue.count_search_items("P", [catalogue_uuids: [c.uuid]] ++ rule) == 2
+
+      assert %{items: items} = Catalogue.list_items_keyset([catalogue_uuid: c.uuid] ++ rule)
+      assert names(items) == ["P 12", "P 18"]
+      assert Catalogue.count_items_matching([catalogue_uuid: c.uuid] ++ rule) == 2
+    end
+
+    test "a key that is no dimension, or a value that is no number, is refused", %{catalogue: c} do
+      assert_raise ArgumentError, fn -> listed(c, dimensions: %{depth: 1}) end
+      assert_raise ArgumentError, fn -> listed(c, dimensions: %{thickness_mm: "thick"}) end
+      assert_raise ArgumentError, fn -> listed(c, dimensions: %{thickness_mm: 1.5}) end
+    end
+
+    test "sorting by a size column puts items without it last, both ways", %{catalogue: c} do
+      order = fn opts -> c |> listed(opts) |> Enum.map(& &1.name) end
+
+      assert order.(sort_by: :thickness_mm, sort_dir: :asc) == ["P 6.5", "P 12", "P 18", "P bare"]
+
+      assert order.(sort_by: :thickness_mm, sort_dir: :desc) == [
+               "P 18",
+               "P 12",
+               "P 6.5",
+               "P bare"
+             ]
+
+      assert order.(sort_by: :volume_m3, sort_dir: :asc) == ["P 6.5", "P 12", "P 18", "P bare"]
+      assert order.(sort_by: :length_mm, sort_dir: :asc) |> hd() == "P 12"
+
+      searched =
+        "P"
+        |> Catalogue.search_items(catalogue_uuids: [c.uuid], order: {:thickness_mm, :desc})
+        |> Enum.map(& &1.name)
+
+      assert searched == ["P 18", "P 12", "P 6.5", "P bare"]
+    end
+
+    test "item_sort_fields/0 names the size columns" do
+      fields = Catalogue.item_sort_fields()
+      for field <- ~w(name sku thickness_mm volume_m3 pack_size)a, do: assert(field in fields)
+      refute :position in fields
+    end
+  end
+
   describe "supplier info" do
     defp supplier_info(item, attrs) do
       Catalogue.create_supplier_info(

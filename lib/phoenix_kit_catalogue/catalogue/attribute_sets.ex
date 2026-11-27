@@ -1284,6 +1284,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         |> PhoenixKitCatalogue.Catalogue.match_search_text(opts[:search])
         |> scope_counts(opts)
         |> PhoenixKitCatalogue.Catalogue.filter_by_attribute_values(opts)
+        |> PhoenixKitCatalogue.Catalogue.filter_by_dimensions(opts)
 
       # Two selects rather than a dynamic: a dynamic cannot be spliced
       # into a select tuple.

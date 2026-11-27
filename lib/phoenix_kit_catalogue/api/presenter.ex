@@ -12,7 +12,9 @@ defmodule PhoenixKitCatalogue.API.Presenter do
   alias PhoenixKitCatalogue.Catalogue.Translations
   alias PhoenixKitCatalogue.Schemas.{Category, Item}
 
-  @item_fields ~w(id catalogue_id category_id category external_id sku name description status unit item_type slug position attributes images translations shop created_at updated_at)
+  @item_fields ~w(id catalogue_id category_id category external_id sku name description status unit length_mm width_mm thickness_mm area_m2 volume_m3 pack_size item_type slug position attributes images translations shop created_at updated_at)
+  # Exact decimals: sent as strings, so no JSON number rounds 0.05625.
+  @decimal_fields ~w(length_mm width_mm thickness_mm area_m2 volume_m3 pack_size)
   @list_fields ~w(id external_id sku name status category_id updated_at)
   # Sync bookkeeping inside data["ecommerce"], not product data.
   @hidden_shop_keys ~w(cost_per_item shopify translation_fingerprints)
@@ -82,6 +84,10 @@ defmodule PhoenixKitCatalogue.API.Presenter do
   defp value("status", i, _), do: i.status
   defp value("unit", i, _), do: i.unit
   defp value("item_type", i, _), do: i.item_type
+
+  defp value(field, i, _) when field in @decimal_fields,
+    do: decimal(Map.get(i, String.to_existing_atom(field)))
+
   defp value("slug", i, _), do: i.slug || %{}
   defp value("position", i, _), do: i.position
   defp value("created_at", i, _), do: iso(i.inserted_at)
@@ -94,6 +100,9 @@ defmodule PhoenixKitCatalogue.API.Presenter do
   defp value("translations", i, _), do: translations(i)
   defp value("shop", i, %{shop?: true}), do: shop(i)
   defp value(_other, _item, _extras), do: :skip
+
+  defp decimal(%Decimal{} = value), do: value |> Decimal.normalize() |> Decimal.to_string(:normal)
+  defp decimal(nil), do: nil
 
   defp iso(%DateTime{} = at), do: DateTime.to_iso8601(at)
   defp iso(%NaiveDateTime{} = at), do: NaiveDateTime.to_iso8601(at) <> "Z"

@@ -1467,10 +1467,31 @@ defmodule PhoenixKitCatalogue.GettextTest do
     "The item has no dimensions to convert this unit with.",
     "The item has no pack size.",
     "These units cannot be converted into each other for this item.",
-    "This supplier has no cost on the item."
+    "This supplier has no cost on the item.",
+    "Dimensions and packaging",
+    "Length (mm)",
+    "Width (mm)",
+    "Thickness (mm)",
+    "Pack size",
+    "How many of the item's unit are in one pack.",
+    "— Area and volume not set —",
+    "One %{unit}:",
+    "Cost is per",
+    "— The item's unit (%{unit}) —",
+    "Supplier's pack size",
+    "Area (m²)",
+    "Volume (m³)",
+    "%{dimension} from",
+    "%{dimension} to",
+    "Clear size",
+    "From",
+    "Length",
+    "Size (mm)",
+    "Thickness",
+    "To"
   ]
 
-  test "the V7 unit-conversion errors are in every locale, translated outside English" do
+  test "the V7 strings are in every locale, translated outside English" do
     for msgid <- @v7_strings do
       assert po_msgstr("en", msgid) == msgid, msgid
 

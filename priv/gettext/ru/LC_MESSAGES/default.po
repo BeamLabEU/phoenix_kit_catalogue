@@ -3960,3 +3960,66 @@ msgstr "Эти единицы нельзя пересчитать друг в д
 
 msgid "This supplier has no cost on the item."
 msgstr "У этого поставщика не указана стоимость позиции."
+
+msgid "Dimensions and packaging"
+msgstr "Размеры и упаковка"
+
+msgid "Length (mm)"
+msgstr "Длина (мм)"
+
+msgid "Width (mm)"
+msgstr "Ширина (мм)"
+
+msgid "Thickness (mm)"
+msgstr "Толщина (мм)"
+
+msgid "Pack size"
+msgstr "Размер упаковки"
+
+msgid "How many of the item's unit are in one pack."
+msgstr "Сколько единиц позиции в одной упаковке."
+
+msgid "— Area and volume not set —"
+msgstr "— Площадь и объём не заданы —"
+
+msgid "One %{unit}:"
+msgstr "Одна единица (%{unit}):"
+
+msgid "Cost is per"
+msgstr "Цена указана за"
+
+msgid "— The item's unit (%{unit}) —"
+msgstr "— Единица позиции (%{unit}) —"
+
+msgid "Supplier's pack size"
+msgstr "Размер упаковки поставщика"
+
+msgid "Area (m²)"
+msgstr "Площадь (м²)"
+
+msgid "Volume (m³)"
+msgstr "Объём (м³)"
+
+msgid "Size (mm)"
+msgstr "Размер (мм)"
+
+msgid "Clear size"
+msgstr "Сбросить размер"
+
+msgid "From"
+msgstr "От"
+
+msgid "To"
+msgstr "До"
+
+msgid "%{dimension} from"
+msgstr "%{dimension} от"
+
+msgid "%{dimension} to"
+msgstr "%{dimension} до"
+
+msgid "Length"
+msgstr "Длина"
+
+msgid "Thickness"
+msgstr "Толщина"

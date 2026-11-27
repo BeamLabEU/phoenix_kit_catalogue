@@ -163,6 +163,10 @@ defmodule PhoenixKitCatalogue.API.CreateProducts do
     |> put_unless_nil(:description, row["description"])
     |> put_unless_nil(:sku, row["sku"])
     |> put_unless_nil(:unit, row["unit"])
+    |> put_unless_nil(:length_mm, row["length_mm"])
+    |> put_unless_nil(:width_mm, row["width_mm"])
+    |> put_unless_nil(:thickness_mm, row["thickness_mm"])
+    |> put_unless_nil(:pack_size, row["pack_size"])
     |> put_unless_nil(:category_uuid, category_uuid)
     |> Map.put(:data, new_item_data(row["external_id"]))
   end

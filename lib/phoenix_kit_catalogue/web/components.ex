@@ -1401,15 +1401,43 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def column_priority(id) when id in ~w(items sku base_price), do: 2
 
   def column_priority(id)
-      when id in ~w(subcategories unit folder supplier_price category catalogue),
+      when id in ~w(subcategories unit folder supplier_price category catalogue thickness_mm),
       do: 3
 
   def column_priority(id)
-      when id in ~w(kind item_type markup discount files image updated manufacturer),
+      when id in ~w(kind item_type markup discount files image updated manufacturer
+                    length_mm width_mm area_m2 volume_m3 pack_size),
       do: 4
 
   def column_priority(id) when id in ~w(description attributes created), do: 6
   def column_priority(_id), do: 5
+
+  @size_columns ~w(length_mm width_mm thickness_mm area_m2 volume_m3 pack_size)
+
+  @doc "The ids of the item size columns (chain V7), each the item field it shows."
+  @spec size_columns() :: [String.t()]
+  def size_columns, do: @size_columns
+
+  @doc "A size column's header."
+  @spec size_column_label(String.t()) :: String.t()
+  def size_column_label("length_mm"), do: gettext("Length (mm)")
+  def size_column_label("width_mm"), do: gettext("Width (mm)")
+  def size_column_label("thickness_mm"), do: gettext("Thickness (mm)")
+  def size_column_label("area_m2"), do: gettext("Area (m²)")
+  def size_column_label("volume_m3"), do: gettext("Volume (m³)")
+  def size_column_label("pack_size"), do: gettext("Pack size")
+
+  @doc """
+  A size column's value for an item: every digit, no trailing zeros, or
+  "—" when the item has none.
+  """
+  @spec size_column_value(map(), String.t()) :: String.t()
+  def size_column_value(item, column) when column in @size_columns do
+    case Map.get(item, String.to_existing_atom(column)) do
+      %Decimal{} = value -> value |> Decimal.normalize() |> Decimal.to_string(:normal)
+      _none -> "—"
+    end
+  end
 
   @doc """
   `fit` for `table_default`, as a DYNAMIC attribute — the same reason as
@@ -3351,6 +3379,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
           </.table_default_cell>
         <% "unit" -> %>
           <.table_default_cell class="text-sm whitespace-nowrap">{format_unit(@item.unit)}</.table_default_cell>
+        <% size when size in ["length_mm", "width_mm", "thickness_mm", "area_m2", "volume_m3", "pack_size"] -> %>
+          <.table_default_cell class="text-sm text-right tabular-nums whitespace-nowrap">
+            {size_column_value(@item, size)}
+          </.table_default_cell>
         <% "item_type" -> %>
           <.table_default_cell class="text-sm whitespace-nowrap">
             {Item.item_type_label(display_item_type(@item, @catalogue_item_type))}

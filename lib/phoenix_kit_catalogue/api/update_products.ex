@@ -15,7 +15,11 @@ defmodule PhoenixKitCatalogue.API.UpdateProducts do
     "description" => :description,
     "sku" => :sku,
     "status" => :status,
-    "unit" => :unit
+    "unit" => :unit,
+    "length_mm" => :length_mm,
+    "width_mm" => :width_mm,
+    "thickness_mm" => :thickness_mm,
+    "pack_size" => :pack_size
   }
   @external_id_path ["api", "external_id"]
   # Where the category moves that went through are collected, for the media folders to

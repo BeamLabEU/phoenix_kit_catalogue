@@ -14,7 +14,8 @@ defmodule PhoenixKitCatalogue.API.ListProducts do
     with {:ok, catalogue} <- API.resolve_catalogue(input["catalogue_id"]),
          {:ok, category_uuid} <- Common.parse_uuid(input["category_id"], "category_id"),
          {:ok, updated_since} <- parse_since(input["updated_since"]),
-         {:ok, cursor} <- parse_cursor(input["cursor"]) do
+         {:ok, cursor} <- parse_cursor(input["cursor"]),
+         {:ok, dimensions} <- parse_dimensions(input) do
       {limit, warnings} = limit(input["limit"])
       fields = input["fields"] || Presenter.default_list_fields()
 
@@ -25,6 +26,7 @@ defmodule PhoenixKitCatalogue.API.ListProducts do
         include_deleted: input["include_deleted"] == true,
         updated_since: updated_since,
         q: input["q"],
+        dimensions: dimensions,
         cursor: cursor,
         limit: limit
       ]
@@ -58,6 +60,35 @@ defmodule PhoenixKitCatalogue.API.ListProducts do
           "updated_since",
           "must be an ISO 8601 date-time with a zone, for example 2026-10-01T00:00:00Z"
         )
+    end
+  end
+
+  # `<dimension>_min` / `<dimension>_max`, inclusive; the same value in both
+  # is an exact match. A JSON number or a decimal string.
+  defp parse_dimensions(input) do
+    Enum.reduce_while(~w(length_mm width_mm thickness_mm), {:ok, %{}}, fn field, {:ok, acc} ->
+      with {:ok, min} <- parse_bound(input, field <> "_min"),
+           {:ok, max} <- parse_bound(input, field <> "_max") do
+        {:cont, {:ok, Map.put(acc, field, {min, max})}}
+      else
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp parse_bound(input, key) do
+    case input[key] do
+      nil -> {:ok, nil}
+      n when is_integer(n) -> {:ok, Decimal.new(n)}
+      n when is_float(n) -> {:ok, Decimal.from_float(n)}
+      text when is_binary(text) -> parse_bound_text(text, key)
+    end
+  end
+
+  defp parse_bound_text(text, key) do
+    case Decimal.parse(String.trim(text)) do
+      {%Decimal{coef: coef} = decimal, ""} when is_integer(coef) -> {:ok, decimal}
+      _other -> Common.invalid(key, "must be a number, for example 18 or \"6.5\"")
     end
   end
 

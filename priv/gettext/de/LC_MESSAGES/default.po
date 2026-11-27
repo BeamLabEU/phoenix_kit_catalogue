@@ -170,7 +170,7 @@ msgid "Weight"
 msgstr ""
 
 msgid "Width"
-msgstr ""
+msgstr "Breite"
 
 msgid "Height"
 msgstr ""
@@ -3946,3 +3946,66 @@ msgstr "Diese Einheiten lassen sich für diesen Artikel nicht ineinander umrechn
 
 msgid "This supplier has no cost on the item."
 msgstr "Für diesen Lieferanten ist beim Artikel kein Preis hinterlegt."
+
+msgid "Dimensions and packaging"
+msgstr "Maße und Verpackung"
+
+msgid "Length (mm)"
+msgstr "Länge (mm)"
+
+msgid "Width (mm)"
+msgstr "Breite (mm)"
+
+msgid "Thickness (mm)"
+msgstr "Dicke (mm)"
+
+msgid "Pack size"
+msgstr "Packungsgröße"
+
+msgid "How many of the item's unit are in one pack."
+msgstr "Wie viele Einheiten des Artikels eine Packung enthält."
+
+msgid "— Area and volume not set —"
+msgstr "— Fläche und Volumen nicht festgelegt —"
+
+msgid "One %{unit}:"
+msgstr "Eine Einheit (%{unit}):"
+
+msgid "Cost is per"
+msgstr "Preis gilt pro"
+
+msgid "— The item's unit (%{unit}) —"
+msgstr "— Einheit des Artikels (%{unit}) —"
+
+msgid "Supplier's pack size"
+msgstr "Packungsgröße des Lieferanten"
+
+msgid "Area (m²)"
+msgstr "Fläche (m²)"
+
+msgid "Volume (m³)"
+msgstr "Volumen (m³)"
+
+msgid "Size (mm)"
+msgstr "Größe (mm)"
+
+msgid "Clear size"
+msgstr "Größe zurücksetzen"
+
+msgid "From"
+msgstr "Von"
+
+msgid "To"
+msgstr "Bis"
+
+msgid "%{dimension} from"
+msgstr "%{dimension} von"
+
+msgid "%{dimension} to"
+msgstr "%{dimension} bis"
+
+msgid "Length"
+msgstr "Länge"
+
+msgid "Thickness"
+msgstr "Dicke"

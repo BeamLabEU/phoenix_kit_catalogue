@@ -38,6 +38,8 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
       which also matches every string inside `data` (shop price fields, cost,
       vendor, tags): through the API that is a way to read fields the caller's
       scopes do not allow, one substring at a time.
+    * `:dimensions` — only items of these sizes, exact or a `{min, max}`
+      range per dimension (`Catalogue.filter_by_dimensions/2`).
     * `:cursor` — the `{DateTime, uuid}` pair `decode_cursor/1` returns (no
       other value is accepted).
     * `:limit` — default 20, clamped to 1..100.
@@ -113,6 +115,7 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
     |> by_category(Keyword.get(opts, :category_uuid))
     |> updated_since(Keyword.get(opts, :updated_since))
     |> match_text(Keyword.get(opts, :q))
+    |> PhoenixKitCatalogue.Catalogue.filter_by_dimensions(opts)
   end
 
   # Columns only (see the moduledoc): never `data`.

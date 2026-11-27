@@ -128,6 +128,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
     query
     |> filter_by_attribute_values(opts)
+    |> filter_by_dimensions(opts)
     |> filter_by_item_types(opts)
     |> apply_item_status_filter(opts, mode)
     |> apply_item_order(opts)
@@ -165,6 +166,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
     query
     |> filter_by_attribute_values(opts)
+    |> filter_by_dimensions(opts)
     |> filter_by_item_types(opts)
     |> apply_item_status_filter(opts, mode)
     |> maybe_outside_trashed_categories(opts)
@@ -180,6 +182,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
     from(i in Item, as: :item, where: i.catalogue_uuid == ^catalogue_uuid)
     |> filter_by_attribute_values(opts)
+    |> filter_by_dimensions(opts)
     |> filter_by_item_types(opts)
     |> apply_item_status_filter(opts, mode)
     |> maybe_outside_trashed_categories(opts)
@@ -279,6 +282,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
     query
     |> filter_by_attribute_values(opts)
+    |> filter_by_dimensions(opts)
     |> filter_by_item_types(opts)
     |> apply_item_status_filter(opts, mode)
     |> apply_item_order(opts)
@@ -292,6 +296,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
   # (matches the pre-sort behavior); `name` sorts on the raw `name`
   # column (multilang lives in `data` JSONB, not sorted here).
   @item_sort_fields ~w(position name sku base_price inserted_at status)a
+  # The V7 size columns: an item without the value sorts last in either
+  # direction, so "thinnest first" and "thickest first" both open on items
+  # that have a thickness.
+  @item_size_sort_fields ~w(length_mm width_mm thickness_mm area_m2 volume_m3 pack_size)a
+
+  @doc "The columns an item listing can be ordered by, besides `:position`."
+  @spec item_sort_fields() :: [atom()]
+  def item_sort_fields, do: (@item_sort_fields -- [:position]) ++ @item_size_sort_fields
 
   # Applies `:sort_by` / `:sort_dir` from `opts` to an Item query. Every
   # order ends with `asc: i.uuid` so paging is deterministic across ties.
@@ -306,6 +318,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
   defp item_order_by(query, field, dir) when field in @item_sort_fields,
     do: order_by(query, [i], [{^dir, field(i, ^field)}, {:asc, i.uuid}])
+
+  defp item_order_by(query, field, :desc) when field in @item_size_sort_fields,
+    do: order_by(query, [i], [{:desc_nulls_last, field(i, ^field)}, {:asc, i.uuid}])
+
+  defp item_order_by(query, field, _asc) when field in @item_size_sort_fields,
+    do: order_by(query, [i], [{:asc_nulls_last, field(i, ^field)}, {:asc, i.uuid}])
 
   defp item_order_by(query, _field, _dir),
     do: order_by(query, [i], asc: i.position, asc: i.name, asc: i.uuid)
@@ -336,6 +354,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
     query
     |> filter_by_attribute_values(opts)
+    |> filter_by_dimensions(opts)
     |> filter_by_item_types(opts)
     |> apply_item_status_filter(opts, mode)
     |> repo().aggregate(:count)
@@ -378,6 +397,100 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
       )
     end)
   end
+
+  @dimension_fields ~w(length_mm width_mm thickness_mm)a
+
+  @doc """
+  Whether any live item of the catalogue has a dimension — what decides
+  if a size filter is worth offering there.
+  """
+  @spec catalogue_has_sizes?(Ecto.UUID.t()) :: boolean()
+  def catalogue_has_sizes?(catalogue_uuid) do
+    from(i in Item,
+      where:
+        i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted" and
+          (not is_nil(i.length_mm) or not is_nil(i.width_mm) or not is_nil(i.thickness_mm))
+    )
+    |> repo().exists?()
+  end
+
+  @doc """
+  Narrows an item query (it must carry the `:item` named binding) by size.
+
+  `opts[:dimensions]` is a map or keyword list keyed by `:length_mm`,
+  `:width_mm` and `:thickness_mm` (atoms or strings). A value is either
+  one number — exactly that size — or a `{min, max}` pair, inclusive at
+  both ends, where `nil` leaves an end open. Numbers are a `Decimal`, an
+  integer or a decimal string. An item without the dimension never
+  matches a rule on it.
+
+      dimensions: %{thickness_mm: 18}                    # exactly 18 mm
+      dimensions: %{thickness_mm: {12, 21}}              # 12 to 21 mm
+      dimensions: %{length_mm: {2000, nil}, width_mm: 1250}
+
+  `nil`, `%{}` or a missing option is no filter. A key that is not a
+  dimension, or a value that is not a number, raises `ArgumentError`: a
+  caller builds this from input it has already parsed. The paged listings,
+  the search and the counts all take it, like `:value_slugs`.
+  """
+  @spec filter_by_dimensions(Ecto.Query.t(), keyword()) :: Ecto.Query.t()
+  def filter_by_dimensions(query, opts) do
+    opts
+    |> Keyword.get(:dimensions)
+    |> Kernel.||(%{})
+    |> Enum.reduce(query, fn {key, rule}, query ->
+      dimension_rule(query, dimension_field!(key), rule)
+    end)
+  end
+
+  defp dimension_field!(key) when key in @dimension_fields, do: key
+
+  defp dimension_field!(key) when is_binary(key) do
+    Enum.find(@dimension_fields, &(Atom.to_string(&1) == key)) || bad_dimension!(key)
+  end
+
+  defp dimension_field!(key), do: bad_dimension!(key)
+
+  defp bad_dimension!(key) do
+    raise ArgumentError,
+          ":dimensions keys are #{inspect(@dimension_fields)}, got: #{inspect(key)}"
+  end
+
+  defp dimension_rule(query, _field, {nil, nil}), do: query
+
+  defp dimension_rule(query, field, {min, max}) do
+    query |> dimension_bound(field, :min, min) |> dimension_bound(field, :max, max)
+  end
+
+  defp dimension_rule(query, field, exact) do
+    value = dimension_value!(exact)
+    where(query, [item: i], field(i, ^field) == ^value)
+  end
+
+  defp dimension_bound(query, _field, _side, nil), do: query
+
+  defp dimension_bound(query, field, :min, min) do
+    value = dimension_value!(min)
+    where(query, [item: i], field(i, ^field) >= ^value)
+  end
+
+  defp dimension_bound(query, field, :max, max) do
+    value = dimension_value!(max)
+    where(query, [item: i], field(i, ^field) <= ^value)
+  end
+
+  defp dimension_value!(%Decimal{} = value), do: value
+  defp dimension_value!(value) when is_integer(value), do: Decimal.new(value)
+
+  defp dimension_value!(value) when is_binary(value) do
+    case Decimal.parse(String.trim(value)) do
+      {decimal, ""} -> decimal
+      _other -> raise ArgumentError, "not a dimension value: #{inspect(value)}"
+    end
+  end
+
+  defp dimension_value!(value),
+    do: raise(ArgumentError, "not a dimension value: #{inspect(value)}")
 
   @doc """
   Narrows an item query (it must carry the `:item` named binding) to the
@@ -439,6 +552,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
 
     query
     |> filter_by_attribute_values(opts)
+    |> filter_by_dimensions(opts)
     |> filter_by_item_types(opts)
     |> apply_item_status_filter(opts, mode)
     |> repo().aggregate(:count)

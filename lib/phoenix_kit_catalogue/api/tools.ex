@@ -40,7 +40,9 @@ defmodule PhoenixKitCatalogue.API.Tools do
       title: "List products",
       description:
         "Lists the items of one catalogue, oldest change first, 20 per page (up to 100). " <>
-          "Filter by category_id, status, q (a text match on name, description and sku) and updated_since " <>
+          "Filter by category_id, status, q (a text match on name, description and sku), size " <>
+          "(length_mm_min / length_mm_max, and the same for width_mm and thickness_mm, in millimetres, " <>
+          "inclusive; the same value in both is an exact match) and updated_since " <>
           "(inclusive, ISO 8601 with a zone). Trashed items are not listed unless include_deleted is true " <>
           "(then they come back with status deleted, which is how an export sees deletions). " <>
           "Follow next_cursor until it is null; count is the exact number of matches. For an incremental " <>
@@ -86,6 +88,8 @@ defmodule PhoenixKitCatalogue.API.Tools do
           "external_id (so a retried request cannot create the item twice). A row whose sku or external_id " <>
           "already exists is skipped with already_exists and the existing id: nothing is ever overwritten. " <>
           "A sku and an external_id are stored and matched exactly as sent (not trimmed). " <>
+          "length_mm, width_mm and thickness_mm (millimetres) and pack_size (units per pack) are numbers or " <>
+          "decimal strings above zero, stored as sent; area_m2 and volume_m3 are derived and read-only. " <>
           "New items have no price and are not visible in the shop until ecommerce.set_prices and " <>
           "ecommerce.set_availability are called. Rows are independent; each answers created, skipped or error. " <>
           "A request over the confirmation threshold (50 rows by default) answers confirmation_required and " <>
@@ -108,7 +112,8 @@ defmodule PhoenixKitCatalogue.API.Tools do
       description:
         "Changes up to 500 items, each named by a reference ({id} or {sku} or {external_id}) and a changes " <>
           "object with any of name, description, sku, external_id, category_id, status (active, inactive or " <>
-          "discontinued), unit and attributes. null clears description, sku, external_id and category_id. " <>
+          "discontinued), unit, length_mm, width_mm, thickness_mm, pack_size and attributes. null clears " <>
+          "description, sku, external_id, category_id, a dimension and pack_size. " <>
           "Fields not listed stay as they are, and so does everything the tool does not own (prices, shop " <>
           "data, translations). A rename does not change the item's URL slug. Rows are independent; each " <>
           "answers updated, unchanged or error. A request over the confirmation threshold (50 rows by " <>

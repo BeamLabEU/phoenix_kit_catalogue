@@ -192,6 +192,14 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
       col("price", fn -> g("Price") end, default?: true),
       col("supplier_price", fn -> g("Supplier price") end, default?: true),
       col("unit", fn -> g("Unit") end, default?: true),
+      # The V7 size columns, off by default. The id is the item field,
+      # which is also the sort the fetch layer takes.
+      col("length_mm", fn -> g("Length (mm)") end, sortable?: true, align: :right),
+      col("width_mm", fn -> g("Width (mm)") end, sortable?: true, align: :right),
+      col("thickness_mm", fn -> g("Thickness (mm)") end, sortable?: true, align: :right),
+      col("area_m2", fn -> g("Area (m²)") end, sortable?: true, align: :right),
+      col("volume_m3", fn -> g("Volume (m³)") end, sortable?: true, align: :right),
+      col("pack_size", fn -> g("Pack size") end, sortable?: true, align: :right),
       # No filter (no :detail_items column has one); off by default — the
       # "Service" badge beside the status already marks services.
       col("item_type", fn -> g("Item type") end, []),
