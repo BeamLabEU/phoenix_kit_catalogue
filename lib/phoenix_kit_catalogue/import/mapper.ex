@@ -82,8 +82,19 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "hour" => "hour",
     "std." => "hour",
     # Time units. The codes and their labels in every locale the module
-    # ships, so an exported "day"/"päev"/"Wo." comes back as itself.
+    # ships, so an exported "day"/"päev"/"Wo." comes back as itself, plus
+    # the common plural and abbreviated forms a supplier's sheet uses
+    # ("päeva", "Tage", "jours", "дней", "d"). "mois" is singular and
+    # plural alike.
     "day" => "day",
+    "d" => "day",
+    "päeva" => "day",
+    "päevad" => "day",
+    "дней" => "day",
+    "дня" => "day",
+    "tage" => "day",
+    "jours" => "day",
+    "днів" => "day",
     "days" => "day",
     "päev" => "day",
     "день" => "day",
@@ -91,6 +102,10 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "tag" => "day",
     "jour" => "day",
     "week" => "week",
+    "недель" => "week",
+    "wochen" => "week",
+    "semaines" => "week",
+    "тижнів" => "week",
     "weeks" => "week",
     "wk" => "week",
     "näd" => "week",
@@ -104,6 +119,9 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "тиж." => "week",
     "тиждень" => "week",
     "month" => "month",
+    "месяцев" => "month",
+    "monate" => "month",
+    "місяців" => "month",
     "months" => "month",
     "mo" => "month",
     "kuu" => "month",
@@ -115,6 +133,10 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "міс." => "month",
     "місяць" => "month",
     "year" => "year",
+    "лет" => "year",
+    "jahre" => "year",
+    "ans" => "year",
+    "років" => "year",
     "years" => "year",
     "yr" => "year",
     "aasta" => "year",

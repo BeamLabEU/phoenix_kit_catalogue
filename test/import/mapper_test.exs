@@ -142,6 +142,34 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
       assert Mapper.normalize_unit("Weeks") == "week"
       assert Mapper.normalize_unit("MONTHS") == "month"
       assert Mapper.normalize_unit("years") == "year"
+
+      for {label, code} <- [
+            {"d", "day"},
+            {"päeva", "day"},
+            {"Päevad", "day"},
+            {"дней", "day"},
+            {"дня", "day"},
+            {"Tage", "day"},
+            {"jours", "day"},
+            {"днів", "day"},
+            {"недель", "week"},
+            {"Wochen", "week"},
+            {"semaines", "week"},
+            {"тижнів", "week"},
+            {"месяцев", "month"},
+            {"Monate", "month"},
+            {"mois", "month"},
+            {"місяців", "month"},
+            {"лет", "year"},
+            {"Jahre", "year"},
+            {"ans", "year"},
+            {"років", "year"},
+            {"wk", "week"},
+            {"mo", "month"},
+            {"yr", "year"}
+          ] do
+        assert Mapper.normalize_unit(label) == code, label
+      end
     end
 
     test "maps KMPL to set" do
