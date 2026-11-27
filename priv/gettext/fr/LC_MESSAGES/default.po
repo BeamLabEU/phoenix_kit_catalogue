@@ -4033,3 +4033,9 @@ msgstr "Devise invalide : %{raw}. Utilisez un code à trois lettres, par exemple
 
 msgid "Unknown cost unit: %{raw}"
 msgstr "Unité de coût inconnue : %{raw}"
+
+msgid "Mapped without a supplier: %{columns}. These values will not be imported. Map a supplier column or choose a supplier."
+msgstr "Associé sans fournisseur : %{columns}. Ces valeurs ne seront pas importées. Associez une colonne fournisseur ou choisissez un fournisseur."
+
+msgid "%{count} rows: supplier values skipped (no supplier)."
+msgstr "%{count} lignes : valeurs du fournisseur ignorées (aucun fournisseur)."

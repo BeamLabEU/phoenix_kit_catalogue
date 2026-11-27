@@ -1519,7 +1519,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                  suppliers_created: 0,
                  manufacturer_supplier_links_created: 0,
                  dependencies_linked: 0,
-                 dependencies_unresolved: []
+                 dependencies_unresolved: [],
+                 supplier_values_skipped: 0
                }}
             )
 
@@ -2489,6 +2490,12 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           </div>
         </div>
 
+        <.orphan_supplier_values_warning
+          id="import-orphan-supplier-values"
+          column_mappings={@column_mappings}
+          supplier_mode={@import_supplier_mode}
+        />
+
         <div class="flex gap-2">
           <button class="btn btn-ghost btn-sm" phx-click="go_back">
             <.icon name="hero-arrow-left" class="w-4 h-4" />
@@ -2504,6 +2511,62 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           </button>
         </div>
       </div>
+    </div>
+    """
+  end
+
+  # Supplier values (SKU, cost, currency, cost unit, pack size) are written
+  # with the item's supplier row, so with no supplier — no mapped column
+  # and no fixed one — the executor saves none of them. Said here, before
+  # the import, and never blocking: the operator may want the item fields
+  # only.
+  @supplier_value_targets [
+    :supplier_sku,
+    :supplier_cost,
+    :supplier_currency,
+    :supplier_cost_unit,
+    :supplier_pack_size
+  ]
+
+  @doc false
+  def orphan_supplier_values(column_mappings, supplier_mode) do
+    if supplier_mode in [:existing, :create] or has_mapping?(column_mappings, :supplier) do
+      []
+    else
+      column_mappings
+      |> Enum.map(& &1.target)
+      |> Enum.filter(&(&1 in @supplier_value_targets))
+      |> Enum.uniq()
+    end
+  end
+
+  defp target_label(target) do
+    {_target, label} = List.keyfind(Mapper.available_targets(), target, 0)
+    translate_target(label)
+  end
+
+  attr(:id, :string, required: true)
+  attr(:column_mappings, :list, required: true)
+  attr(:supplier_mode, :atom, required: true)
+
+  defp orphan_supplier_values_warning(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :targets,
+        orphan_supplier_values(assigns.column_mappings, assigns.supplier_mode)
+      )
+
+    ~H"""
+    <div :if={@targets != []} id={@id} class="alert alert-warning">
+      <.icon name="hero-exclamation-triangle" class="w-5 h-5 shrink-0" />
+      <p class="text-sm">
+        {Gettext.gettext(
+          PhoenixKitCatalogue.Gettext,
+          "Mapped without a supplier: %{columns}. These values will not be imported. Map a supplier column or choose a supplier.",
+          columns: Enum.map_join(@targets, ", ", &target_label/1)
+        )}
+      </p>
     </div>
     """
   end
@@ -2588,6 +2651,12 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             </div>
           </div>
         </div>
+
+        <.orphan_supplier_values_warning
+          id="import-confirm-orphan-supplier-values"
+          column_mappings={@column_mappings}
+          supplier_mode={@import_supplier_mode}
+        />
 
         <%!-- Duplicate warnings --%>
         <div :if={@duplicate_row_count > 0 or @existing_duplicate_count > 0} class="alert alert-warning">
@@ -2730,6 +2799,18 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
               {unresolved_dependency_message(row_idx, ref, reason)}
             </p>
           </div>
+        </div>
+
+        <%!-- The items imported; their supplier SKU / cost / pack did not. --%>
+        <div
+          :if={@import_result && Map.get(@import_result, :supplier_values_skipped, 0) > 0}
+          id="import-supplier-values-skipped"
+          class="alert alert-warning max-w-md"
+        >
+          <.icon name="hero-exclamation-triangle" class="w-5 h-5 shrink-0" />
+          <p class="text-sm">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} rows: supplier values skipped (no supplier).", count: @import_result.supplier_values_skipped)}
+          </p>
         </div>
 
         <div :if={@import_result && @import_result.errors != []} class="alert alert-error max-w-md">
@@ -3405,6 +3486,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         count_field(result, :manufacturer_supplier_links_created),
       "dependencies_linked" => count_field(result, :dependencies_linked),
       "dependencies_unresolved" => length(result[:dependencies_unresolved] || []),
+      "supplier_values_skipped" => count_field(result, :supplier_values_skipped),
       "errors" => length(result[:errors] || [])
     })
   end

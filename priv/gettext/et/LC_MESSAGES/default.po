@@ -4033,3 +4033,9 @@ msgstr "Vigane valuuta: %{raw}. Kasuta kolmetähelist koodi, näiteks EUR."
 
 msgid "Unknown cost unit: %{raw}"
 msgstr "Tundmatu hinnaühik: %{raw}"
+
+msgid "Mapped without a supplier: %{columns}. These values will not be imported. Map a supplier column or choose a supplier."
+msgstr "Vastendatud ilma tarnijata: %{columns}. Neid väärtusi ei impordita. Vastenda tarnija veerg või vali tarnija."
+
+msgid "%{count} rows: supplier values skipped (no supplier)."
+msgstr "%{count} rida: tarnija väärtused jäeti vahele (tarnija puudub)."

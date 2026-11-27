@@ -4047,3 +4047,9 @@ msgstr "Недійсна валюта: %{raw}. Використовуйте тр
 
 msgid "Unknown cost unit: %{raw}"
 msgstr "Невідома одиниця ціни: %{raw}"
+
+msgid "Mapped without a supplier: %{columns}. These values will not be imported. Map a supplier column or choose a supplier."
+msgstr "Зіставлено без постачальника: %{columns}. Ці значення не буде імпортовано. Зіставте стовпець постачальника або виберіть постачальника."
+
+msgid "%{count} rows: supplier values skipped (no supplier)."
+msgstr "Рядків: %{count} — значення постачальника пропущено (немає постачальника)."

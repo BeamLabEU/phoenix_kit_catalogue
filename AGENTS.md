@@ -793,7 +793,9 @@ Pointers, not docs — the moduledocs are the contract.
   `supplier_cost_unit`, `supplier_pack_size`) travel as `:_supplier_terms`
   and are written with the row the executor attaches to the item, so they
   need a supplier (a mapped column or the fixed one); without one they are
-  not saved and the log says so. A cost unit is never coerced to `piece`
+  not saved: the mapping and confirm steps warn before the import
+  (`ImportLive.orphan_supplier_values/2`, never blocking), and the result
+  counts the rows (`supplier_values_skipped`) for the report. A cost unit is never coerced to `piece`
   the way an item's unit is. `Mapper`'s `@exact_headers` is tried before
   the substring patterns and holds the export's own keys, so an exported
   file maps itself.

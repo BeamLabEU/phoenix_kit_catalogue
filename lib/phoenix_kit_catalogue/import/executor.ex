@@ -23,6 +23,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
           suppliers_created: non_neg_integer(),
           manufacturer_supplier_links_created: non_neg_integer(),
           dependencies_linked: non_neg_integer(),
+          supplier_values_skipped: non_neg_integer(),
           dependencies_unresolved: [
             {non_neg_integer(), String.t(), :not_found | :ambiguous | :not_saved}
           ]
@@ -132,12 +133,14 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     # Phase 2: Create items, accumulating M:N link pairs along the way
     supplier_names = supplier_names(supplier_lookup, fixed_supplier_uuid)
     total = length(import_plan.items)
-    initial_acc = {{0, [], MapSet.new(), MapSet.new()}, []}
+    initial_acc = {{0, [], MapSet.new(), MapSet.new()}, [], 0}
 
-    {{created, errors, link_pairs, manufacturers_touched}, pending_dependencies} =
+    {{created, errors, link_pairs, manufacturers_touched}, pending_dependencies,
+     supplier_values_skipped} =
       import_plan.items
       |> Enum.with_index(1)
-      |> Enum.reduce(initial_acc, fn {item_attrs, idx}, {{cr, errs, pairs, mfrs}, pending} ->
+      |> Enum.reduce(initial_acc, fn {item_attrs, idx},
+                                     {{cr, errs, pairs, mfrs}, pending, skipped} ->
         {mfr_ref, attrs} =
           item_attrs
           |> resolve_manufacturer(manufacturer_lookup, fixed_manufacturer_uuid)
@@ -161,7 +164,12 @@ defmodule PhoenixKitCatalogue.Import.Executor do
         # A supplier column means "this item is supplied by X", so it
         # attaches to the ITEM. That reference is federated, so it takes a
         # CRM party; the manufacturer M:N table below cannot.
-        attach_supplier(result, sup_ref, supplier_names, supplier_terms, activity_opts)
+        # `:skipped`: the row had supplier values and no supplier to hold
+        # them. Counted, so the report can say so.
+        skipped =
+          result
+          |> attach_supplier(sup_ref, supplier_names, supplier_terms, activity_opts)
+          |> count_skipped(skipped)
 
         maybe_notify(notify_pid, {:import_progress, idx, total})
 
@@ -171,7 +179,8 @@ defmodule PhoenixKitCatalogue.Import.Executor do
             _ -> pending
           end
 
-        {accumulate_item_result(result, {cr, errs, pairs, mfrs}, idx, mfr_ref, sup_ref), pending}
+        {accumulate_item_result(result, {cr, errs, pairs, mfrs}, idx, mfr_ref, sup_ref), pending,
+         skipped}
       end)
 
     # Phase 3: M:N links. A fixed supplier (existing/create mode) gets
@@ -193,7 +202,8 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       suppliers_created: suppliers_created,
       manufacturer_supplier_links_created: links_created,
       dependencies_linked: dependencies_linked,
-      dependencies_unresolved: dependencies_unresolved
+      dependencies_unresolved: dependencies_unresolved,
+      supplier_values_skipped: supplier_values_skipped
     }
 
     # Roll-up broadcast: per-row events were suppressed via
@@ -545,6 +555,9 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     |> Map.put(:manufacturer_source, source)
   end
 
+  defp count_skipped(:skipped, count), do: count + 1
+  defp count_skipped(:ok, count), do: count
+
   # One junction row per imported item/supplier pair. `create/2` refuses a
   # second CURRENT row for a pair, which is exactly right here: a file
   # listing the same supplier on the same item twice must not produce two
@@ -553,7 +566,8 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   # `terms` are the row's own values from the file (string keys of
   # `ItemSupplierInfo`). They need a supplier to hang on: a row with terms
   # and no supplier — no column, a blank cell, no fixed supplier — writes
-  # none of them, and the log says so.
+  # none of them and answers `:skipped`; the result counts those rows
+  # (`supplier_values_skipped`) and the log names the item.
   defp attach_supplier(result, supplier_ref, names, terms, activity_opts)
 
   defp attach_supplier(
@@ -594,7 +608,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       "Import: item #{item_uuid} has supplier values (#{terms |> Map.keys() |> Enum.join(", ")}) but no supplier; they were not saved"
     )
 
-    :ok
+    :skipped
   end
 
   defp attach_supplier(_result, _supplier_ref, _names, _terms, _activity_opts), do: :ok

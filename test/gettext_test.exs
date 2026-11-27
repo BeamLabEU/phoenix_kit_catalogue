@@ -1463,6 +1463,8 @@ defmodule PhoenixKitCatalogue.GettextTest do
   end
 
   @v7_strings [
+    "Mapped without a supplier: %{columns}. These values will not be imported. Map a supplier column or choose a supplier.",
+    "%{count} rows: supplier values skipped (no supplier).",
     "Unknown unit.",
     "The item has no dimensions to convert this unit with.",
     "The item has no pack size.",

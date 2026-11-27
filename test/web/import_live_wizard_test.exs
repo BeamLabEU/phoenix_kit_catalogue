@@ -13,6 +13,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLiveWizardTest do
 
   use PhoenixKitCatalogue.LiveCase, async: false
 
+  alias PhoenixKitCatalogue.Web.ImportLive
+
   @import_url "/en/admin/catalogues/import"
 
   setup do
@@ -52,6 +54,70 @@ defmodule PhoenixKitCatalogue.Web.ImportLiveWizardTest do
       mappings = current_assigns(view).column_mappings
       assert Enum.find(mappings, &(&1.column_index == 1)).target == :item_type
       assert Enum.find(mappings, &(&1.column_index == 0)).target == :skip
+    end
+
+    test "supplier values mapped with no supplier are warned about, and a supplier clears it",
+         %{conn: conn, catalogue: cat} do
+      view = mount_at_map_step(conn, cat, headers: ~w(name cost per vendor))
+
+      render_change(view, "update_mapping", %{"column" => "0", "target" => "name"})
+      refute has_element?(view, "#import-orphan-supplier-values")
+
+      render_change(view, "update_mapping", %{"column" => "1", "target" => "supplier_cost"})
+      render_change(view, "update_mapping", %{"column" => "2", "target" => "supplier_cost_unit"})
+
+      warning = view |> element("#import-orphan-supplier-values") |> render()
+      assert warning =~ "Supplier cost"
+      assert warning =~ "will not be imported"
+
+      # The Continue button is not disabled by it.
+      assert ImportLive.orphan_supplier_values(
+               current_assigns(view).column_mappings,
+               :none
+             ) ==
+               [:supplier_cost, :supplier_cost_unit]
+
+      # A supplier column...
+      render_change(view, "select_import_supplier", %{
+        "supplier_mode" => "column",
+        "supplier_column" => "3"
+      })
+
+      refute has_element?(view, "#import-orphan-supplier-values")
+
+      # ...or a fixed supplier clears it; "none" brings it back.
+      render_change(view, "select_import_supplier", %{"supplier_mode" => "none"})
+      assert has_element?(view, "#import-orphan-supplier-values")
+
+      render_change(view, "select_import_supplier", %{"supplier_mode" => "create"})
+      refute has_element?(view, "#import-orphan-supplier-values")
+    end
+
+    test "the report counts the rows whose supplier values were skipped",
+         %{conn: conn, catalogue: cat} do
+      view = mount_at_map_step(conn, cat)
+
+      # The page takes a result only from a task it started.
+      :sys.replace_state(view.pid, fn state ->
+        task = spawn(fn -> Process.sleep(:infinity) end)
+
+        assigns =
+          Map.merge(state.socket.assigns, %{
+            step: :importing,
+            import_task: {task, Process.monitor(task)}
+          })
+
+        put_in(state.socket.assigns, assigns)
+      end)
+
+      send(
+        view.pid,
+        {:import_result,
+         %{created: 3, errors: [], categories_created: 0, supplier_values_skipped: 2}}
+      )
+
+      assert view |> element("#import-supplier-values-skipped") |> render() =~
+               "2 rows: supplier values skipped (no supplier)."
     end
 
     test "the size and supplier-row targets can be picked for a column",

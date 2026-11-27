@@ -4033,3 +4033,9 @@ msgstr "Invalid currency: %{raw}. Use a three-letter code such as EUR."
 
 msgid "Unknown cost unit: %{raw}"
 msgstr "Unknown cost unit: %{raw}"
+
+msgid "Mapped without a supplier: %{columns}. These values will not be imported. Map a supplier column or choose a supplier."
+msgstr "Mapped without a supplier: %{columns}. These values will not be imported. Map a supplier column or choose a supplier."
+
+msgid "%{count} rows: supplier values skipped (no supplier)."
+msgstr "%{count} rows: supplier values skipped (no supplier)."

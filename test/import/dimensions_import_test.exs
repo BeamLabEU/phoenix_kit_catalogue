@@ -237,11 +237,53 @@ defmodule PhoenixKitCatalogue.Import.DimensionsImportTest do
         ExUnit.CaptureLog.capture_log(fn ->
           result = Executor.execute(plan, target.uuid, nil)
           assert result.created == 1
+          assert result.supplier_values_skipped == 1
         end)
 
       assert log =~ "no supplier"
       [item] = Catalogue.search_items("Orphan cost", catalogue_uuids: [target.uuid])
       assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
+    end
+
+    test "a file where only some rows name a supplier counts the rows that do not" do
+      target = fixture_catalogue(%{name: "Mixed suppliers"})
+
+      plan =
+        Mapper.build_import_plan(
+          mappings([{"Name", :name}, {"Supplier", :supplier}, {"Cost", :supplier_cost}]),
+          [
+            ["Mixed with supplier", "Mixed Timber OÜ", "830"],
+            ["Mixed blank supplier", "", "840"],
+            ["Mixed no cost", "", ""],
+            ["Mixed blank again", "  ", "850"]
+          ]
+        )
+
+      result =
+        ExUnit.CaptureLog.with_log(fn -> Executor.execute(plan, target.uuid, nil) end) |> elem(0)
+
+      assert result.created == 4
+      # Rows 2 and 4: a cost and no supplier. Row 3 has nothing to lose.
+      assert result.supplier_values_skipped == 2
+
+      [kept] = Catalogue.search_items("Mixed with supplier", catalogue_uuids: [target.uuid])
+      assert [info] = Catalogue.list_supplier_infos_for_item(kept.uuid)
+      assert Decimal.equal?(info.unit_cost, 830)
+
+      [lost] = Catalogue.search_items("Mixed blank supplier", catalogue_uuids: [target.uuid])
+      assert Catalogue.list_supplier_infos_for_item(lost.uuid) == []
+    end
+
+    test "with a supplier on every row nothing is counted as skipped" do
+      target = fixture_catalogue(%{name: "All supplied"})
+
+      plan =
+        Mapper.build_import_plan(
+          mappings([{"Name", :name}, {"Supplier", :supplier}, {"Cost", :supplier_cost}]),
+          [["Supplied sheet", "Supplied Timber OÜ", "830"]]
+        )
+
+      assert Executor.execute(plan, target.uuid, nil).supplier_values_skipped == 0
     end
   end
 

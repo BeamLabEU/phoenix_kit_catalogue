@@ -4047,3 +4047,9 @@ msgstr "Неверная валюта: %{raw}. Используйте трёхб
 
 msgid "Unknown cost unit: %{raw}"
 msgstr "Неизвестная единица цены: %{raw}"
+
+msgid "Mapped without a supplier: %{columns}. These values will not be imported. Map a supplier column or choose a supplier."
+msgstr "Сопоставлено без поставщика: %{columns}. Эти значения не будут импортированы. Сопоставьте столбец поставщика или выберите поставщика."
+
+msgid "%{count} rows: supplier values skipped (no supplier)."
+msgstr "Строк: %{count} — значения поставщика пропущены (нет поставщика)."
