@@ -29,6 +29,22 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierContacts do
       current summary written back unchanged changes nothing. A blank
       write unsets every primary.
 
+  Two consequences of that, by design:
+
+    * after a free-text write the email and phone primaries have stepped
+      down, so `resolve_supplier/1` reports `email: nil, phone: nil` until
+      a primary of those kinds is set again (`set_primary_supplier_contact/3`
+      or a write of an address or number);
+    * the legacy path only runs when the changeset changes `contact_info`.
+      An `update_supplier/3` from a struct loaded before a contacts edit,
+      carrying the value that struct held, is no change to Ecto and writes
+      nothing — reload the supplier before writing the column.
+
+  These rows serve suppliers that have no CRM company. The module has no
+  editor for them (suppliers are managed in CRM); the CRM's
+  `import_suppliers_from_catalogue` task carries their primaries into the
+  company it links.
+
   Every edit reads the contacts under the supplier's row lock, so two
   concurrent edits build on each other. A spec that carries the `:uuid` of
   one of the supplier's contacts keeps that row's uuid (the module's own
