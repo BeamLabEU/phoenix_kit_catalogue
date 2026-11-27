@@ -28,8 +28,21 @@ defmodule PhoenixKitCatalogue.Import.Source.Universal do
   def parse(binary, _filename, :json, _opts), do: parse_json(binary)
   def parse(binary, filename, _spreadsheet, opts), do: Parser.parse(binary, filename, opts)
 
-  @json_headers ~w(name sku base_price unit item_type ai_notes catalogue dependencies)
-  @plain_headers @json_headers -- ["dependencies"]
+  # The export's item keys, in the order the mapper sees them as columns.
+  # The supplier columns are the item's FIRST supplier — the export lists
+  # the primary first — flattened; a row has one supplier.
+  @item_headers ~w(name sku base_price unit length_mm width_mm thickness_mm pack_size
+                   item_type ai_notes catalogue)
+  @supplier_headers [
+    {"supplier", "name"},
+    {"supplier_sku", "sku"},
+    {"supplier_cost", "cost"},
+    {"supplier_currency", "currency"},
+    {"supplier_cost_unit", "cost_unit"},
+    {"supplier_pack_size", "pack_size"}
+  ]
+  @json_headers @item_headers ++ Enum.map(@supplier_headers, &elem(&1, 0)) ++ ["dependencies"]
+  @plain_headers @item_headers
 
   defp parse_json(binary) do
     case Jason.decode(binary) do
@@ -53,7 +66,8 @@ defmodule PhoenixKitCatalogue.Import.Source.Universal do
   # and on some lists. Anything else is not this format.
   defp flat_item?(item) when is_map(item) do
     Enum.all?(@plain_headers, &plain_value?(item[&1])) and
-      dependency_list?(item["dependencies"])
+      dependency_list?(item["dependencies"]) and
+      supplier_list?(item["suppliers"])
   end
 
   defp flat_item?(_item), do: false
@@ -67,7 +81,27 @@ defmodule PhoenixKitCatalogue.Import.Source.Universal do
     end
   end
 
-  defp cell(item, header), do: to_string(item[header])
+  defp cell(item, header) when header in @plain_headers, do: to_string(item[header])
+
+  defp cell(item, header) do
+    {_header, key} = List.keyfind(@supplier_headers, header, 0)
+
+    case item["suppliers"] do
+      [%{} = first | _] -> to_string(first[key])
+      _none -> ""
+    end
+  end
+
+  defp supplier_list?(nil), do: true
+
+  defp supplier_list?(list) when is_list(list) do
+    Enum.all?(list, fn
+      %{} = supplier -> supplier |> Map.values() |> Enum.all?(&plain_value?/1)
+      _other -> false
+    end)
+  end
+
+  defp supplier_list?(_other), do: false
 
   defp dependency_list?(nil), do: true
   defp dependency_list?(list) when is_list(list), do: Enum.all?(list, &is_map/1)

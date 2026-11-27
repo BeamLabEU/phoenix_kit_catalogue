@@ -153,12 +153,15 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
         {dependency_refs, attrs} = Map.pop(attrs, :_dependencies, [])
         {source_row, attrs} = Map.pop(attrs, :_row, idx)
+        # The supplier row's own values (SKU, cost, cost unit, pack): they
+        # belong to the row attached below, not to the item.
+        {supplier_terms, attrs} = Map.pop(attrs, :_supplier_terms, %{})
         result = insert_item(attrs, activity_opts)
 
         # A supplier column means "this item is supplied by X", so it
         # attaches to the ITEM. That reference is federated, so it takes a
         # CRM party; the manufacturer M:N table below cannot.
-        attach_supplier(result, sup_ref, supplier_names, activity_opts)
+        attach_supplier(result, sup_ref, supplier_names, supplier_terms, activity_opts)
 
         maybe_notify(notify_pid, {:import_progress, idx, total})
 
@@ -546,17 +549,23 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   # second CURRENT row for a pair, which is exactly right here: a file
   # listing the same supplier on the same item twice must not produce two
   # live prices.
-  defp attach_supplier(result, supplier_ref, names, activity_opts)
+  #
+  # `terms` are the row's own values from the file (string keys of
+  # `ItemSupplierInfo`). They need a supplier to hang on: a row with terms
+  # and no supplier — no column, a blank cell, no fixed supplier — writes
+  # none of them, and the log says so.
+  defp attach_supplier(result, supplier_ref, names, terms, activity_opts)
 
   defp attach_supplier(
          {:ok, %{uuid: item_uuid}},
          {supplier_uuid, source},
          names,
+         terms,
          activity_opts
        )
        when is_binary(item_uuid) and is_binary(supplier_uuid) do
     case Catalogue.create_supplier_info(
-           %{
+           Map.merge(terms, %{
              "item_uuid" => item_uuid,
              "supplier_uuid" => supplier_uuid,
              "supplier_source" => source,
@@ -564,7 +573,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
              # ITEM: that was a query per row, and it discarded the source
              # we already hold.
              "supplier_name_snapshot" => Map.get(names, supplier_uuid)
-           },
+           }),
            activity_opts
          ) do
       {:ok, _info} ->
@@ -579,7 +588,16 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     end
   end
 
-  defp attach_supplier(_result, _supplier_ref, _names, _activity_opts), do: :ok
+  defp attach_supplier({:ok, %{uuid: item_uuid}}, _no_supplier, _names, terms, _activity_opts)
+       when terms != %{} do
+    Logger.warning(
+      "Import: item #{item_uuid} has supplier values (#{terms |> Map.keys() |> Enum.join(", ")}) but no supplier; they were not saved"
+    )
+
+    :ok
+  end
+
+  defp attach_supplier(_result, _supplier_ref, _names, _terms, _activity_opts), do: :ok
 
   # uuid => name, from the resolution pass. One map for the whole import
   # rather than a resolve per row.

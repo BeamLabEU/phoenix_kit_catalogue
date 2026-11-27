@@ -54,6 +54,27 @@ defmodule PhoenixKitCatalogue.Web.ImportLiveWizardTest do
       assert Enum.find(mappings, &(&1.column_index == 0)).target == :skip
     end
 
+    test "the size and supplier-row targets can be picked for a column",
+         %{conn: conn, catalogue: cat} do
+      targets = ~w(length_mm width_mm thickness_mm pack_size supplier_sku supplier_cost
+                   supplier_currency supplier_cost_unit supplier_pack_size)
+
+      view = mount_at_map_step(conn, cat, headers: Enum.map(0..9, &"c#{&1}"))
+
+      targets
+      |> Enum.with_index()
+      |> Enum.each(fn {target, column} ->
+        render_change(view, "update_mapping", %{"column" => "#{column}", "target" => target})
+      end)
+
+      mappings = current_assigns(view).column_mappings
+
+      for {target, column} <- Enum.with_index(targets) do
+        assert Enum.find(mappings, &(&1.column_index == column)).target ==
+                 String.to_existing_atom(target)
+      end
+    end
+
     test "update_mapping sets a column to :name", %{conn: conn, catalogue: cat} do
       view = mount_at_map_step(conn, cat)
 

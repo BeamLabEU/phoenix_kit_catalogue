@@ -4023,3 +4023,27 @@ msgstr "Довжина"
 
 msgid "Thickness"
 msgstr "Товщина"
+
+msgid "Supplier cost"
+msgstr "Ціна постачальника"
+
+msgid "Supplier currency"
+msgstr "Валюта постачальника"
+
+msgid "Supplier cost is per"
+msgstr "Ціну постачальника вказано за"
+
+msgid "Invalid size: %{raw}. Write it in millimetres, as a number above zero."
+msgstr "Недійсний розмір: %{raw}. Вкажіть його в міліметрах, числом більше нуля."
+
+msgid "Invalid pack size: %{raw}"
+msgstr "Недійсний розмір упаковки: %{raw}"
+
+msgid "Invalid supplier cost: %{raw}"
+msgstr "Недійсна ціна постачальника: %{raw}"
+
+msgid "Invalid currency: %{raw}. Use a three-letter code such as EUR."
+msgstr "Недійсна валюта: %{raw}. Використовуйте трилітерний код, наприклад EUR."
+
+msgid "Unknown cost unit: %{raw}"
+msgstr "Невідома одиниця ціни: %{raw}"

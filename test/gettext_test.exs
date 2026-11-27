@@ -1488,7 +1488,15 @@ defmodule PhoenixKitCatalogue.GettextTest do
     "Length",
     "Size (mm)",
     "Thickness",
-    "To"
+    "To",
+    "Invalid currency: %{raw}. Use a three-letter code such as EUR.",
+    "Invalid pack size: %{raw}",
+    "Invalid size: %{raw}. Write it in millimetres, as a number above zero.",
+    "Invalid supplier cost: %{raw}",
+    "Supplier cost",
+    "Supplier cost is per",
+    "Supplier currency",
+    "Unknown cost unit: %{raw}"
   ]
 
   test "the V7 strings are in every locale, translated outside English" do

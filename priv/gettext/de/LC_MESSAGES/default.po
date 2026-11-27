@@ -1085,7 +1085,7 @@ msgid "Primary supplier"
 msgstr ""
 
 msgid "Supplier SKU"
-msgstr ""
+msgstr "Lieferanten-SKU"
 
 msgid "Lead time (days)"
 msgstr ""
@@ -4009,3 +4009,27 @@ msgstr "Länge"
 
 msgid "Thickness"
 msgstr "Dicke"
+
+msgid "Supplier cost"
+msgstr "Lieferantenpreis"
+
+msgid "Supplier currency"
+msgstr "Währung des Lieferanten"
+
+msgid "Supplier cost is per"
+msgstr "Lieferantenpreis gilt pro"
+
+msgid "Invalid size: %{raw}. Write it in millimetres, as a number above zero."
+msgstr "Ungültiges Maß: %{raw}. Bitte in Millimetern als Zahl größer als null angeben."
+
+msgid "Invalid pack size: %{raw}"
+msgstr "Ungültige Packungsgröße: %{raw}"
+
+msgid "Invalid supplier cost: %{raw}"
+msgstr "Ungültiger Lieferantenpreis: %{raw}"
+
+msgid "Invalid currency: %{raw}. Use a three-letter code such as EUR."
+msgstr "Ungültige Währung: %{raw}. Bitte einen dreistelligen Code wie EUR verwenden."
+
+msgid "Unknown cost unit: %{raw}"
+msgstr "Unbekannte Preiseinheit: %{raw}"

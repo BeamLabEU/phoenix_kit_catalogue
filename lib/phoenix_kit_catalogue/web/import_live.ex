@@ -3084,6 +3084,33 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   defp translate_target("Supplier"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")
 
+  defp translate_target("Length (mm)"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Length (mm)")
+
+  defp translate_target("Width (mm)"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Width (mm)")
+
+  defp translate_target("Thickness (mm)"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Thickness (mm)")
+
+  defp translate_target("Pack size"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pack size")
+
+  defp translate_target("Supplier SKU"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")
+
+  defp translate_target("Supplier cost"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier cost")
+
+  defp translate_target("Supplier currency"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier currency")
+
+  defp translate_target("Supplier cost is per"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier cost is per")
+
+  defp translate_target("Supplier's pack size"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier's pack size")
+
   defp translate_target("Create categories"),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create categories")
 
@@ -3205,6 +3232,15 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp target_to_string(:category), do: "category"
   defp target_to_string(:manufacturer), do: "manufacturer"
   defp target_to_string(:supplier), do: "supplier"
+  defp target_to_string(:length_mm), do: "length_mm"
+  defp target_to_string(:width_mm), do: "width_mm"
+  defp target_to_string(:thickness_mm), do: "thickness_mm"
+  defp target_to_string(:pack_size), do: "pack_size"
+  defp target_to_string(:supplier_sku), do: "supplier_sku"
+  defp target_to_string(:supplier_cost), do: "supplier_cost"
+  defp target_to_string(:supplier_currency), do: "supplier_currency"
+  defp target_to_string(:supplier_cost_unit), do: "supplier_cost_unit"
+  defp target_to_string(:supplier_pack_size), do: "supplier_pack_size"
   defp target_to_string({:data, name}), do: "data:#{name}"
 
   # A column index is client data: anything but a whole number is ignored.
@@ -3272,6 +3308,15 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp parse_target("category"), do: :category
   defp parse_target("manufacturer"), do: :manufacturer
   defp parse_target("supplier"), do: :supplier
+  defp parse_target("length_mm"), do: :length_mm
+  defp parse_target("width_mm"), do: :width_mm
+  defp parse_target("thickness_mm"), do: :thickness_mm
+  defp parse_target("pack_size"), do: :pack_size
+  defp parse_target("supplier_sku"), do: :supplier_sku
+  defp parse_target("supplier_cost"), do: :supplier_cost
+  defp parse_target("supplier_currency"), do: :supplier_currency
+  defp parse_target("supplier_cost_unit"), do: :supplier_cost_unit
+  defp parse_target("supplier_pack_size"), do: :supplier_pack_size
   # `data:<key>` was never offered by the mapping select; parsing it let a
   # crafted mapping write verbatim cell content into reserved `data` keys
   # (`featured_image_uuid`, `files_folder_uuid`, `media_order`, …).

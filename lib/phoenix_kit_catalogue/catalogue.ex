@@ -185,6 +185,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defdelegate supplier_cost_ranges(item_uuids), to: ItemSupplierInfos, as: :cost_ranges
 
+  defdelegate supplier_infos_by_item(item_uuids), to: ItemSupplierInfos, as: :current_by_item
+
   defdelegate get_supplier_info(uuid), to: ItemSupplierInfos, as: :get
 
   defdelegate create_supplier_info(attrs, opts \\ []), to: ItemSupplierInfos, as: :create

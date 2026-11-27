@@ -15,6 +15,9 @@ defmodule PhoenixKitCatalogue.Errors do
     * tagged tuples — `{:referenced_by_smart_items, count}`,
       `{:duplicate_referenced_catalogue, uuid}`,
       `{:invalid_price, raw}`, `{:invalid_markup, raw}`,
+      `{:invalid_dimension, raw}`, `{:invalid_pack_size, raw}`,
+      `{:invalid_supplier_cost, raw}`, `{:invalid_currency_code, raw}`,
+      `{:invalid_cost_unit, raw}`,
       `{:sheet_empty, sheet}`, `{:sheet_read_failed, sheet, raw}`,
       `{:xlsx_open_failed, raw}`, `{:xlsx_read_failed, raw}`,
       `{:csv_parse_failed, raw}`
@@ -406,6 +409,46 @@ defmodule PhoenixKitCatalogue.Errors do
       Gettext.gettext(
         PhoenixKitCatalogue.Gettext,
         "Invalid markup: %{raw}",
+        raw: truncate(raw)
+      )
+
+  def message({:invalid_dimension, raw}),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Invalid size: %{raw}. Write it in millimetres, as a number above zero.",
+        raw: truncate(raw)
+      )
+
+  def message({:invalid_pack_size, raw}),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Invalid pack size: %{raw}",
+        raw: truncate(raw)
+      )
+
+  def message({:invalid_supplier_cost, raw}),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Invalid supplier cost: %{raw}",
+        raw: truncate(raw)
+      )
+
+  def message({:invalid_currency_code, raw}),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Invalid currency: %{raw}. Use a three-letter code such as EUR.",
+        raw: truncate(raw)
+      )
+
+  def message({:invalid_cost_unit, raw}),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Unknown cost unit: %{raw}",
         raw: truncate(raw)
       )
 

@@ -84,6 +84,23 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   end
 
   @doc """
+  The current supplier rows of many items in one query, as
+  `%{item_uuid => [row]}` — each list primary first, then in the item's
+  own order. Items without a supplier are absent. For the export.
+  """
+  @spec current_by_item([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => [ItemSupplierInfo.t()]}
+  def current_by_item([]), do: %{}
+
+  def current_by_item(item_uuids) when is_list(item_uuids) do
+    from(i in ItemSupplierInfo,
+      where: i.item_uuid in ^item_uuids and is_nil(i.valid_to),
+      order_by: [desc: i.is_primary, asc: i.position, asc: i.inserted_at, asc: i.uuid]
+    )
+    |> repo().all()
+    |> Enum.group_by(& &1.item_uuid)
+  end
+
+  @doc """
   Returns all rows for an item/supplier pair ordered newest-first.
 
   Includes both current (`valid_to: nil`) and closed rows so callers can

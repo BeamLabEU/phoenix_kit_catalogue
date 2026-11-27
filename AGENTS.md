@@ -785,12 +785,27 @@ Pointers, not docs — the moduledocs are the contract.
   of the same upload passes the wizard's `file_encoding`. A NUL byte, or a
   byte the confirmed page does not define, is refused. The import task, not
   the page, writes `import.completed` / `import.failed`, so the outcome is
-  logged when the operator has closed the tab.
+  logged when the operator has closed the tab. A size column
+  (`length_mm`, `width_mm`, `thickness_mm`) is millimetres — a plain number,
+  comma or dot decimal, an `mm` suffix tolerated — and a value in any other
+  unit rejects the row; it is never converted. The supplier-row columns
+  (`supplier_sku`, `supplier_cost`, `supplier_currency`,
+  `supplier_cost_unit`, `supplier_pack_size`) travel as `:_supplier_terms`
+  and are written with the row the executor attaches to the item, so they
+  need a supplier (a mapped column or the fixed one); without one they are
+  not saved and the log says so. A cost unit is never coerced to `piece`
+  the way an item's unit is. `Mapper`'s `@exact_headers` is tried before
+  the substring patterns and holds the export's own keys, so an exported
+  file maps itself.
 - **Export** — `PhoenixKitCatalogue.Export.build/1` with a
   destination/format registry (Universal JSON, Pro100); UI in `ExportLive`,
   download via the permission-gated `ExportController`, which answers 400 for
   a destination, format or uuid it does not know (`build/1` raises on them).
-  Inbound mirror of the import sources.
+  Inbound mirror of the import sources. The Universal JSON carries the
+  dimensions and pack size as decimal strings (not the derived area and
+  volume) and each item's current supplier rows as `suppliers`, the primary
+  first; the JSON import reads the first one back, so a round trip keeps
+  one supplier per item (`test/import/dimensions_import_test.exs`).
 - **PDF library** — `Catalogue.PdfLibrary` + `Workers.PdfExtractor`.
   Content-hash dedup on core `phoenix_kit_files`; search is literal ILIKE with a
   trigram fallback. `enqueue_extraction/1` fails visibly when the host Oban

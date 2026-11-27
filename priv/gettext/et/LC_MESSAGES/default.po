@@ -4009,3 +4009,27 @@ msgstr "Pikkus"
 
 msgid "Thickness"
 msgstr "Paksus"
+
+msgid "Supplier cost"
+msgstr "Tarnija hind"
+
+msgid "Supplier currency"
+msgstr "Tarnija valuuta"
+
+msgid "Supplier cost is per"
+msgstr "Tarnija hind kehtib ühiku kohta"
+
+msgid "Invalid size: %{raw}. Write it in millimetres, as a number above zero."
+msgstr "Vigane mõõt: %{raw}. Kirjuta see millimeetrites, nullist suurema arvuna."
+
+msgid "Invalid pack size: %{raw}"
+msgstr "Vigane pakendi suurus: %{raw}"
+
+msgid "Invalid supplier cost: %{raw}"
+msgstr "Vigane tarnija hind: %{raw}"
+
+msgid "Invalid currency: %{raw}. Use a three-letter code such as EUR."
+msgstr "Vigane valuuta: %{raw}. Kasuta kolmetähelist koodi, näiteks EUR."
+
+msgid "Unknown cost unit: %{raw}"
+msgstr "Tundmatu hinnaühik: %{raw}"

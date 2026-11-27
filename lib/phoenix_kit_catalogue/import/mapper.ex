@@ -6,6 +6,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
 
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Import.DependencyCell
+  alias PhoenixKitCatalogue.Schemas.Item
 
   @type target ::
           :name
@@ -20,6 +21,15 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
           | :category
           | :manufacturer
           | :supplier
+          | :length_mm
+          | :width_mm
+          | :thickness_mm
+          | :pack_size
+          | :supplier_sku
+          | :supplier_cost
+          | :supplier_currency
+          | :supplier_cost_unit
+          | :supplier_pack_size
           | :skip
           | {:data, String.t()}
 
@@ -58,6 +68,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "sqm" => "m2",
     "m" => "running_meter",
     "jm" => "running_meter",
+    "cbm" => "m3",
     "rm" => "running_meter",
     "lm" => "running_meter",
     "running_meter" => "running_meter",
@@ -141,6 +152,58 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     supplier: ~w(supplier tarnija lieferant distributor reseller wholesaler supplier_name)
   }
 
+  # Headers that name a target exactly (after `normalize_header/1`). Tried
+  # before the substring patterns above, which cannot tell "Supplier cost"
+  # from the base price ("cost") or "Supplier SKU" from the item's ("sku").
+  # The export's own JSON keys are all here, so a round trip maps itself.
+  @exact_headers %{
+    "length_mm" => :length_mm,
+    "length mm" => :length_mm,
+    "length" => :length_mm,
+    "pikkus" => :length_mm,
+    "pikkus mm" => :length_mm,
+    "width_mm" => :width_mm,
+    "width mm" => :width_mm,
+    "width" => :width_mm,
+    "laius" => :width_mm,
+    "laius mm" => :width_mm,
+    "thickness_mm" => :thickness_mm,
+    "thickness mm" => :thickness_mm,
+    "thickness" => :thickness_mm,
+    "paksus" => :thickness_mm,
+    "paksus mm" => :thickness_mm,
+    "pack_size" => :pack_size,
+    "pack size" => :pack_size,
+    "supplier_sku" => :supplier_sku,
+    "supplier sku" => :supplier_sku,
+    "supplier code" => :supplier_sku,
+    "supplier article" => :supplier_sku,
+    # Only the export's own key: "Supplier price" or "Unit cost" in a price
+    # list may be the item's own price, so those keep whatever the patterns
+    # propose and the operator picks the supplier cost by hand.
+    "supplier_cost" => :supplier_cost,
+    "supplier_currency" => :supplier_currency,
+    "supplier currency" => :supplier_currency,
+    "currency" => :supplier_currency,
+    "supplier_cost_unit" => :supplier_cost_unit,
+    "supplier cost unit" => :supplier_cost_unit,
+    "cost unit" => :supplier_cost_unit,
+    "cost_unit" => :supplier_cost_unit,
+    "supplier_pack_size" => :supplier_pack_size,
+    "supplier pack size" => :supplier_pack_size,
+    "supplier pack" => :supplier_pack_size
+  }
+
+  # The supplier-row values a file can carry, by target, and where each
+  # lands on `ItemSupplierInfo`.
+  @supplier_terms %{
+    supplier_sku: "supplier_sku",
+    supplier_cost: "unit_cost",
+    supplier_currency: "currency",
+    supplier_cost_unit: "cost_unit",
+    supplier_pack_size: "pack_size"
+  }
+
   # ── Public API ────────────────────────────────────────────────
 
   @doc """
@@ -161,7 +224,16 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       {:dependencies, "Dependencies"},
       {:category, "Create categories"},
       {:manufacturer, "Manufacturer"},
-      {:supplier, "Supplier"}
+      {:supplier, "Supplier"},
+      {:length_mm, "Length (mm)"},
+      {:width_mm, "Width (mm)"},
+      {:thickness_mm, "Thickness (mm)"},
+      {:pack_size, "Pack size"},
+      {:supplier_sku, "Supplier SKU"},
+      {:supplier_cost, "Supplier cost"},
+      {:supplier_currency, "Supplier currency"},
+      {:supplier_cost_unit, "Supplier cost is per"},
+      {:supplier_pack_size, "Supplier's pack size"}
     ]
   end
 
@@ -520,6 +592,13 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   defp detect_target(header, used_targets) do
     normalized = normalize_header(header)
 
+    case Map.get(@exact_headers, normalized) do
+      nil -> detect_by_pattern(normalized, used_targets)
+      target -> if MapSet.member?(used_targets, target), do: :skip, else: target
+    end
+  end
+
+  defp detect_by_pattern(normalized, used_targets) do
     match =
       Enum.find(@header_patterns, fn {target, patterns} ->
         target not in MapSet.to_list(used_targets) and
@@ -657,27 +736,131 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     end
   end
 
+  # A size in millimetres. A blank cell is "no size"; anything else must
+  # be a number above zero, optionally followed by "mm". A value in another
+  # unit ("2,5 m", "120 cm") rejects the row: converting it would be a
+  # guess, and a wrong size is multiplied by every sheet sold.
+  defp apply_mapping(acc, target, value, _unit_map)
+       when target in [:length_mm, :width_mm, :thickness_mm] do
+    case String.trim(value) do
+      "" ->
+        acc
+
+      trimmed ->
+        case positive_decimal(String.replace(trimmed, ~r/\s*mm$/iu, "")) do
+          {:ok, decimal} -> Map.put(acc, target, decimal)
+          :error -> Map.put_new(acc, :_dimension_error, trimmed)
+        end
+    end
+  end
+
+  defp apply_mapping(acc, :pack_size, value, _unit_map) do
+    case String.trim(value) do
+      "" ->
+        acc
+
+      trimmed ->
+        case positive_decimal(trimmed) do
+          {:ok, decimal} -> Map.put(acc, :pack_size, decimal)
+          :error -> Map.put_new(acc, :_pack_size_error, trimmed)
+        end
+    end
+  end
+
+  # The supplier row's own values travel together under `:_supplier_terms`
+  # and are written with the row the executor attaches to the item.
+  defp apply_mapping(acc, target, value, unit_map) when is_map_key(@supplier_terms, target) do
+    case String.trim(value) do
+      "" -> acc
+      trimmed -> put_supplier_term(acc, target, trimmed, unit_map)
+    end
+  end
+
   defp apply_mapping(acc, {:data, field_name}, value, _unit_map) do
     data = Map.get(acc, :data, %{})
     Map.put(acc, :data, Map.put(data, field_name, String.trim(value)))
   end
 
+  defp put_supplier_term(acc, :supplier_sku, value, _unit_map),
+    do: supplier_term(acc, :supplier_sku, value)
+
+  defp put_supplier_term(acc, :supplier_cost, value, _unit_map) do
+    case normalize_price(value) do
+      {:ok, decimal} -> supplier_term(acc, :supplier_cost, decimal)
+      :error -> Map.put_new(acc, :_supplier_cost_error, value)
+    end
+  end
+
+  defp put_supplier_term(acc, :supplier_currency, value, _unit_map) do
+    currency = String.upcase(value)
+
+    if currency =~ ~r/^[A-Z]{3}$/,
+      do: supplier_term(acc, :supplier_currency, currency),
+      else: Map.put_new(acc, :_currency_error, value)
+  end
+
+  # Never coerced to "piece" the way an item's unit is: a cost read as per
+  # piece when the file said something else is a wrong price.
+  defp put_supplier_term(acc, :supplier_cost_unit, value, unit_map) do
+    normalized = String.downcase(value)
+
+    unit =
+      Map.get(unit_map, value) || Map.get(unit_map, normalized) ||
+        Map.get(@unit_aliases, normalized)
+
+    if unit in Item.allowed_units(),
+      do: supplier_term(acc, :supplier_cost_unit, unit),
+      else: Map.put_new(acc, :_cost_unit_error, value)
+  end
+
+  defp put_supplier_term(acc, :supplier_pack_size, value, _unit_map) do
+    case positive_decimal(value) do
+      {:ok, decimal} -> supplier_term(acc, :supplier_pack_size, decimal)
+      :error -> Map.put_new(acc, :_pack_size_error, value)
+    end
+  end
+
+  defp supplier_term(acc, target, value) do
+    terms = acc |> Map.get(:_supplier_terms, %{}) |> Map.put(@supplier_terms[target], value)
+    Map.put(acc, :_supplier_terms, terms)
+  end
+
+  # A plain number above zero, comma or dot decimal — no currency signs
+  # and no thousands grouping, which a size never carries.
+  defp positive_decimal(value) do
+    case Decimal.parse(String.replace(value, ",", ".")) do
+      {%Decimal{coef: coef} = decimal, ""} when is_integer(coef) ->
+        if Decimal.compare(decimal, 0) == :gt, do: {:ok, decimal}, else: :error
+
+      _other ->
+        :error
+    end
+  end
+
+  @row_errors [
+    _price_error: :invalid_price,
+    _markup_error: :invalid_markup,
+    _dependencies_error: :invalid_dependencies,
+    _dimension_error: :invalid_dimension,
+    _pack_size_error: :invalid_pack_size,
+    _supplier_cost_error: :invalid_supplier_cost,
+    _currency_error: :invalid_currency_code,
+    _cost_unit_error: :invalid_cost_unit
+  ]
+
   defp validate_item_attrs(attrs) do
+    row_error = Enum.find(@row_errors, fn {key, _reason} -> Map.has_key?(attrs, key) end)
+
     cond do
       not Map.has_key?(attrs, :name) or attrs[:name] == "" ->
         {:error, :missing_item_name}
 
-      Map.has_key?(attrs, :_price_error) ->
-        {:error, {:invalid_price, attrs[:_price_error]}}
-
-      Map.has_key?(attrs, :_markup_error) ->
-        {:error, {:invalid_markup, attrs[:_markup_error]}}
-
-      Map.has_key?(attrs, :_dependencies_error) ->
-        {:error, {:invalid_dependencies, attrs[:_dependencies_error]}}
+      row_error ->
+        {key, reason} = row_error
+        {:error, {reason, attrs[key]}}
 
       true ->
-        {:ok, Map.drop(attrs, [:_price_error, :_markup_error, :_dependencies_error])}
+        {:ok, attrs}
     end
   end
 

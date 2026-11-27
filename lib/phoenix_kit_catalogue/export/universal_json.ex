@@ -13,13 +13,26 @@ defmodule PhoenixKitCatalogue.Export.UniversalJson do
         "index": 1111111111,
         "items": [
           {"name": "...", "sku": "...", "base_price": "2222.00", "unit": "piece",
+           "length_mm": "2500", "width_mm": "1250", "thickness_mm": "18",
+           "pack_size": "40",
            "item_type": "", "ai_notes": "", "catalogue": "...",
+           "suppliers": [
+             {"name": "...", "sku": "...", "cost": "830", "currency": "EUR",
+              "cost_unit": "m3", "pack_size": "35", "primary": true}
+           ],
            "dependencies": [
              {"type": "item", "uuid": "...", "name": "...", "sku": "...",
               "catalogue": "...", "quantity": "8", "note": "pick by wood type"}
            ]}
         ]
       }
+
+  The three dimensions and the pack size are exact decimal strings, `""`
+  when the item has none; the area and volume are not exported — they
+  follow from the dimensions. `suppliers` lists the item's current
+  supplier rows, the primary first: `cost` is for one `cost_unit` (`""` =
+  the item's `unit`) and `pack_size` is that supplier's own (`""` = the
+  item's). An import reads the first one back.
 
   A dependency names its target three ways — the uuid (exact in the same
   database), the SKU for an item and the names (catalogue, category) — so
@@ -47,12 +60,17 @@ defmodule PhoenixKitCatalogue.Export.UniversalJson do
   def render(ctx) do
     %{items: items, index: index, catalogues: catalogues} = ctx
     dependencies = Map.get(ctx, :dependencies, %{})
+    suppliers = Map.get(ctx, :suppliers, %{})
 
     payload = %{
       "catalogues" => Enum.map(catalogues, &encode_catalogue/1),
       "exported_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
       "index" => index,
-      "items" => Enum.map(items, &encode_item(&1, Map.get(dependencies, Map.get(&1, :uuid), [])))
+      "items" =>
+        Enum.map(items, fn item ->
+          uuid = Map.get(item, :uuid)
+          encode_item(item, Map.get(dependencies, uuid, []), Map.get(suppliers, uuid, []))
+        end)
     }
 
     filename = build_filename(catalogues, Pro100.datetime_str(index))
@@ -68,7 +86,7 @@ defmodule PhoenixKitCatalogue.Export.UniversalJson do
     }
   end
 
-  defp encode_item(item, dependencies) do
+  defp encode_item(item, dependencies, suppliers) do
     catalogue_name =
       case item.catalogue do
         %{name: name} -> name
@@ -80,14 +98,39 @@ defmodule PhoenixKitCatalogue.Export.UniversalJson do
       "sku" => item.sku,
       "base_price" => Pro100.format_price(item.base_price),
       "unit" => item.unit,
+      "length_mm" => decimal_text(Map.get(item, :length_mm)),
+      "width_mm" => decimal_text(Map.get(item, :width_mm)),
+      "thickness_mm" => decimal_text(Map.get(item, :thickness_mm)),
+      "pack_size" => decimal_text(Map.get(item, :pack_size)),
       # The item's OWN type: "" means "as in the catalogue", so an import
       # back leaves it inheriting rather than freezing today's default.
       "item_type" => Map.get(item, :item_type) || "",
       "ai_notes" => Map.get(item, :ai_notes) || "",
       "catalogue" => catalogue_name,
+      "suppliers" => Enum.map(suppliers, &encode_supplier/1),
       "dependencies" => Enum.flat_map(dependencies, &encode_dependency/1)
     }
   end
+
+  # The name is the row's snapshot — what the supplier was called when the
+  # row was written — so the export asks no other module for it.
+  defp encode_supplier(info) do
+    %{
+      "name" => info.supplier_name_snapshot || "",
+      "sku" => info.supplier_sku || "",
+      "cost" => decimal_text(info.unit_cost),
+      "currency" => info.currency || "",
+      "cost_unit" => info.cost_unit || "",
+      "pack_size" => decimal_text(info.pack_size),
+      "primary" => info.is_primary == true
+    }
+  end
+
+  # Every digit, no trailing zeros, never an exponent; "" for none.
+  defp decimal_text(%Decimal{} = value),
+    do: value |> Decimal.normalize() |> Decimal.to_string(:normal)
+
+  defp decimal_text(_none), do: ""
 
   defp encode_dependency(dependency) do
     case target(dependency) do

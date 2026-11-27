@@ -4009,3 +4009,27 @@ msgstr "Length"
 
 msgid "Thickness"
 msgstr "Thickness"
+
+msgid "Supplier cost"
+msgstr "Supplier cost"
+
+msgid "Supplier currency"
+msgstr "Supplier currency"
+
+msgid "Supplier cost is per"
+msgstr "Supplier cost is per"
+
+msgid "Invalid size: %{raw}. Write it in millimetres, as a number above zero."
+msgstr "Invalid size: %{raw}. Write it in millimetres, as a number above zero."
+
+msgid "Invalid pack size: %{raw}"
+msgstr "Invalid pack size: %{raw}"
+
+msgid "Invalid supplier cost: %{raw}"
+msgstr "Invalid supplier cost: %{raw}"
+
+msgid "Invalid currency: %{raw}. Use a three-letter code such as EUR."
+msgstr "Invalid currency: %{raw}. Use a three-letter code such as EUR."
+
+msgid "Unknown cost unit: %{raw}"
+msgstr "Unknown cost unit: %{raw}"

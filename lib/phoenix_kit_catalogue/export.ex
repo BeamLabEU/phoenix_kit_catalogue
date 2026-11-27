@@ -131,7 +131,8 @@ defmodule PhoenixKitCatalogue.Export do
       index: System.os_time(:second),
       catalogues: catalogues,
       prefix_catalogue: prefix_catalogue,
-      dependencies: dependencies_for(destination_mod, items)
+      dependencies: dependencies_for(destination_mod, items),
+      suppliers: suppliers_for(destination_mod, items)
     }
 
     destination_mod.render(format_atom, ctx)
@@ -155,6 +156,12 @@ defmodule PhoenixKitCatalogue.Export do
     do: PhoenixKitCatalogue.Catalogue.dependencies_by_item(Enum.map(items, & &1.uuid))
 
   defp dependencies_for(_destination, _items), do: %{}
+
+  # The same for each item's supplier rows (SKU, cost, cost unit, pack).
+  defp suppliers_for(PhoenixKitCatalogue.Export.Universal, items),
+    do: PhoenixKitCatalogue.Catalogue.supplier_infos_by_item(Enum.map(items, & &1.uuid))
+
+  defp suppliers_for(_destination, _items), do: %{}
 
   # Lightweight catalogue headers (uuid, name and the notes for AI) for the
   # export context.
