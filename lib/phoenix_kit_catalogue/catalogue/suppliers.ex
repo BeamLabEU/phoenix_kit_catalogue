@@ -18,6 +18,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
 
   import Ecto.Query, warn: false
 
+  alias PhoenixKitCatalogue.Catalogue
+
   alias PhoenixKitCatalogue.Catalogue.{
     ActivityLog,
     Helpers,
@@ -68,7 +70,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
 
   ## Optional attributes
 
-    * `:description`, `:website`, `:contact_info`, `:notes`
+    * `:description`, `:website`, `:notes`
+    * `:contact_info` — free text; it becomes the supplier's primary
+      contact of the kind it looks like (see `Catalogue.SupplierContacts`)
     * `:status` — `"active"` (default) or `"inactive"`
     * `:data` — flexible JSON map
   """
@@ -77,7 +81,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   def create_supplier(attrs, opts \\ []) do
     result =
       ActivityLog.with_log(
-        fn -> %Supplier{} |> Supplier.changeset(attrs) |> repo().insert() end,
+        fn -> %Supplier{} |> Supplier.changeset(attrs) |> write_syncing_contacts(:insert) end,
         fn supplier ->
           %{
             action: "supplier.created",
@@ -102,7 +106,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   def update_supplier(%Supplier{} = supplier, attrs, opts \\ []) do
     result =
       ActivityLog.with_log(
-        fn -> supplier |> Supplier.changeset(attrs) |> repo().update() end,
+        fn -> supplier |> Supplier.changeset(attrs) |> write_syncing_contacts(:update) end,
         fn updated ->
           %{
             action: "supplier.updated",
@@ -146,6 +150,26 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
       # that it has committed.
       if links_removed > 0, do: PubSub.broadcast(:links, supplier.uuid)
       {:ok, deleted}
+    end
+  end
+
+  # `contact_info` is the summary of the supplier's primary contacts (V8).
+  # A write of the column itself goes through the contacts' shared setter
+  # in the same transaction, which makes the text the primary of its kind
+  # and rewrites the column from the primaries — see
+  # `Catalogue.SupplierContacts`. Without that change it is a plain write.
+  defp write_syncing_contacts(changeset, action) do
+    if Ecto.Changeset.changed?(changeset, :contact_info) and changeset.valid? do
+      repo().transaction(fn -> write_then_sync(changeset, action) end)
+    else
+      apply(repo(), action, [changeset])
+    end
+  end
+
+  defp write_then_sync(changeset, action) do
+    case apply(repo(), action, [changeset]) do
+      {:ok, supplier} -> Catalogue.apply_legacy_contact_info(supplier)
+      {:error, changeset} -> repo().rollback(changeset)
     end
   end
 
@@ -216,7 +240,28 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   defp resolve_local(%Supplier{} = s), do: {:ok, local_map(s)}
 
   defp local_map(%Supplier{} = s) do
-    %{uuid: s.uuid, name: s.name, email: nil, phone: nil, website: s.website, source: :local}
+    local_map(s, Catalogue.primary_supplier_contacts([s.uuid]))
+  end
+
+  # `primaries` is `Catalogue.primary_supplier_contacts/1` for a batch: a
+  # local row's email and phone are its primary contacts of those kinds,
+  # and its web address stands in for an empty `website`.
+  defp local_map(%Supplier{} = s, primaries) do
+    contacts = Map.get(primaries, s.uuid, %{})
+
+    %{
+      uuid: s.uuid,
+      name: s.name,
+      email: contacts["email"],
+      phone: contacts["phone"],
+      website: s.website || contacts["url"],
+      source: :local
+    }
+  end
+
+  defp local_maps(suppliers) do
+    primaries = Catalogue.primary_supplier_contacts(Enum.map(suppliers, & &1.uuid))
+    Enum.map(suppliers, &local_map(&1, primaries))
   end
 
   @doc """
@@ -271,7 +316,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
       |> Enum.reject(
         &(&1.crm_company_uuid && MapSet.member?(listed_parties, &1.crm_company_uuid))
       )
-      |> Enum.map(&local_map/1)
+      |> local_maps()
 
     crm_suppliers ++ local_suppliers
   end
@@ -304,9 +349,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     party_uuids = for %Supplier{crm_company_uuid: p} <- locals, is_binary(p), do: p
     projected = batch_resolve_crm(party_uuids)
 
+    primaries = Catalogue.primary_supplier_contacts(Enum.map(locals, & &1.uuid))
+
     local_resolved =
       Map.new(locals, fn s ->
-        {s.uuid, Map.get(projected, s.crm_company_uuid) || local_map(s)}
+        {s.uuid, Map.get(projected, s.crm_company_uuid) || local_map(s, primaries)}
       end)
 
     Map.merge(local_resolved, from_crm)

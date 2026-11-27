@@ -647,6 +647,23 @@ defmodule PhoenixKitCatalogue.ActivityLoggingTest do
         metadata_has: %{"name" => "S"}
       )
     end
+
+    test "put_supplier_contacts logs supplier.contacts_updated with actor" do
+      {:ok, s} = Catalogue.create_supplier(%{name: "S"})
+
+      {:ok, _} =
+        Catalogue.put_supplier_contacts(
+          s,
+          [%{kind: "email", value: "sales@example.com"}],
+          actor_opts()
+        )
+
+      assert_activity_logged("supplier.contacts_updated",
+        resource_uuid: s.uuid,
+        actor_uuid: @actor,
+        metadata_has: %{"name" => "S", "before" => 0, "total" => 1}
+      )
+    end
   end
 
   describe "module toggle" do

@@ -66,6 +66,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Search,
     SmartPricing,
     SupplierComments,
+    SupplierContacts,
     SupplierFields,
     Suppliers,
     Translations,
@@ -120,6 +121,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate delete_supplier(supplier, opts \\ []), to: Suppliers
 
   defdelegate change_supplier(supplier, attrs \\ %{}), to: Suppliers
+
+  # Supplier contacts (V8) — see `Catalogue.SupplierContacts`.
+  defdelegate list_supplier_contacts(supplier), to: SupplierContacts
+  defdelegate primary_supplier_contacts(supplier_uuids), to: SupplierContacts
+  defdelegate supplier_contact_summary(contacts), to: SupplierContacts, as: :contact_summary
+  defdelegate put_supplier_contacts(supplier, specs, opts \\ []), to: SupplierContacts
+  defdelegate add_supplier_contact(supplier, attrs, opts \\ []), to: SupplierContacts
+  defdelegate delete_supplier_contact(supplier, contact_uuid, opts \\ []), to: SupplierContacts
+
+  defdelegate set_primary_supplier_contact(supplier, contact_uuid, opts \\ []),
+    to: SupplierContacts
+
+  @doc false
+  defdelegate apply_legacy_contact_info(supplier), to: SupplierContacts
 
   @doc "Resolves a supplier UUID to a unified map regardless of source (local or CRM)."
   defdelegate resolve_supplier(uuid), to: Suppliers, as: :resolve

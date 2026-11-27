@@ -33,6 +33,14 @@ defmodule PhoenixKitCatalogue.Schemas.Supplier do
 
     has_many(:manufacturers, through: [:manufacturer_suppliers, :manufacturer])
 
+    # V8. `contact_info` above is the one-line summary of these contacts'
+    # primaries — written only by `Catalogue.SupplierContacts`.
+    has_many(:contacts, PhoenixKitCatalogue.Schemas.SupplierContact,
+      foreign_key: :supplier_uuid,
+      references: :uuid,
+      preload_order: [asc: :position, asc: :inserted_at]
+    )
+
     timestamps(type: :utc_datetime)
   end
 

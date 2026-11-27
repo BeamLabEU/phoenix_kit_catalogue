@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
   use ExUnit.Case, async: true
 
   alias PhoenixKitCatalogue.Migrations
+  alias PhoenixKitCatalogue.Schemas.SupplierContact
 
   @tables ~w(
     phoenix_kit_cat_catalogues
@@ -23,10 +24,11 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     phoenix_kit_cat_item_attribute_groups
     phoenix_kit_cat_item_attribute_sets
     phoenix_kit_cat_item_dependencies
+    phoenix_kit_cat_supplier_contacts
   )
 
-  test "chain is V7 and marks phoenix_kit_cat_catalogues" do
-    assert Migrations.current_version() == 7
+  test "chain is V8 and marks phoenix_kit_cat_catalogues" do
+    assert Migrations.current_version() == 8
     assert Migrations.version_table() == "phoenix_kit_cat_catalogues"
   end
 
@@ -39,7 +41,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     end
 
     assert List.last(stmts) ==
-             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:7'"
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:8'"
   end
 
   test "no statement can destroy data, in either direction" do
@@ -143,6 +145,8 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     phoenix_kit_cat_item_dependencies_target_category_uuid_index
     phoenix_kit_cat_item_dependencies_target_item_uuid_index
     phoenix_kit_cat_items_catalogue_thickness_index
+    phoenix_kit_cat_supplier_contacts_supplier_uuid_position_index
+    phoenix_kit_cat_supplier_contacts_primary_per_kind_index
   )
 
   # Same source, all 50 constraint names (18 PKs + 19 FKs + 13 CHECKs),
@@ -216,6 +220,9 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     phoenix_kit_cat_items_thickness_mm_check
     phoenix_kit_cat_items_pack_size_check
     phoenix_kit_cat_item_supplier_info_pack_size_check
+    phoenix_kit_cat_supplier_contacts_pkey
+    phoenix_kit_cat_supplier_contacts_kind_check
+    phoenix_kit_cat_supplier_contacts_supplier_uuid_fkey
   )
 
   test "every pinned index name appears inside a CREATE ... IF NOT EXISTS statement" do
@@ -275,7 +282,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
              "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_attribute_sets_selected_values_gin ON public.phoenix_kit_cat_item_attribute_sets USING gin ((data -> 'selected_value_slugs'))"
 
     assert List.last(Migrations.up_statements("public")) ==
-             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:7'"
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:8'"
   end
 
   test "V4 adds the item-type columns and their guarded CHECKs" do
@@ -367,13 +374,44 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     refute joined =~ ~r/length_mm\s*[<>]=?\s*width_mm/
   end
 
+  test "V8 adds the supplier contacts table, one primary per kind, cascading with the supplier" do
+    stmts = Migrations.up_statements("public")
+
+    primary =
+      Enum.find(stmts, &(&1 =~ "phoenix_kit_cat_supplier_contacts_primary_per_kind_index"))
+
+    assert primary =~ "CREATE UNIQUE INDEX IF NOT EXISTS"
+    assert primary =~ "(supplier_uuid, kind) WHERE is_primary"
+
+    fk = Enum.find(stmts, &(&1 =~ "phoenix_kit_cat_supplier_contacts_supplier_uuid_fkey"))
+    assert fk =~ "REFERENCES public.phoenix_kit_cat_suppliers(uuid) ON DELETE CASCADE"
+
+    kinds = Enum.find(stmts, &(&1 =~ "phoenix_kit_cat_supplier_contacts_kind_check"))
+
+    for kind <- SupplierContact.kinds() do
+      assert kinds =~ "'#{kind}'::character varying"
+    end
+
+    backfill = Enum.find(stmts, &(&1 =~ "INSERT INTO public.phoenix_kit_cat_supplier_contacts"))
+    assert backfill =~ "NOT EXISTS"
+  end
+
   test "up_statements(prefix, 6) stops before V7" do
     joined = Enum.join(Migrations.up_statements("public", 6), "\n")
 
     refute joined =~ "length_mm"
     refute joined =~ "cost_unit"
     assert joined =~ "phoenix_kit_cat_item_dependencies"
+    refute joined =~ "phoenix_kit_cat_supplier_contacts"
     assert joined =~ "pkc_schema:6"
+  end
+
+  test "up_statements(prefix, 7) stops before V8" do
+    joined = Enum.join(Migrations.up_statements("public", 7), "\n")
+
+    assert joined =~ "length_mm"
+    refute joined =~ "phoenix_kit_cat_supplier_contacts"
+    assert joined =~ "pkc_schema:7"
   end
 
   test "up_statements(prefix, 5) stops before V6" do
@@ -444,7 +482,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
   end
 
   test "up_statements/2 defaults target to current_version/0" do
-    assert Migrations.up_statements("public") == Migrations.up_statements("public", 7)
+    assert Migrations.up_statements("public") == Migrations.up_statements("public", 8)
   end
 
   test "the module registers the chain" do
