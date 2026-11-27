@@ -1461,4 +1461,26 @@ defmodule PhoenixKitCatalogue.GettextTest do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
     assert Gettext.ngettext(PhoenixKitCatalogue.Gettext, one, many, 1) =~ "1 other item lists"
   end
+
+  @v7_strings [
+    "Unknown unit.",
+    "The item has no dimensions to convert this unit with.",
+    "The item has no pack size.",
+    "These units cannot be converted into each other for this item.",
+    "This supplier has no cost on the item."
+  ]
+
+  test "the V7 unit-conversion errors are in every locale, translated outside English" do
+    for msgid <- @v7_strings do
+      assert po_msgstr("en", msgid) == msgid, msgid
+
+      for locale <- ~w(et ru uk de fr) do
+        translated = po_msgstr(locale, msgid)
+        assert is_binary(translated) and translated != "", "#{locale}: #{msgid}"
+      end
+    end
+
+    assert gettext_in("et", "Unknown unit.") == "Tundmatu ühik."
+    assert gettext_in("ru", "The item has no pack size.") == "У позиции не задан размер упаковки."
+  end
 end

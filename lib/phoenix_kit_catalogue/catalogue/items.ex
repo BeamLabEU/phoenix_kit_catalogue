@@ -39,6 +39,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
     :markup_percentage,
     :discount_percentage,
     :unit,
+    :length_mm,
+    :width_mm,
+    :thickness_mm,
+    :pack_size,
     :item_type,
     :status,
     :default_value,
@@ -1288,6 +1292,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
       SKU may appear on multiple items)
     * `:base_price` — decimal, must be >= 0 (cost/purchase price before markup)
     * `:unit` — one of `Item.allowed_units/0` (default `"piece"`)
+    * `:length_mm`, `:width_mm`, `:thickness_mm` — the nominal size in
+      millimetres, each above zero. Stored exactly as given, never sorted
+      or swapped: which side is the length is the caller's to define (see
+      `PhoenixKitCatalogue.Schemas.Item`). The returned item carries the
+      `area_m2` and `volume_m3` Postgres derived from them
+    * `:pack_size` — the nominal number of base units in one pack
     * `:item_type` — `"goods"` or `"service"`; omit (or pass nil) to inherit
       the catalogue's type. Read it back with `Item.effective_type/2`
     * `:status` — `"active"` (default), `"inactive"`, `"discontinued"`, or `"deleted"`
@@ -1295,10 +1305,45 @@ defmodule PhoenixKitCatalogue.Catalogue.Items do
     * `:manufacturer_uuid` — the manufacturer (optional)
     * `:data` — flexible JSON map
 
+  ## Options
+
+    * `:actor_uuid`, `:mode` — for the activity entry
+    * `:broadcast` — `false` sends no PubSub event (see below)
+
+  ## Inside the caller's transaction
+
+  A host that creates an item together with rows of its own calls this
+  inside its `Repo.transaction` / `Ecto.Multi`. The item's insert joins
+  that transaction — nothing here commits on its own — so a rollback
+  leaves no item and no activity entry behind. Three things to know:
+
+    * **The PubSub event is sent when this function returns, not when the
+      caller commits.** Pass `broadcast: false` and, once the transaction
+      has committed, call
+      `Catalogue.broadcast_item_batch_change(item.catalogue_uuid, :created, [item.uuid])`.
+      Otherwise open admin pages are told about an item that a rollback
+      then removes (they reload and find nothing).
+    * Core announces the activity entry on its own channel at the same
+      early moment, `broadcast: false` or not; the entry itself rolls back
+      with the transaction.
+    * An `{:error, changeset}` from here has rolled the transaction back,
+      as any failed nested transaction does: the caller's transaction
+      cannot go on to commit and answers `{:error, :rollback}`.
+
   ## Examples
 
       Catalogue.create_item(%{name: "Oak Panel 18mm", catalogue_uuid: cat.uuid, base_price: 25.50})
       Catalogue.create_item(%{name: "Hinge", category_uuid: category.uuid, manufacturer_uuid: m.uuid})
+
+      Catalogue.create_item(%{
+        name: "Birch plywood 18 mm BB/CP",
+        catalogue_uuid: cat.uuid,
+        unit: "sheet",
+        length_mm: 2500,
+        width_mm: 1250,
+        thickness_mm: 18,
+        pack_size: 40
+      })
   """
   @spec create_item(map(), keyword()) ::
           {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t())}

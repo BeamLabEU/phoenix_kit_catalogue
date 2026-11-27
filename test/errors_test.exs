@@ -188,6 +188,20 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
       assert Errors.message(:invalid_value) == "Invalid value."
     end
 
+    test "unit conversion errors" do
+      assert Errors.message(:unknown_unit) == "Unknown unit."
+
+      assert Errors.message(:missing_dimensions) ==
+               "The item has no dimensions to convert this unit with."
+
+      assert Errors.message(:missing_pack_size) == "The item has no pack size."
+
+      assert Errors.message(:not_convertible) ==
+               "These units cannot be converted into each other for this item."
+
+      assert Errors.message(:no_cost) == "This supplier has no cost on the item."
+    end
+
     test "dependencies_changed" do
       assert Errors.message(:dependencies_changed) =~
                "Someone else saved this item's dependencies"

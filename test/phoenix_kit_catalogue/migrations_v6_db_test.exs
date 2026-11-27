@@ -74,7 +74,7 @@ defmodule PhoenixKitCatalogue.MigrationsV6DBTest do
     %{catalogue: catalogue, item: item, screw: screw}
   end
 
-  test "replaying the chain twice is idempotent and stamps pkc_schema:6" do
+  test "replaying the chain twice is idempotent and stamps the current version" do
     replay_chain!()
     replay_chain!()
 
@@ -87,7 +87,7 @@ defmodule PhoenixKitCatalogue.MigrationsV6DBTest do
       assert constraint_count(name) == 1, name
     end
 
-    assert Migrations.migrated_version_runtime(prefix: "public") == 6
+    assert Migrations.migrated_version_runtime(prefix: "public") == Migrations.current_version()
   end
 
   test "the columns have the declared shape" do

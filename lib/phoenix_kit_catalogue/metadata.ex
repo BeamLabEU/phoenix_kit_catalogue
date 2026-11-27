@@ -20,6 +20,18 @@ defmodule PhoenixKitCatalogue.Metadata do
   value for the removed key will surface it as "Legacy" in the form so
   the data isn't lost; the user can clear it manually.
 
+  ## `width` / `height` / `depth` are text, not the item's dimensions
+
+  The three item fields of those names are free text with no unit
+  (`"120 cm"`, `"18"`, `"1,25 m"`), for display only. An item's size as
+  numbers is `length_mm` / `width_mm` / `thickness_mm` on
+  `PhoenixKitCatalogue.Schemas.Item` (chain V7), and only those feed the
+  area, the volume and `Catalogue.convert/5`. The two are independent:
+  V7 copied nothing from here, because a text value cannot be given a
+  unit, nor `height` / `depth` a place among length and thickness,
+  without guessing — and a wrong guess would be multiplied by thousands
+  of sheets. A host with clean data loads the numeric columns itself.
+
   ## Form helpers
 
   Callers (LiveViews) drive the three-phase metadata flow through this

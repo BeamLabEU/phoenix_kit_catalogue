@@ -70,7 +70,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Suppliers,
     Translations,
     Trash,
-    Tree
+    Tree,
+    Units
   }
 
   alias PhoenixKitCatalogue.Schemas.Category
@@ -449,6 +450,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate update_catalogue_rule(rule, attrs, opts \\ []), to: Rules
 
   defdelegate delete_catalogue_rule(rule, opts \\ []), to: Rules
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Unit conversions — see PhoenixKitCatalogue.Catalogue.Units
+  # ═══════════════════════════════════════════════════════════════════
+
+  defdelegate convert(item, quantity, from_unit, to_unit, opts \\ []), to: Units
+
+  defdelegate supplier_cost_per(item, supplier_info, unit), to: Units
 
   # ═══════════════════════════════════════════════════════════════════
   # Item dependencies — see PhoenixKitCatalogue.Catalogue.Dependencies

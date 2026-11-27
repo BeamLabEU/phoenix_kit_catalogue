@@ -25,8 +25,8 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     phoenix_kit_cat_item_dependencies
   )
 
-  test "chain is V5 and marks phoenix_kit_cat_catalogues" do
-    assert Migrations.current_version() == 6
+  test "chain is V7 and marks phoenix_kit_cat_catalogues" do
+    assert Migrations.current_version() == 7
     assert Migrations.version_table() == "phoenix_kit_cat_catalogues"
   end
 
@@ -39,7 +39,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     end
 
     assert List.last(stmts) ==
-             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:6'"
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:7'"
   end
 
   test "no statement can destroy data, in either direction" do
@@ -142,6 +142,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     phoenix_kit_cat_item_dependencies_target_catalogue_uuid_index
     phoenix_kit_cat_item_dependencies_target_category_uuid_index
     phoenix_kit_cat_item_dependencies_target_item_uuid_index
+    phoenix_kit_cat_items_catalogue_thickness_index
   )
 
   # Same source, all 50 constraint names (18 PKs + 19 FKs + 13 CHECKs),
@@ -210,6 +211,11 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     phoenix_kit_cat_item_dependencies_target_catalogue_uuid_fkey
     phoenix_kit_cat_item_dependencies_target_category_uuid_fkey
     phoenix_kit_cat_item_dependencies_target_item_uuid_fkey
+    phoenix_kit_cat_items_length_mm_check
+    phoenix_kit_cat_items_width_mm_check
+    phoenix_kit_cat_items_thickness_mm_check
+    phoenix_kit_cat_items_pack_size_check
+    phoenix_kit_cat_item_supplier_info_pack_size_check
   )
 
   test "every pinned index name appears inside a CREATE ... IF NOT EXISTS statement" do
@@ -269,7 +275,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
              "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_attribute_sets_selected_values_gin ON public.phoenix_kit_cat_item_attribute_sets USING gin ((data -> 'selected_value_slugs'))"
 
     assert List.last(Migrations.up_statements("public")) ==
-             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:6'"
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:7'"
   end
 
   test "V4 adds the item-type columns and their guarded CHECKs" do
@@ -330,6 +336,44 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
       assert fk =~ "FOREIGN KEY (#{column})"
       assert fk =~ "ON DELETE CASCADE"
     end
+  end
+
+  test "V7 adds the dimensions, the generated area and volume, pack sizes and the cost unit" do
+    stmts = Migrations.up_statements("public")
+    joined = Enum.join(stmts, "\n")
+
+    for column <- ~w(length_mm width_mm thickness_mm) do
+      assert "ALTER TABLE public.phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS #{column} numeric(10,3)" in stmts
+
+      assert joined =~
+               "ADD CONSTRAINT phoenix_kit_cat_items_#{column}_check CHECK (((#{column} IS NULL) OR (#{column} > (0)::numeric)))"
+    end
+
+    # A product with a constant, never a division: numeric keeps every digit.
+    assert "ALTER TABLE public.phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS area_m2 numeric GENERATED ALWAYS AS (((length_mm * width_mm) * 0.000001)) STORED" in stmts
+
+    assert "ALTER TABLE public.phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS volume_m3 numeric GENERATED ALWAYS AS ((((length_mm * width_mm) * thickness_mm) * 0.000000001)) STORED" in stmts
+
+    for table <- ~w(phoenix_kit_cat_items phoenix_kit_cat_item_supplier_info) do
+      assert "ALTER TABLE public.#{table} ADD COLUMN IF NOT EXISTS pack_size numeric(14,4)" in stmts
+      assert joined =~ "ADD CONSTRAINT #{table}_pack_size_check CHECK"
+    end
+
+    assert "ALTER TABLE public.phoenix_kit_cat_item_supplier_info ADD COLUMN IF NOT EXISTS cost_unit character varying(20)" in stmts
+
+    assert "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_items_catalogue_thickness_index ON public.phoenix_kit_cat_items USING btree (catalogue_uuid, thickness_mm)" in stmts
+
+    # The dimensions are stored as given: no rule relates one to another.
+    refute joined =~ ~r/length_mm\s*[<>]=?\s*width_mm/
+  end
+
+  test "up_statements(prefix, 6) stops before V7" do
+    joined = Enum.join(Migrations.up_statements("public", 6), "\n")
+
+    refute joined =~ "length_mm"
+    refute joined =~ "cost_unit"
+    assert joined =~ "phoenix_kit_cat_item_dependencies"
+    assert joined =~ "pkc_schema:6"
   end
 
   test "up_statements(prefix, 5) stops before V6" do
@@ -400,7 +444,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
   end
 
   test "up_statements/2 defaults target to current_version/0" do
-    assert Migrations.up_statements("public") == Migrations.up_statements("public", 6)
+    assert Migrations.up_statements("public") == Migrations.up_statements("public", 7)
   end
 
   test "the module registers the chain" do

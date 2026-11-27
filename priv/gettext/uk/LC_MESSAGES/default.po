@@ -3945,3 +3945,18 @@ msgstr "Рядок %{row}: «%{ref}» підходить кільком, цю з
 
 msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
 msgstr "Рядок %{row}: «%{ref}» не вдалося зберегти. Додайте її в позиції."
+
+msgid "Unknown unit."
+msgstr "Невідома одиниця виміру."
+
+msgid "The item has no dimensions to convert this unit with."
+msgstr "У позиції немає розмірів для перерахунку цієї одиниці."
+
+msgid "The item has no pack size."
+msgstr "У позиції не задано розмір упаковки."
+
+msgid "These units cannot be converted into each other for this item."
+msgstr "Ці одиниці не можна перерахувати одна в одну для цієї позиції."
+
+msgid "This supplier has no cost on the item."
+msgstr "У цього постачальника не вказано вартість позиції."

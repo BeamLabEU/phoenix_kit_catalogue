@@ -87,6 +87,11 @@ defmodule PhoenixKitCatalogue.Errors do
           | :files_folder
           | :not_current
           | :move_target_in_subtree
+          | :unknown_unit
+          | :missing_dimensions
+          | :missing_pack_size
+          | :not_convertible
+          | :no_cost
 
   @doc """
   Translates an error reason into a user-facing string via gettext.
@@ -346,6 +351,30 @@ defmodule PhoenixKitCatalogue.Errors do
         PhoenixKitCatalogue.Gettext,
         "Someone else saved this item's dependencies while you were editing. Your list is still here: Save again to replace theirs, or reload the page to see theirs."
       )
+
+  # Unit conversions (`Catalogue.convert/5`, `supplier_cost_per/3`).
+  def message(:unknown_unit),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unknown unit.")
+
+  def message(:missing_dimensions),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "The item has no dimensions to convert this unit with."
+      )
+
+  def message(:missing_pack_size),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "The item has no pack size.")
+
+  def message(:not_convertible),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "These units cannot be converted into each other for this item."
+      )
+
+  def message(:no_cost),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "This supplier has no cost on the item.")
 
   # Tagged tuples — atoms that carry a single parameter.
 

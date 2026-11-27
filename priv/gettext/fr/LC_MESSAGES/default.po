@@ -3931,3 +3931,18 @@ msgstr "Ligne %{row} : « %{ref} » correspond à plusieurs éléments, cette d�
 
 msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
 msgstr "Ligne %{row} : « %{ref} » n'a pas pu être enregistré. Ajoutez-le sur l'article."
+
+msgid "Unknown unit."
+msgstr "Unité inconnue."
+
+msgid "The item has no dimensions to convert this unit with."
+msgstr "L'article n'a pas de dimensions permettant de convertir cette unité."
+
+msgid "The item has no pack size."
+msgstr "L'article n'a pas de taille de paquet."
+
+msgid "These units cannot be converted into each other for this item."
+msgstr "Ces unités ne peuvent pas être converties l'une en l'autre pour cet article."
+
+msgid "This supplier has no cost on the item."
+msgstr "Ce fournisseur n'a pas de coût pour l'article."

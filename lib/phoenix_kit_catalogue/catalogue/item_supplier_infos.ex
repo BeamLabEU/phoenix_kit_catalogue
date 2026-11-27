@@ -468,7 +468,8 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
      inside the tx so the successor can inherit the primary flag.
   2. A successor row is inserted copying `item_uuid`, `supplier_uuid`,
      `supplier_source`, `supplier_name_snapshot`, `supplier_sku`, `currency`,
-     `lead_time_days`, `min_order_qty`, `position`, and `metadata` from the
+     `cost_unit`, `pack_size`, `lead_time_days`, `min_order_qty`,
+     `position`, and `metadata` from the
      closed row. `unit_cost` is set to `new_cost`; `valid_from` is today;
      `valid_to` is `nil`; `is_primary` inherits the original row's value.
 
@@ -567,6 +568,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
       supplier_name_snapshot: current.supplier_name_snapshot,
       supplier_sku: current.supplier_sku,
       unit_cost: new_cost,
+      # A new price is still a price per the same unit, for the same pack.
+      cost_unit: current.cost_unit,
+      pack_size: current.pack_size,
       currency: new_currency,
       lead_time_days: current.lead_time_days,
       min_order_qty: current.min_order_qty,

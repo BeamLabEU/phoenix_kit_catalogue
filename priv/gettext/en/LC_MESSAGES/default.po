@@ -3931,3 +3931,18 @@ msgstr "Row %{row}: more than one match for “%{ref}”, so that dependency was
 
 msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
 msgstr "Row %{row}: “%{ref}” could not be saved. Add it on the item."
+
+msgid "Unknown unit."
+msgstr "Unknown unit."
+
+msgid "The item has no dimensions to convert this unit with."
+msgstr "The item has no dimensions to convert this unit with."
+
+msgid "The item has no pack size."
+msgstr "The item has no pack size."
+
+msgid "These units cannot be converted into each other for this item."
+msgstr "These units cannot be converted into each other for this item."
+
+msgid "This supplier has no cost on the item."
+msgstr "This supplier has no cost on the item."

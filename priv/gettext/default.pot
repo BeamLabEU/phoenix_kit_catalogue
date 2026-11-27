@@ -3937,3 +3937,18 @@ msgstr ""
 
 msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
 msgstr ""
+
+msgid "Unknown unit."
+msgstr ""
+
+msgid "The item has no dimensions to convert this unit with."
+msgstr ""
+
+msgid "The item has no pack size."
+msgstr ""
+
+msgid "These units cannot be converted into each other for this item."
+msgstr ""
+
+msgid "This supplier has no cost on the item."
+msgstr ""

@@ -157,6 +157,34 @@ defmodule PhoenixKitCatalogue.Migrations do
   the row; a soft trash does not touch it. Core's manifest names none of
   this, so no core release is needed.
 
+  ## What V7 is
+
+  V7 gives items their size as numbers. `length_mm`, `width_mm` and
+  `thickness_mm` on `phoenix_kit_cat_items` are nullable `numeric(10,3)`
+  columns, each with a `> 0` CHECK; nothing orders or compares them, so
+  2500 × 1250 and 1250 × 2500 are two different items. From them Postgres
+  keeps `area_m2` and `volume_m3` itself (`GENERATED ALWAYS … STORED`), as
+  a product with `0.000001` / `0.000000001` — `numeric` multiplication is
+  exact, a division would pick a scale and could round — so a host can
+  sort by and sum volumes in SQL. `pack_size numeric(14,4)` is the nominal
+  number of base units in a pack, on the item and, as the supplier's own,
+  on `phoenix_kit_cat_item_supplier_info`, which also gains `cost_unit`:
+  the unit its `unit_cost` is for, NULL meaning the item's base unit. One
+  index, `(catalogue_uuid, thickness_mm)`, for "is there an item of this
+  size?". Adding the generated columns rewrites the items table once, so
+  on a very large catalogue run the update in a quiet window. Generated
+  columns need PostgreSQL 12 or newer. Core's manifest names none of this,
+  so no core release is needed.
+
+  One limit, core's and not this chain's: `mix phoenix_kit.repair` rebuilds
+  a missing column from its recorded type and default, and records a
+  generated column's expression as a default, so it cannot bring back a
+  dropped `area_m2` or `volume_m3` (it reports `create failed`; Postgres
+  refuses a default that names another column). The fix for that one case
+  is to run the two `ADD COLUMN … GENERATED` statements of
+  `up_statements/2` by hand. A database that still has the columns
+  verifies clean.
+
   ## What `down/1` is NOT
 
   `down/1` unstamps the version marker; it NEVER drops any of the
@@ -173,7 +201,7 @@ defmodule PhoenixKitCatalogue.Migrations do
 
   use Ecto.Migration
 
-  @current_version 6
+  @current_version 7
   @marker_prefix "pkc_schema:"
   @version_table "phoenix_kit_cat_catalogues"
 
@@ -258,7 +286,8 @@ defmodule PhoenixKitCatalogue.Migrations do
   per-language `slug` column, its trigger projections, and the
   attribute-set GIN index; `3` the one-time view-preference copy; `4` the
   item-type columns and their CHECKs; `5` the `external_id` unique indexes;
-  `6` the internal flag, the AI notes and the item-dependencies table.
+  `6` the internal flag, the AI notes and the item-dependencies table;
+  `7` the numeric dimensions, the pack sizes and the cost unit.
   Mirrors `phoenix_kit_billing`'s version-aware
   `up_statements/2` — the wrapper migration core's update task generates
   calls this with an explicit `:version`, and a stale wrapper asking for
@@ -277,6 +306,7 @@ defmodule PhoenixKitCatalogue.Migrations do
     v4 = if target >= 4, do: v4_statements(prefix, p), else: []
     v5 = if target >= 5, do: v5_statements(p), else: []
     v6 = if target >= 6, do: v6_statements(prefix, p), else: []
+    v7 = if target >= 7, do: v7_statements(prefix, p), else: []
 
     List.flatten([
       v1_statements(prefix, p),
@@ -285,6 +315,7 @@ defmodule PhoenixKitCatalogue.Migrations do
       v4,
       v5,
       v6,
+      v7,
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{target}'"
     ])
   end
@@ -381,6 +412,49 @@ defmodule PhoenixKitCatalogue.Migrations do
       "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_dependencies_target_category_uuid_index ON #{p}phoenix_kit_cat_item_dependencies USING btree (target_category_uuid) WHERE (target_category_uuid IS NOT NULL)",
       "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_dependencies_target_item_uuid_index ON #{p}phoenix_kit_cat_item_dependencies USING btree (target_item_uuid) WHERE (target_item_uuid IS NOT NULL)"
     ]
+  end
+
+  # ── V7: numeric dimensions, pack sizes, cost unit ──────────────────
+  #
+  # The three dimensions are stored exactly as given, in millimetres: no
+  # CHECK compares one with another, because their order is the host's to
+  # define (in plywood `length_mm` is the side the face grain runs along).
+  # `area_m2` and `volume_m3` are Postgres's own: a product with a decimal
+  # constant, never a division, so `numeric` keeps every digit. `cost_unit`
+  # has no CHECK: which units it may name is the schema's unit list.
+  defp v7_statements(prefix, p) do
+    items = "phoenix_kit_cat_items"
+    info = "phoenix_kit_cat_item_supplier_info"
+
+    [
+      for column <- ~w(length_mm width_mm thickness_mm) do
+        [
+          "ALTER TABLE #{p}#{items} ADD COLUMN IF NOT EXISTS #{column} numeric(10,3)",
+          positive_check(prefix, p, items, column)
+        ]
+      end,
+      "ALTER TABLE #{p}#{items} ADD COLUMN IF NOT EXISTS area_m2 numeric GENERATED ALWAYS AS (((length_mm * width_mm) * 0.000001)) STORED",
+      "ALTER TABLE #{p}#{items} ADD COLUMN IF NOT EXISTS volume_m3 numeric GENERATED ALWAYS AS ((((length_mm * width_mm) * thickness_mm) * 0.000000001)) STORED",
+      for table <- [items, info] do
+        [
+          "ALTER TABLE #{p}#{table} ADD COLUMN IF NOT EXISTS pack_size numeric(14,4)",
+          positive_check(prefix, p, table, "pack_size")
+        ]
+      end,
+      "ALTER TABLE #{p}#{info} ADD COLUMN IF NOT EXISTS cost_unit character varying(20)",
+      "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_items_catalogue_thickness_index ON #{p}#{items} USING btree (catalogue_uuid, thickness_mm)"
+    ]
+  end
+
+  defp positive_check(prefix, p, table, column) do
+    name = "#{table}_#{column}_check"
+
+    guarded_constraint(
+      prefix,
+      table,
+      name,
+      "ALTER TABLE #{p}#{table} ADD CONSTRAINT #{name} CHECK (((#{column} IS NULL) OR (#{column} > (0)::numeric)))"
+    )
   end
 
   # ── V4: item type (goods / service) ────────────────────────────────

@@ -11,11 +11,19 @@ defmodule PhoenixKitCatalogue.Schemas.ItemSupplierInfo do
   coexist via `valid_from`/`valid_to` windows (planned purchase-price
   history). The only uniqueness is the partial index on `is_primary`.
 
+  `cost_unit` (V7) is the unit `unit_cost` is for — a factory quotes
+  plywood per m³ and the item is counted in sheets. `nil` means the item's
+  base unit. `pack_size` is this supplier's nominal pack, in the item's
+  base units; `nil` means the item's own `pack_size`. Express the cost per
+  any other unit with `PhoenixKitCatalogue.Catalogue.supplier_cost_per/3`.
+
   """
 
   use Ecto.Schema
   use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
+
+  alias PhoenixKitCatalogue.Schemas.Item
 
   @type t :: %__MODULE__{}
 
@@ -26,7 +34,7 @@ defmodule PhoenixKitCatalogue.Schemas.ItemSupplierInfo do
   @currency_regex ~r/^[A-Z]{3}$/
 
   schema "phoenix_kit_cat_item_supplier_info" do
-    belongs_to(:item, PhoenixKitCatalogue.Schemas.Item,
+    belongs_to(:item, Item,
       foreign_key: :item_uuid,
       references: :uuid,
       type: UUIDv7
@@ -38,7 +46,9 @@ defmodule PhoenixKitCatalogue.Schemas.ItemSupplierInfo do
     field(:supplier_name_snapshot, :string)
     field(:supplier_sku, :string)
     field(:unit_cost, :decimal)
+    field(:cost_unit, :string)
     field(:currency, :string)
+    field(:pack_size, :decimal)
     field(:lead_time_days, :integer)
     field(:min_order_qty, :decimal)
     field(:is_primary, :boolean, default: false)
@@ -55,6 +65,8 @@ defmodule PhoenixKitCatalogue.Schemas.ItemSupplierInfo do
     :supplier_name_snapshot,
     :supplier_sku,
     :unit_cost,
+    :cost_unit,
+    :pack_size,
     :currency,
     :lead_time_days,
     :min_order_qty,
@@ -74,6 +86,12 @@ defmodule PhoenixKitCatalogue.Schemas.ItemSupplierInfo do
     |> validate_currency()
     |> validate_number(:unit_cost, greater_than_or_equal_to: 0)
     |> validate_number(:min_order_qty, greater_than_or_equal_to: 0)
+    |> validate_inclusion(:cost_unit, Item.allowed_units())
+    |> validate_number(:pack_size, greater_than: 0)
+    |> check_constraint(:pack_size,
+      name: :phoenix_kit_cat_item_supplier_info_pack_size_check,
+      message: "must be greater than 0"
+    )
     |> validate_number(:lead_time_days, greater_than_or_equal_to: 0)
     |> validate_date_range()
     |> foreign_key_constraint(:item_uuid)

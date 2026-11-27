@@ -3931,3 +3931,18 @@ msgstr "Zeile %{row}: „%{ref}“ passt auf mehrere, diese Abhängigkeit wurde 
 
 msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
 msgstr "Zeile %{row}: „%{ref}“ konnte nicht gespeichert werden. Fügen Sie es beim Artikel hinzu."
+
+msgid "Unknown unit."
+msgstr "Unbekannte Einheit."
+
+msgid "The item has no dimensions to convert this unit with."
+msgstr "Der Artikel hat keine Maße, mit denen diese Einheit umgerechnet werden kann."
+
+msgid "The item has no pack size."
+msgstr "Der Artikel hat keine Packungsgröße."
+
+msgid "These units cannot be converted into each other for this item."
+msgstr "Diese Einheiten lassen sich für diesen Artikel nicht ineinander umrechnen."
+
+msgid "This supplier has no cost on the item."
+msgstr "Für diesen Lieferanten ist beim Artikel kein Preis hinterlegt."

@@ -3931,3 +3931,18 @@ msgstr "Rida %{row}: „%{ref}” sobib mitmele, see sõltuvus jäeti välja. Li
 
 msgid "Row %{row}: “%{ref}” could not be saved. Add it on the item."
 msgstr "Rida %{row}: „%{ref}” ei õnnestunud salvestada. Lisa see toote juures."
+
+msgid "Unknown unit."
+msgstr "Tundmatu ühik."
+
+msgid "The item has no dimensions to convert this unit with."
+msgstr "Tootel pole mõõtmeid, millega seda ühikut teisendada."
+
+msgid "The item has no pack size."
+msgstr "Tootel pole pakendi suurust."
+
+msgid "These units cannot be converted into each other for this item."
+msgstr "Neid ühikuid ei saa selle toote puhul üksteiseks teisendada."
+
+msgid "This supplier has no cost on the item."
+msgstr "Sellel tarnijal pole toote hinda määratud."

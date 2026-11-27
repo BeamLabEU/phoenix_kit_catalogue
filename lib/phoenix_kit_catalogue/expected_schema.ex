@@ -1775,6 +1775,20 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "column:phoenix_kit_cat_item_supplier_info.cost_unit",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_item_supplier_info", column: "cost_unit", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_supplier_info ADD COLUMN IF NOT EXISTS \"cost_unit\" character varying(20)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "character varying(20)", pos: 19, not_null: false}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "column:phoenix_kit_cat_item_supplier_info.currency",
         owner: :phoenix_kit_catalogue,
         check:
@@ -1871,6 +1885,20 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         since: 1,
         class: :column,
         revisions: [{1, %{default: nil, type: "numeric(14,4)", pos: 9, not_null: false}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_item_supplier_info.pack_size",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_item_supplier_info", column: "pack_size", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_supplier_info ADD COLUMN IF NOT EXISTS \"pack_size\" numeric(14,4)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "numeric(14,4)", pos: 18, not_null: false}}],
         presence: :required,
         backfill: nil
       },
@@ -2047,6 +2075,26 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "column:phoenix_kit_cat_items.area_m2",
+        owner: :phoenix_kit_catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_items", column: "area_m2", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS \"area_m2\" numeric DEFAULT ((length_mm * width_mm) * 0.000001)",
+        since: 1,
+        class: :column,
+        revisions: [
+          {1,
+           %{
+             default: "((length_mm * width_mm) * 0.000001)",
+             type: "numeric",
+             pos: 28,
+             not_null: false
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "column:phoenix_kit_cat_items.base_price",
         owner: :phoenix_kit_catalogue,
         check: {:catalog, %{table: "phoenix_kit_cat_items", column: "base_price", kind: :column}},
@@ -2177,6 +2225,18 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "column:phoenix_kit_cat_items.length_mm",
+        owner: :phoenix_kit_catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_items", column: "length_mm", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS \"length_mm\" numeric(10,3)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "numeric(10,3)", pos: 25, not_null: false}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "column:phoenix_kit_cat_items.manufacturer_name_snapshot",
         owner: :phoenix_kit_catalogue,
         check:
@@ -2255,6 +2315,18 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "column:phoenix_kit_cat_items.pack_size",
+        owner: :phoenix_kit_catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_items", column: "pack_size", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS \"pack_size\" numeric(14,4)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "numeric(14,4)", pos: 30, not_null: false}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "column:phoenix_kit_cat_items.position",
         owner: :phoenix_kit_catalogue,
         check: {:catalog, %{table: "phoenix_kit_cat_items", column: "position", kind: :column}},
@@ -2325,6 +2397,19 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "column:phoenix_kit_cat_items.thickness_mm",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_items", column: "thickness_mm", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS \"thickness_mm\" numeric(10,3)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "numeric(10,3)", pos: 27, not_null: false}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "column:phoenix_kit_cat_items.unit",
         owner: :phoenix_kit_catalogue,
         check: {:catalog, %{table: "phoenix_kit_cat_items", column: "unit", kind: :column}},
@@ -2371,6 +2456,38 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         ],
         presence: :required,
         backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_items.volume_m3",
+        owner: :phoenix_kit_catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_items", column: "volume_m3", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS \"volume_m3\" numeric DEFAULT (((length_mm * width_mm) * thickness_mm) * 0.000000001)",
+        since: 1,
+        class: :column,
+        revisions: [
+          {1,
+           %{
+             default: "(((length_mm * width_mm) * thickness_mm) * 0.000000001)",
+             type: "numeric",
+             pos: 29,
+             not_null: false
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_items.width_mm",
+        owner: :phoenix_kit_catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_items", column: "width_mm", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS \"width_mm\" numeric(10,3)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "numeric(10,3)", pos: 26, not_null: false}}],
+        presence: :required,
+        backfill: nil
       },
       %{
         id: "column:phoenix_kit_cat_manufacturer_suppliers.inserted_at",
@@ -4156,6 +4273,37 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "index:phoenix_kit_cat_items_catalogue_thickness_index",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_items_catalogue_thickness_index",
+             table: "phoenix_kit_cat_items",
+             kind: :index
+           }},
+        create:
+          "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_items_catalogue_thickness_index ON __SCHEMA__.phoenix_kit_cat_items USING btree (catalogue_uuid, thickness_mm)",
+        since: 1,
+        class: :index,
+        revisions: [
+          {1,
+           %{
+             table: "phoenix_kit_cat_items",
+             keys: ["catalogue_uuid", "thickness_mm"],
+             unique: false,
+             method: "btree",
+             definition:
+               "CREATE INDEX phoenix_kit_cat_items_catalogue_thickness_index ON __SCHEMA__.phoenix_kit_cat_items USING btree (catalogue_uuid, thickness_mm)",
+             predicate: nil,
+             opclasses: ["uuid_ops", "numeric_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "index:phoenix_kit_cat_items_catalogue_uuid_index",
         owner: :phoenix_kit_catalogue,
         check:
@@ -5455,6 +5603,37 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
       },
       %{
         id:
+          "constraint:phoenix_kit_cat_item_supplier_info.phoenix_kit_cat_item_supplier_info_pack_size_check",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_item_supplier_info_pack_size_check",
+             table: "phoenix_kit_cat_item_supplier_info",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_item_supplier_info_pack_size_check'\n      AND t.relname = 'phoenix_kit_cat_item_supplier_info'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_supplier_info ADD CONSTRAINT phoenix_kit_cat_item_supplier_info_pack_size_check CHECK (((pack_size IS NULL) OR (pack_size > (0)::numeric)));\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "c",
+             columns: ["pack_size"],
+             definition: "CHECK (((pack_size IS NULL) OR (pack_size > (0)::numeric)))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id:
           "constraint:phoenix_kit_cat_item_supplier_info.phoenix_kit_cat_item_supplier_info_pkey",
         owner: :phoenix_kit_catalogue,
         check:
@@ -5639,6 +5818,36 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "constraint:phoenix_kit_cat_items.phoenix_kit_cat_items_length_mm_check",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_items_length_mm_check",
+             table: "phoenix_kit_cat_items",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_items_length_mm_check'\n      AND t.relname = 'phoenix_kit_cat_items'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD CONSTRAINT phoenix_kit_cat_items_length_mm_check CHECK (((length_mm IS NULL) OR (length_mm > (0)::numeric)));\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "c",
+             columns: ["length_mm"],
+             definition: "CHECK (((length_mm IS NULL) OR (length_mm > (0)::numeric)))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "constraint:phoenix_kit_cat_items.phoenix_kit_cat_items_manufacturer_source_check",
         owner: :phoenix_kit_catalogue,
         check:
@@ -5670,6 +5879,36 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "constraint:phoenix_kit_cat_items.phoenix_kit_cat_items_pack_size_check",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_items_pack_size_check",
+             table: "phoenix_kit_cat_items",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_items_pack_size_check'\n      AND t.relname = 'phoenix_kit_cat_items'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD CONSTRAINT phoenix_kit_cat_items_pack_size_check CHECK (((pack_size IS NULL) OR (pack_size > (0)::numeric)));\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "c",
+             columns: ["pack_size"],
+             definition: "CHECK (((pack_size IS NULL) OR (pack_size > (0)::numeric)))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "constraint:phoenix_kit_cat_items.phoenix_kit_cat_items_pkey",
         owner: :phoenix_kit_catalogue,
         check:
@@ -5689,6 +5928,66 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
              type: "p",
              columns: ["uuid"],
              definition: "PRIMARY KEY (uuid)",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "constraint:phoenix_kit_cat_items.phoenix_kit_cat_items_thickness_mm_check",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_items_thickness_mm_check",
+             table: "phoenix_kit_cat_items",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_items_thickness_mm_check'\n      AND t.relname = 'phoenix_kit_cat_items'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD CONSTRAINT phoenix_kit_cat_items_thickness_mm_check CHECK (((thickness_mm IS NULL) OR (thickness_mm > (0)::numeric)));\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "c",
+             columns: ["thickness_mm"],
+             definition: "CHECK (((thickness_mm IS NULL) OR (thickness_mm > (0)::numeric)))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "constraint:phoenix_kit_cat_items.phoenix_kit_cat_items_width_mm_check",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_items_width_mm_check",
+             table: "phoenix_kit_cat_items",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_items_width_mm_check'\n      AND t.relname = 'phoenix_kit_cat_items'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_items ADD CONSTRAINT phoenix_kit_cat_items_width_mm_check CHECK (((width_mm IS NULL) OR (width_mm > (0)::numeric)));\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "c",
+             columns: ["width_mm"],
+             definition: "CHECK (((width_mm IS NULL) OR (width_mm > (0)::numeric)))",
              name_template: nil,
              foreign_table: nil,
              foreign_columns: nil,

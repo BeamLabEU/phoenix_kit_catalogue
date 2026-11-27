@@ -139,7 +139,7 @@ Repo-local aliases:
   `Search`, `Tree`, `Slugs`, `Manufacturers`, `Suppliers`, `Links`,
   `ItemSupplierInfos`, `Counts`, `Translations`, `Duplication`,
   `AttributeSets`, `SupplierFields`, `SupplierComments`, `CrmLink`,
-  `Dependencies`, `AiNotes`, `PdfLibrary`, `PdfEngines`, `PubSub`,
+  `Dependencies`, `AiNotes`, `Units`, `PdfLibrary`, `PdfEngines`, `PubSub`,
   `ActivityLog`, `Trash`, `Shared`, `Helpers`). A new public function goes
   in its section module with its `@doc` and `@spec`, plus a `defdelegate` in
   the facade. A section calls
@@ -308,9 +308,16 @@ Schemas (all `@primary_key {:uuid, UUIDv7, autogenerate: true}`):
 - `Item` — belongs **directly to a catalogue** (`catalogue_uuid` required) with
   optional `category_uuid`. Nullable per-item markup/discount overrides: `NULL`
   inherits the catalogue value, any Decimal (**including `0`**) overrides.
+  Optional numeric size in mm (`length_mm`, `width_mm`, `thickness_mm`),
+  stored as given — never sorted or swapped, their order is the host's to
+  define — with `area_m2` / `volume_m3` as Postgres generated columns
+  (read-only in the schema), and a nominal `pack_size` in base units.
 - `ItemSupplierInfo` — per-item supplier purchase info (cost, currency, lead
-  time, primary flag). `supplier_uuid` is a soft reference (no FK) so suppliers
-  can come from other PhoenixKit modules.
+  time, primary flag). `cost_unit` says what `unit_cost` is for (`nil` = the
+  item's base unit) and `pack_size` is the supplier's own pack (`nil` = the
+  item's); a field added here must also be carried by `revise_unit_cost/3`'s
+  successor row and `Duplication`'s `@supplier_fields`. `supplier_uuid` is a
+  soft reference (no FK) so suppliers can come from other PhoenixKit modules.
 - `Manufacturer`, `Supplier`, `ManufacturerSupplier` (M:N join) — hard-delete
   only.
 - `CatalogueRule` — smart-catalogue rule row, `UNIQUE(item_uuid,
@@ -405,7 +412,7 @@ PubSub topic: `"phoenix_kit_catalogue"`.
 
 Owns a versioned chain: `PhoenixKitCatalogue.Migrations` via
 `migration_module/0`, marker `pkc_schema:<N>` as a `COMMENT ON TABLE
-phoenix_kit_cat_catalogues`, currently V6. `mix phoenix_kit.update` applies it
+phoenix_kit_cat_catalogues`, currently V7. `mix phoenix_kit.update` applies it
 in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 `execute/1`, which only works inside an `Ecto.Migration` run).
 
@@ -449,6 +456,20 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
   `ai_notes text` on catalogues, categories and items, and the
   `phoenix_kit_cat_item_dependencies` table. None of it is declared in core's
   manifest.
+- **V7 is numeric dimensions and unit conversions**: `length_mm`,
+  `width_mm`, `thickness_mm` (`numeric(10,3)`, each `> 0`, no CHECK relating
+  one to another) and `pack_size` on items; `area_m2` / `volume_m3` as
+  `GENERATED ALWAYS … STORED` columns that multiply by a constant and never
+  divide, so `numeric` stays exact; `cost_unit` and `pack_size` on supplier
+  info; one index, `(catalogue_uuid, thickness_mm)`. None of it is declared
+  in core's manifest. Core's manifest generator and `mix phoenix_kit.repair`
+  treat a generated column's expression as a default, so repair cannot
+  restore a dropped `area_m2` / `volume_m3` (see the migrations moduledoc);
+  leave `expected_schema.ex` as generated.
+- After any change to the chain, regenerate `expected_schema.ex` from the
+  core checkout (the command is in the file's header; it needs `PGDATABASE`,
+  and works in a scratch schema it drops), or
+  `test/integration/expected_schema_test.exs` fails.
 - UUIDv7 PKs and `use PhoenixKit.SchemaPrefix` on every table-backed schema.
 
 ## Content-Security-Policy
@@ -607,6 +628,18 @@ Pointers, not docs — the moduledocs are the contract.
   `Web.SupplierDraft`, keyed by supplier because a price revision replaces the
   row's uuid, and applied after the item saves; a value that would not save
   blocks the whole save.
+- **Dimensions and unit conversions** — an item's `unit` is its base unit;
+  `Catalogue.convert/5` converts a quantity between it, `m2`, `m3` and
+  `pack` from the item's dimensions and pack size (the supplier row's pack
+  wins when given), and `Catalogue.supplier_cost_per/3` expresses a
+  supplier's cost per any of them. Both are pure (`Catalogue.Units`): they
+  read the structs they are handed, never the database, and must stay that
+  way. All `Decimal`, nothing rounded, and every multiplication is done
+  before the one division — a conversion written as "factor, then multiply"
+  turns 830 into 830.000…1. `Item.area_m2/1` / `volume_m3/1` use the same
+  constants as the generated columns; `test/catalogue/item_dimensions_test.exs`
+  holds the two together. The metadata fields `width` / `height` / `depth`
+  are unrelated free text.
 - **Pricing** — chain is `base → markup → discount`.
   `Catalogue.item_pricing/1` is the one-stop API for UIs; pure helpers live on
   `Item`.
