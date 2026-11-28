@@ -4039,3 +4039,45 @@ msgstr "Associé sans fournisseur : %{columns}. Ces valeurs ne seront pas import
 
 msgid "%{count} rows: supplier values skipped (no supplier)."
 msgstr "%{count} lignes : valeurs du fournisseur ignorées (aucun fournisseur)."
+
+msgid "day"
+msgstr "jour"
+
+msgid "wk"
+msgstr "sem."
+
+msgid "mo"
+msgstr "mois"
+
+msgid "yr"
+msgstr "an"
+
+msgid "Day"
+msgstr "Jour"
+
+msgid "Week"
+msgstr "Semaine"
+
+msgid "Month"
+msgstr "Mois"
+
+msgid "Year"
+msgstr "Année"
+
+msgid "Person"
+msgstr "Personne"
+
+msgid "Phone"
+msgstr "Téléphone"
+
+msgid "Email"
+msgstr "E-mail"
+
+msgid "Web address"
+msgstr "Adresse web"
+
+msgid "Address"
+msgstr "Adresse"
+
+msgid "Other"
+msgstr "Autre"

@@ -318,6 +318,17 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "table:phoenix_kit_cat_supplier_contacts",
+        owner: :phoenix_kit_catalogue,
+        check: {:catalog, %{name: "phoenix_kit_cat_supplier_contacts", kind: :table}},
+        create: "CREATE TABLE IF NOT EXISTS __SCHEMA__.phoenix_kit_cat_supplier_contacts ()",
+        since: 1,
+        class: :table,
+        revisions: [{1, %{}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "table:phoenix_kit_cat_suppliers",
         owner: :phoenix_kit_catalogue,
         check: {:catalog, %{name: "phoenix_kit_cat_suppliers", kind: :table}},
@@ -3127,6 +3138,136 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: :default
       },
       %{
+        id: "column:phoenix_kit_cat_supplier_contacts.inserted_at",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_supplier_contacts", column: "inserted_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD COLUMN IF NOT EXISTS \"inserted_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 1,
+        class: :column,
+        revisions: [
+          {1, %{default: "now()", type: "timestamp with time zone", pos: 8, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_supplier_contacts.is_primary",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_supplier_contacts", column: "is_primary", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD COLUMN IF NOT EXISTS \"is_primary\" boolean DEFAULT false NOT NULL",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: "false", type: "boolean", pos: 6, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_supplier_contacts.kind",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_supplier_contacts", column: "kind", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD COLUMN IF NOT EXISTS \"kind\" character varying(20)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "character varying(20)", pos: 3, not_null: true}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_supplier_contacts.label",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_supplier_contacts", column: "label", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD COLUMN IF NOT EXISTS \"label\" character varying(255)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "character varying(255)", pos: 5, not_null: false}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_supplier_contacts.position",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_supplier_contacts", column: "position", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD COLUMN IF NOT EXISTS \"position\" integer DEFAULT 0 NOT NULL",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: "0", type: "integer", pos: 7, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_supplier_contacts.supplier_uuid",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_supplier_contacts", column: "supplier_uuid", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD COLUMN IF NOT EXISTS \"supplier_uuid\" uuid",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "uuid", pos: 2, not_null: true}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_supplier_contacts.updated_at",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_supplier_contacts", column: "updated_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD COLUMN IF NOT EXISTS \"updated_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 1,
+        class: :column,
+        revisions: [
+          {1, %{default: "now()", type: "timestamp with time zone", pos: 9, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_supplier_contacts.uuid",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_supplier_contacts", column: "uuid", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD COLUMN IF NOT EXISTS \"uuid\" uuid DEFAULT __SCHEMA__.uuid_generate_v7() NOT NULL",
+        since: 1,
+        class: :column,
+        revisions: [
+          {1, %{default: "__SCHEMA__.uuid_generate_v7()", type: "uuid", pos: 1, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_supplier_contacts.value",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_supplier_contacts", column: "value", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD COLUMN IF NOT EXISTS \"value\" character varying(500)",
+        since: 1,
+        class: :column,
+        revisions: [{1, %{default: nil, type: "character varying(500)", pos: 4, not_null: true}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "column:phoenix_kit_cat_suppliers.contact_info",
         owner: :phoenix_kit_catalogue,
         check:
@@ -4770,6 +4911,68 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id: "index:phoenix_kit_cat_supplier_contacts_primary_per_kind_index",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_supplier_contacts_primary_per_kind_index",
+             table: "phoenix_kit_cat_supplier_contacts",
+             kind: :index
+           }},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_supplier_contacts_primary_per_kind_index ON __SCHEMA__.phoenix_kit_cat_supplier_contacts USING btree (supplier_uuid, kind) WHERE is_primary",
+        since: 1,
+        class: :index,
+        revisions: [
+          {1,
+           %{
+             table: "phoenix_kit_cat_supplier_contacts",
+             keys: ["supplier_uuid", "kind"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_cat_supplier_contacts_primary_per_kind_index ON __SCHEMA__.phoenix_kit_cat_supplier_contacts USING btree (supplier_uuid, kind) WHERE is_primary",
+             predicate: "is_primary",
+             opclasses: ["uuid_ops", "text_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_cat_supplier_contacts_supplier_uuid_position_index",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_supplier_contacts_supplier_uuid_position_index",
+             table: "phoenix_kit_cat_supplier_contacts",
+             kind: :index
+           }},
+        create:
+          "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_supplier_contacts_supplier_uuid_position_index ON __SCHEMA__.phoenix_kit_cat_supplier_contacts USING btree (supplier_uuid, \"position\")",
+        since: 1,
+        class: :index,
+        revisions: [
+          {1,
+           %{
+             table: "phoenix_kit_cat_supplier_contacts",
+             keys: ["supplier_uuid", "\"position\""],
+             unique: false,
+             method: "btree",
+             definition:
+               "CREATE INDEX phoenix_kit_cat_supplier_contacts_supplier_uuid_position_index ON __SCHEMA__.phoenix_kit_cat_supplier_contacts USING btree (supplier_uuid, \"position\")",
+             predicate: nil,
+             opclasses: ["uuid_ops", "int4_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "index:phoenix_kit_cat_suppliers_crm_company_uuid_index",
         owner: :phoenix_kit_catalogue,
         check:
@@ -6240,6 +6443,68 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
         backfill: nil
       },
       %{
+        id:
+          "constraint:phoenix_kit_cat_supplier_contacts.phoenix_kit_cat_supplier_contacts_kind_check",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_supplier_contacts_kind_check",
+             table: "phoenix_kit_cat_supplier_contacts",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_supplier_contacts_kind_check'\n      AND t.relname = 'phoenix_kit_cat_supplier_contacts'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD CONSTRAINT phoenix_kit_cat_supplier_contacts_kind_check CHECK (((kind)::text = ANY (ARRAY[('person'::character varying)::text, ('phone'::character varying)::text, ('email'::character varying)::text, ('url'::character varying)::text, ('address'::character varying)::text, ('other'::character varying)::text])));\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "c",
+             columns: ["kind"],
+             definition:
+               "CHECK (((kind)::text = ANY (ARRAY[('person'::character varying)::text, ('phone'::character varying)::text, ('email'::character varying)::text, ('url'::character varying)::text, ('address'::character varying)::text, ('other'::character varying)::text])))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "constraint:phoenix_kit_cat_supplier_contacts.phoenix_kit_cat_supplier_contacts_pkey",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_supplier_contacts_pkey",
+             table: "phoenix_kit_cat_supplier_contacts",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_supplier_contacts_pkey'\n      AND t.relname = 'phoenix_kit_cat_supplier_contacts'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD CONSTRAINT phoenix_kit_cat_supplier_contacts_pkey PRIMARY KEY (uuid);\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "p",
+             columns: ["uuid"],
+             definition: "PRIMARY KEY (uuid)",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
         id: "constraint:phoenix_kit_cat_suppliers.phoenix_kit_cat_suppliers_pkey",
         owner: :phoenix_kit_catalogue,
         check:
@@ -7052,6 +7317,38 @@ defmodule PhoenixKitCatalogue.ExpectedSchema do
              foreign_table: "phoenix_kit_files",
              foreign_columns: ["uuid"],
              on_delete: "r",
+             on_update: "a"
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id:
+          "constraint:phoenix_kit_cat_supplier_contacts.phoenix_kit_cat_supplier_contacts_supplier_uuid_fkey",
+        owner: :phoenix_kit_catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_supplier_contacts_supplier_uuid_fkey",
+             table: "phoenix_kit_cat_supplier_contacts",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_supplier_contacts_supplier_uuid_fkey'\n      AND t.relname = 'phoenix_kit_cat_supplier_contacts'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_supplier_contacts ADD CONSTRAINT phoenix_kit_cat_supplier_contacts_supplier_uuid_fkey FOREIGN KEY (supplier_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_suppliers(uuid) ON DELETE CASCADE;\n  END IF;\nEND\n$$",
+        since: 1,
+        class: :constraint,
+        revisions: [
+          {1,
+           %{
+             type: "f",
+             columns: ["supplier_uuid"],
+             definition:
+               "FOREIGN KEY (supplier_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_suppliers(uuid) ON DELETE CASCADE",
+             name_template: nil,
+             foreign_table: "phoenix_kit_cat_suppliers",
+             foreign_columns: ["uuid"],
+             on_delete: "c",
              on_update: "a"
            }}
         ],

@@ -55,7 +55,7 @@ defmodule PhoenixKitCatalogue.MigrationsV7DBTest do
     %{catalogue: catalogue, item: item}
   end
 
-  test "replaying the chain twice is idempotent and stamps pkc_schema:7" do
+  test "replaying the chain twice is idempotent and stamps the current version" do
     replay_chain!()
     replay_chain!()
 
@@ -74,7 +74,7 @@ defmodule PhoenixKitCatalogue.MigrationsV7DBTest do
              ["phoenix_kit_cat_items_catalogue_thickness_index"]
            ) == 1
 
-    assert Migrations.migrated_version_runtime(prefix: "public") == 7
+    assert Migrations.migrated_version_runtime(prefix: "public") == Migrations.current_version()
   end
 
   test "the columns have the declared shape" do

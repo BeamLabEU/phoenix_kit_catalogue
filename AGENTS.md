@@ -138,8 +138,9 @@ Repo-local aliases:
   (`Catalogues`, `Categories`, `Folders`, `Items`, `Rules`, `SmartPricing`,
   `Search`, `Tree`, `Slugs`, `Manufacturers`, `Suppliers`, `Links`,
   `ItemSupplierInfos`, `Counts`, `Translations`, `Duplication`,
-  `AttributeSets`, `SupplierFields`, `SupplierComments`, `CrmLink`,
-  `Dependencies`, `AiNotes`, `Units`, `PdfLibrary`, `PdfEngines`, `PubSub`,
+  `AttributeSets`, `SupplierFields`, `SupplierComments`, `SupplierContacts`,
+  `CrmLink`, `Dependencies`, `AiNotes`, `Units`, `PdfLibrary`, `PdfEngines`,
+  `PubSub`,
   `ActivityLog`, `Trash`, `Shared`, `Helpers`). A new public function goes
   in its section module with its `@doc` and `@spec`, plus a `defdelegate` in
   the facade. A section calls
@@ -281,7 +282,7 @@ lib/phoenix_kit_catalogue/
     …                                 Rules, SmartPricing, Search, Tree, Slugs, AttributeSets,
                                       SupplierFields, SupplierComments, CrmLink, PdfLibrary,
                                       PdfEngines, PubSub, ActivityLog, Duplication, Helpers, …
-  schemas/                            19 Ecto schemas, one per phoenix_kit_cat_* table
+  schemas/                            20 Ecto schemas, one per phoenix_kit_cat_* table
   migrations.ex                       module-owned versioned chain
   paths.ex  errors.ex  metadata.ex  attachments.ex
   api.ex  api/                        shop API tools and reference resolution (api_tools/0)
@@ -412,7 +413,7 @@ PubSub topic: `"phoenix_kit_catalogue"`.
 
 Owns a versioned chain: `PhoenixKitCatalogue.Migrations` via
 `migration_module/0`, marker `pkc_schema:<N>` as a `COMMENT ON TABLE
-phoenix_kit_cat_catalogues`, currently V7. `mix phoenix_kit.update` applies it
+phoenix_kit_cat_catalogues`, currently V8. `mix phoenix_kit.update` applies it
 in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 `execute/1`, which only works inside an `Ecto.Migration` run).
 
@@ -466,6 +467,14 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
   treat a generated column's expression as a default, so repair cannot
   restore a dropped `area_m2` / `volume_m3` (see the migrations moduledoc);
   leave `expected_schema.ex` as generated.
+- **V8 is supplier contacts**: the `phoenix_kit_cat_supplier_contacts` table
+  (kind person/phone/email/url/address/other, value, label, `is_primary` —
+  at most one per supplier and kind, a partial unique index — and a cascading
+  FK to the supplier), plus a backfill turning each supplier's non-blank
+  `contact_info` into one primary contact. The backfill only touches a
+  supplier with no contact rows, so a replay is harmless. Its kind guess is a
+  SQL `CASE` that mirrors `SupplierContact.classify/1` — change both or
+  neither.
 - After any change to the chain, regenerate `expected_schema.ex` from the
   core checkout (the command is in the file's header; it needs `PGDATABASE`,
   and works in a scratch schema it drops), or
@@ -768,6 +777,17 @@ Pointers, not docs — the moduledocs are the contract.
   blueprint on every resolve and surfaces `{:error, :contract_broken}` rather
   than guessing. Writes fail loudly with `:entities_disabled` when entities is
   off; reads degrade quietly to `[]` / `nil` / `%{}` / `0`.
+- **Supplier contacts** — `Catalogue.SupplierContacts` is the one writer of
+  both the contact rows and the supplier's legacy `contact_info` column,
+  which it keeps as the summary of the primaries in kind order. A
+  `create_supplier`/`update_supplier` that changes `contact_info` is routed
+  through it in the same transaction (the text becomes the primary of the
+  kind it looks like), so a supplier with one contact reads back exactly
+  what was written. Never write `contact_info` with `update_all` or a
+  changeset of your own. Resolve maps of local suppliers take `email`,
+  `phone` (and a missing `website`) from the primaries. The module has no
+  supplier form (suppliers are managed in CRM), so there is no editor here;
+  hosts call `put_supplier_contacts/3` and friends.
 - **Supplier fields** — admin-defined extra fields on supplier rows, one
   singleton blueprint (`catalogue_supplier_fields`) under its own owner key.
   Entities owns the field *definitions*, the catalogue owns the *values*; the

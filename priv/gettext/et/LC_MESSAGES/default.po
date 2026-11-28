@@ -4039,3 +4039,45 @@ msgstr "Vastendatud ilma tarnijata: %{columns}. Neid väärtusi ei impordita. Va
 
 msgid "%{count} rows: supplier values skipped (no supplier)."
 msgstr "%{count} rida: tarnija väärtused jäeti vahele (tarnija puudub)."
+
+msgid "day"
+msgstr "päev"
+
+msgid "wk"
+msgstr "näd"
+
+msgid "mo"
+msgstr "kuu"
+
+msgid "yr"
+msgstr "aasta"
+
+msgid "Day"
+msgstr "Päev"
+
+msgid "Week"
+msgstr "Nädal"
+
+msgid "Month"
+msgstr "Kuu"
+
+msgid "Year"
+msgstr "Aasta"
+
+msgid "Person"
+msgstr "Isik"
+
+msgid "Phone"
+msgstr "Telefon"
+
+msgid "Email"
+msgstr "E-post"
+
+msgid "Web address"
+msgstr "Veebiaadress"
+
+msgid "Address"
+msgstr "Aadress"
+
+msgid "Other"
+msgstr "Muu"

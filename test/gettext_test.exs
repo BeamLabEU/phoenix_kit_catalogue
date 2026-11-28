@@ -1256,6 +1256,10 @@ defmodule PhoenixKitCatalogue.GettextTest do
         "fr" => "déplacement"
       },
       "km" => %{"et" => "km", "ru" => "км", "en" => "km", "de" => "km", "fr" => "km"},
+      "day" => %{"et" => "päev", "ru" => "день", "en" => "day", "de" => "Tag", "fr" => "jour"},
+      "week" => %{"et" => "näd", "ru" => "нед.", "en" => "wk", "de" => "Wo.", "fr" => "sem."},
+      "month" => %{"et" => "kuu", "ru" => "мес.", "en" => "mo", "de" => "Mon.", "fr" => "mois"},
+      "year" => %{"et" => "aasta", "ru" => "г.", "en" => "yr", "de" => "Jahr", "fr" => "an"},
       "pack" => %{
         "et" => "pakk",
         "ru" => "уп.",
@@ -1309,6 +1313,59 @@ defmodule PhoenixKitCatalogue.GettextTest do
 
       assert actual == translation,
              "#{msgid} in #{locale} expected #{translation}, got #{actual}"
+    end
+  end
+
+  test "the time-unit option labels are translated in et/ru/de/fr/uk" do
+    msgids = %{
+      "Day" => %{"et" => "Päev", "ru" => "День", "de" => "Tag", "fr" => "Jour", "uk" => "День"},
+      "Week" => %{
+        "et" => "Nädal",
+        "ru" => "Неделя",
+        "de" => "Woche",
+        "fr" => "Semaine",
+        "uk" => "Тиждень"
+      },
+      "Month" => %{
+        "et" => "Kuu",
+        "ru" => "Месяц",
+        "de" => "Monat",
+        "fr" => "Mois",
+        "uk" => "Місяць"
+      },
+      "Year" => %{"et" => "Aasta", "ru" => "Год", "de" => "Jahr", "fr" => "Année", "uk" => "Рік"}
+    }
+
+    for {msgid, locales} <- msgids, {locale, translation} <- locales do
+      actual =
+        Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid)
+        end)
+
+      assert actual == translation,
+             "#{msgid} in #{locale} expected #{translation}, got #{actual}"
+    end
+  end
+
+  test "SupplierContact.kind_label/1 is translated in et/ru/de/fr/uk" do
+    alias PhoenixKitCatalogue.Schemas.SupplierContact
+
+    expected = %{
+      "person" => %{"et" => "Isik", "ru" => "Контактное лицо", "en" => "Person"},
+      "phone" => %{"et" => "Telefon", "ru" => "Телефон", "de" => "Telefon", "en" => "Phone"},
+      "email" => %{"et" => "E-post", "ru" => "Эл. почта", "de" => "E-Mail", "uk" => "Ел. пошта"},
+      "url" => %{"et" => "Veebiaadress", "fr" => "Adresse web", "en" => "Web address"},
+      "address" => %{"et" => "Aadress", "ru" => "Адрес", "fr" => "Adresse"},
+      "other" => %{"et" => "Muu", "ru" => "Другое", "de" => "Sonstiges", "uk" => "Інше"}
+    }
+
+    for {kind, locales} <- expected, {locale, label} <- locales do
+      actual =
+        Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
+          SupplierContact.kind_label(kind)
+        end)
+
+      assert actual == label, "kind #{kind} in #{locale} expected #{label}, got #{actual}"
     end
   end
 

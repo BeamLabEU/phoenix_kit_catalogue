@@ -5271,6 +5271,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "m³ (cubic meter)")
 
   defp unit_option_label("hour"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Hour")
+  defp unit_option_label("day"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Day")
+  defp unit_option_label("week"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Week")
+  defp unit_option_label("month"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Month")
+  defp unit_option_label("year"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Year")
   # Bare "Service" is reserved for the item-type select (B1b) — this option
   # carries the Estonian abbreviation instead, same pattern as "Set (kmpl)".
   defp unit_option_label("service"),

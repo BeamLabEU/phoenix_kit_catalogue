@@ -81,6 +81,83 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     # "piece" — a re-import would otherwise turn every hour into a piece.
     "hour" => "hour",
     "std." => "hour",
+    # Time units. The codes and their labels in every locale the module
+    # ships, so an exported "day"/"päev"/"Wo." comes back as itself, plus
+    # the common plural and abbreviated forms a supplier's sheet uses
+    # ("päeva", "Tage", "jours", "дней", "d"). "mois" is singular and
+    # plural alike.
+    "day" => "day",
+    "дни" => "day",
+    "дні" => "day",
+    "d" => "day",
+    "päeva" => "day",
+    "päevad" => "day",
+    "дней" => "day",
+    "дня" => "day",
+    "tage" => "day",
+    "jours" => "day",
+    "днів" => "day",
+    "days" => "day",
+    "päev" => "day",
+    "день" => "day",
+    "сутки" => "day",
+    "tag" => "day",
+    "jour" => "day",
+    "week" => "week",
+    "недели" => "week",
+    "тижні" => "week",
+    "nädalat" => "week",
+    "недель" => "week",
+    "wochen" => "week",
+    "semaines" => "week",
+    "тижнів" => "week",
+    "weeks" => "week",
+    "wk" => "week",
+    "näd" => "week",
+    "nädal" => "week",
+    "нед." => "week",
+    "неделя" => "week",
+    "wo." => "week",
+    "woche" => "week",
+    "sem." => "week",
+    "semaine" => "week",
+    "тиж." => "week",
+    "тиждень" => "week",
+    "month" => "month",
+    "месяца" => "month",
+    "місяці" => "month",
+    "kuud" => "month",
+    "месяцев" => "month",
+    "monate" => "month",
+    "місяців" => "month",
+    "months" => "month",
+    "mo" => "month",
+    "kuu" => "month",
+    "мес." => "month",
+    "месяц" => "month",
+    "mon." => "month",
+    "monat" => "month",
+    "mois" => "month",
+    "міс." => "month",
+    "місяць" => "month",
+    "year" => "year",
+    "года" => "year",
+    "год" => "year",
+    "роки" => "year",
+    "aastat" => "year",
+    "лет" => "year",
+    "jahre" => "year",
+    "ans" => "year",
+    "років" => "year",
+    "years" => "year",
+    "yr" => "year",
+    "aasta" => "year",
+    "г." => "year",
+    "jahr" => "year",
+    "an" => "year",
+    "année" => "year",
+    "années" => "year",
+    "рік" => "year",
     "teenus" => "service",
     "усл" => "service",
     "усл." => "service",
@@ -490,12 +567,16 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   defp normalize_blank(""), do: nil
   defp normalize_blank(v), do: v
 
+  # NFC first: a sheet exported in decomposed form ("a" + U+0308, as some
+  # macOS and Excel exports write "ä") must meet the composed alias keys.
+  defp unit_key(value), do: value |> String.normalize(:nfc) |> String.trim() |> String.downcase()
+
   @doc """
   Normalizes a unit value using the user-provided unit map and built-in aliases.
   """
   @spec normalize_unit(String.t(), map()) :: String.t()
   def normalize_unit(value, unit_map \\ %{}) do
-    normalized = String.downcase(String.trim(value))
+    normalized = unit_key(value)
 
     cond do
       Map.has_key?(unit_map, value) -> unit_map[value]
@@ -523,7 +604,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   """
   @spec resolve_pro100_unit(String.t() | nil) :: {:ok, String.t()} | :unknown
   def resolve_pro100_unit(label) when is_binary(label) do
-    case Map.get(@unit_aliases, String.downcase(String.trim(label))) do
+    case Map.get(@unit_aliases, unit_key(label)) do
       nil -> :unknown
       unit -> {:ok, unit}
     end

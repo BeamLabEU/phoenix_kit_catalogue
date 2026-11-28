@@ -4045,3 +4045,45 @@ msgstr ""
 
 msgid "%{count} rows: supplier values skipped (no supplier)."
 msgstr ""
+
+msgid "day"
+msgstr ""
+
+msgid "wk"
+msgstr ""
+
+msgid "mo"
+msgstr ""
+
+msgid "yr"
+msgstr ""
+
+msgid "Day"
+msgstr ""
+
+msgid "Week"
+msgstr ""
+
+msgid "Month"
+msgstr ""
+
+msgid "Year"
+msgstr ""
+
+msgid "Person"
+msgstr ""
+
+msgid "Phone"
+msgstr ""
+
+msgid "Email"
+msgstr ""
+
+msgid "Web address"
+msgstr ""
+
+msgid "Address"
+msgstr ""
+
+msgid "Other"
+msgstr ""

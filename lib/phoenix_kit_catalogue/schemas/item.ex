@@ -42,7 +42,11 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
 
   @statuses ~w(active inactive discontinued deleted)
   @goods_units ~w(piece set pair sheet m2 running_meter pack roll kg litre m3)
-  @service_units ~w(hour service visit km)
+  # Time units (hour … year) price a rental or a subscription per period.
+  # A month or a year is a calendar period, not a fixed count of days:
+  # nothing in this module converts one into another, and a caller that
+  # does (a quote spanning 40 days, say) must not assume 30 or 365.
+  @service_units ~w(hour day week month year service visit km)
   @units @goods_units ++ @service_units
 
   # Mirrors the DB CHECK added in V179. Keep the two in step.
@@ -109,6 +113,10 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
   def unit_label("m2"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "m²")
   def unit_label("running_meter"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "rm")
   def unit_label("hour"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "h")
+  def unit_label("day"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "day")
+  def unit_label("week"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "wk")
+  def unit_label("month"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "mo")
+  def unit_label("year"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "yr")
   def unit_label("service"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "service")
   def unit_label("visit"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "visit")
   def unit_label("km"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "km")

@@ -53,6 +53,7 @@ defmodule PhoenixKitCatalogue.Web.ExtensionSlotTest do
     # and a stylesheet for phone inputs. The snapshot is the item form, and
     # it has to hold on every core the pin allows.
     |> String.replace(~s( data-phoenix-kit=""), "")
+    |> String.replace(~s( data-pk-admin=""), "")
     |> String.replace(~r{<style data-pk-mobile-inputs="">.*?</style>}s, "")
     # Core's theme buttons encode a `JS.dispatch` payload map. A small map
     # with atom keys lists them in atom-creation order (OTP 26+), so

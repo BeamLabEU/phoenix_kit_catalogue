@@ -185,6 +185,26 @@ defmodule PhoenixKitCatalogue.Migrations do
   `up_statements/2` by hand. A database that still has the columns
   verifies clean.
 
+  ## What V8 is
+
+  V8 adds `phoenix_kit_cat_supplier_contacts`: any number of ways to reach a
+  supplier (`kind` person/phone/email/url/address/other, a `value`, an
+  optional `label`), at most one `is_primary` per supplier and kind (a
+  partial unique index), with a real foreign key to the supplier that
+  cascades on its hard delete. The supplier's free-text `contact_info`
+  column is untouched in shape; from now on it is the summary of the
+  primaries, written only by `Catalogue.SupplierContacts`.
+
+  The backfill turns each supplier's non-blank `contact_info` into one
+  primary contact, its kind guessed by the same rules as
+  `SupplierContact.classify/1` — so the summary of that single contact is
+  the text the column already held, and nothing a reader sees changes. It
+  only touches a supplier with NO contact rows, which makes a replay
+  harmless: every supplier it filled has a row, and a supplier whose
+  contacts were all removed since had its `contact_info` cleared by the
+  same setter. Core's manifest names none of this, so no core release is
+  needed.
+
   ## What `down/1` is NOT
 
   `down/1` unstamps the version marker; it NEVER drops any of the
@@ -201,7 +221,7 @@ defmodule PhoenixKitCatalogue.Migrations do
 
   use Ecto.Migration
 
-  @current_version 7
+  @current_version 8
   @marker_prefix "pkc_schema:"
   @version_table "phoenix_kit_cat_catalogues"
 
@@ -287,7 +307,8 @@ defmodule PhoenixKitCatalogue.Migrations do
   attribute-set GIN index; `3` the one-time view-preference copy; `4` the
   item-type columns and their CHECKs; `5` the `external_id` unique indexes;
   `6` the internal flag, the AI notes and the item-dependencies table;
-  `7` the numeric dimensions, the pack sizes and the cost unit.
+  `7` the numeric dimensions, the pack sizes and the cost unit; `8` the
+  supplier-contacts table and its one-time backfill from `contact_info`.
   Mirrors `phoenix_kit_billing`'s version-aware
   `up_statements/2` — the wrapper migration core's update task generates
   calls this with an explicit `:version`, and a stale wrapper asking for
@@ -307,6 +328,7 @@ defmodule PhoenixKitCatalogue.Migrations do
     v5 = if target >= 5, do: v5_statements(p), else: []
     v6 = if target >= 6, do: v6_statements(prefix, p), else: []
     v7 = if target >= 7, do: v7_statements(prefix, p), else: []
+    v8 = if target >= 8, do: v8_statements(prefix, p), else: []
 
     List.flatten([
       v1_statements(prefix, p),
@@ -316,6 +338,7 @@ defmodule PhoenixKitCatalogue.Migrations do
       v5,
       v6,
       v7,
+      v8,
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{target}'"
     ])
   end
@@ -455,6 +478,78 @@ defmodule PhoenixKitCatalogue.Migrations do
       name,
       "ALTER TABLE #{p}#{table} ADD CONSTRAINT #{name} CHECK (((#{column} IS NULL) OR (#{column} > (0)::numeric)))"
     )
+  end
+
+  # ── V8: supplier contacts ─────────────────────────────────────────
+  #
+  # The table, its keys, the primary-per-kind index and the backfill from
+  # the legacy `contact_info` text. The backfill's CASE mirrors
+  # `SupplierContact.classify/1`; keep the two in step. Neither side says
+  # `\s`: Postgres' follows the locale, PCRE's is ASCII. The trim is
+  # Unicode White_Space, what `String.trim/1` strips (`btrim/1` strips only
+  # the space); the classes inside are PCRE's six ASCII spaces, spelled out.
+  @unicode_space "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000"
+  @ascii_space "\\t\\n\\v\\f\\r "
+  @nows "[^\\t\\n\\v\\f\\r @]"
+  defp v8_statements(prefix, p) do
+    t = "phoenix_kit_cat_supplier_contacts"
+
+    [
+      """
+      CREATE TABLE IF NOT EXISTS #{p}#{t} (
+        uuid uuid DEFAULT #{p}uuid_generate_v7() NOT NULL,
+        supplier_uuid uuid NOT NULL,
+        kind character varying(20) NOT NULL,
+        value character varying(500) NOT NULL,
+        label character varying(255),
+        is_primary boolean DEFAULT false NOT NULL,
+        "position" integer DEFAULT 0 NOT NULL,
+        inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+        updated_at timestamp with time zone DEFAULT now() NOT NULL
+      )
+      """,
+      guarded_constraint(
+        prefix,
+        t,
+        "#{t}_pkey",
+        "ALTER TABLE #{p}#{t} ADD CONSTRAINT #{t}_pkey PRIMARY KEY (uuid)"
+      ),
+      guarded_constraint(
+        prefix,
+        t,
+        "#{t}_kind_check",
+        "ALTER TABLE #{p}#{t} ADD CONSTRAINT #{t}_kind_check CHECK (((kind)::text = ANY ((ARRAY['person'::character varying, 'phone'::character varying, 'email'::character varying, 'url'::character varying, 'address'::character varying, 'other'::character varying])::text[])))"
+      ),
+      guarded_constraint(
+        prefix,
+        t,
+        "#{t}_supplier_uuid_fkey",
+        "ALTER TABLE #{p}#{t} ADD CONSTRAINT #{t}_supplier_uuid_fkey FOREIGN KEY (supplier_uuid) REFERENCES #{p}phoenix_kit_cat_suppliers(uuid) ON DELETE CASCADE"
+      ),
+      "CREATE INDEX IF NOT EXISTS #{t}_supplier_uuid_position_index ON #{p}#{t} USING btree (supplier_uuid, \"position\")",
+      "CREATE UNIQUE INDEX IF NOT EXISTS #{t}_primary_per_kind_index ON #{p}#{t} USING btree (supplier_uuid, kind) WHERE is_primary",
+      """
+      INSERT INTO #{p}#{t} (supplier_uuid, kind, value, is_primary, "position")
+      SELECT b.uuid,
+             CASE
+               WHEN b.v ~ '^#{@nows}+@#{@nows}+\\.#{@nows}+$' THEN 'email'
+               WHEN b.v ~* '^(https?://|www\\.)[^#{@ascii_space}]+$' THEN 'url'
+               WHEN b.v ~ '^\\+?[0-9(][0-9 ().\\/-]{5,}$' THEN 'phone'
+               ELSE 'other'
+             END,
+             b.v,
+             true,
+             0
+      FROM (
+        SELECT s.uuid,
+               regexp_replace(s.contact_info, '^[#{@unicode_space}]+|[#{@unicode_space}]+$', '', 'g') AS v
+        FROM #{p}phoenix_kit_cat_suppliers s
+        WHERE s.contact_info IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM #{p}#{t} c WHERE c.supplier_uuid = s.uuid)
+      ) b
+      WHERE b.v <> ''
+      """
+    ]
   end
 
   # ── V4: item type (goods / service) ────────────────────────────────

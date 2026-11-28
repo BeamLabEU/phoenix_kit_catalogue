@@ -139,6 +139,50 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
   describe "normalize_unit/2" do
     test "maps Estonian TK to piece" do
       assert Mapper.normalize_unit("TK") == "piece"
+      assert Mapper.normalize_unit("Weeks") == "week"
+      assert Mapper.normalize_unit("MONTHS") == "month"
+      assert Mapper.normalize_unit("years") == "year"
+
+      for {label, code} <- [
+            {"d", "day"},
+            {"päeva", "day"},
+            {"Päevad", "day"},
+            {"дней", "day"},
+            {"дня", "day"},
+            {"Tage", "day"},
+            {"jours", "day"},
+            {"днів", "day"},
+            {"недель", "week"},
+            {"Wochen", "week"},
+            {"semaines", "week"},
+            {"тижнів", "week"},
+            {"месяцев", "month"},
+            {"Monate", "month"},
+            {"mois", "month"},
+            {"місяців", "month"},
+            {"лет", "year"},
+            {"Jahre", "year"},
+            {"ans", "year"},
+            {"років", "year"},
+            {"wk", "week"},
+            {"mo", "month"},
+            {"yr", "year"},
+            {"дни", "day"},
+            {"недели", "week"},
+            {"месяца", "month"},
+            {"года", "year"},
+            {"Год", "year"},
+            {"années", "year"},
+            {"тижні", "week"},
+            {"роки", "year"},
+            {"nädalat", "week"},
+            {"kuud", "month"},
+            {"aastat", "year"},
+            {"ДНЕЙ", "day"},
+            {"pa\u0308eva", "day"}
+          ] do
+        assert Mapper.normalize_unit(label) == code, label
+      end
     end
 
     test "maps KMPL to set" do
@@ -222,7 +266,8 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
     end
 
     test "translated labels of the new units round-trip" do
-      for locale <- ~w(et ru de fr), code <- ~w(hour service visit km pack roll kg litre m3) do
+      for locale <- ~w(et ru de fr),
+          code <- ~w(hour day week month year service visit km pack roll kg litre m3) do
         label =
           Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
             Item.unit_label(code)
